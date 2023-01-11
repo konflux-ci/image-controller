@@ -7,7 +7,10 @@ metadata:
     pipelinesascode.tekton.dev/on-target-branch: "[main]"
     pipelinesascode.tekton.dev/max-keep-runs: "10"
   labels:
-    appstudio.openshift.io/application: "foo"
+    appstudio.openshift.io/application: foo
+    appstudio.openshift.io/component: image-controller-grzh
+    build.appstudio.openshift.io/component: go
+    pipelines.appstudio.openshift.io/type: build
 spec:
   params:
     - name: git-url
@@ -20,6 +23,9 @@ spec:
     name: docker-build
     bundle: quay.io/redhat-appstudio/hacbs-core-service-templates-bundle:latest
   workspaces:
+    - name: registry-auth
+      secret:
+        secretName: redhat-appstudio-registry-pull-secret
     - name: workspace
       volumeClaimTemplate:
         spec:
