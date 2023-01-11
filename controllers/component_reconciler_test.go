@@ -27,6 +27,7 @@ import (
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 )
 
@@ -43,8 +44,8 @@ func Test_shouldGenerateImage(t *testing.T) {
 			name: "dont generate image repo",
 			args: args{
 				annotations: map[string]string{
-					"something-that-doesnt-matter":             "",
-					"appstudio.redhat.com/generate-image-repo": "false",
+					"something-that-doesnt-matter": "",
+					"image.redhat.com/generate":    "false",
 				},
 			},
 			want: false,
@@ -53,8 +54,8 @@ func Test_shouldGenerateImage(t *testing.T) {
 			name: "generate image repo",
 			args: args{
 				annotations: map[string]string{
-					"something-that-doesnt-matter":             "",
-					"appstudio.redhat.com/generate-image-repo": "true",
+					"something-that-doesnt-matter": "",
+					"image.redhat.com/generate":    "true",
 				},
 			},
 			want: true,
@@ -131,5 +132,38 @@ func TestGenerateImage(t *testing.T) {
 		t.Errorf("Error creating robot account, Expected %s, got %v", returnedRobotAccountName, createdRobotAccount.Name)
 	} else if createdRobotAccount.Token != expectedToken {
 		t.Errorf("Error creating robot account, Expected %s, got %v", expectedToken, createdRobotAccount.Token)
+	}
+}
+
+func Test_generateSecretName(t *testing.T) {
+	type args struct {
+		c appstudioredhatcomv1alpha1.Component
+	}
+
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			"simle test for name generation of the secret",
+			args{
+				appstudioredhatcomv1alpha1.Component{
+					ObjectMeta: v1.ObjectMeta{
+						Name:      "componentname", // required for repo name generation
+						Namespace: "shbose",        // required for repo name generation
+						UID:       types.UID("473afb73-648b-4d3a-975f-a5bc48771885"),
+					},
+				},
+			},
+			"componentname-473afb73",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := generateSecretName(tt.args.c); got != tt.want {
+				t.Errorf("generateSecretName() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

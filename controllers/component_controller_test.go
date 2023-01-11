@@ -31,8 +31,8 @@ var _ = Describe("Component controller", func() {
 					Name:      "foo",
 					Namespace: "default",
 					Annotations: map[string]string{
-						"foo": "bar",
-						"appstudio.redhat.com/generate-image-repo": "true",
+						"foo":                       "bar",
+						"image.redhat.com/generate": "true",
 					},
 				},
 				Spec: appstudioredhatcomv1alpha1.ComponentSpec{
@@ -97,12 +97,12 @@ var _ = Describe("Component controller", func() {
 
 				k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
 				annotations := createdHasComp.Annotations
-				imageRepo := annotations["appstudio.redhat.com/generated-image-repository"]
+				imageRepo := annotations["image.redhat.com/image"]
 
 				imageRepoObj := controllers.RepositoryInfo{}
 				json.Unmarshal([]byte(imageRepo), &imageRepoObj)
 
-				return imageRepoObj.ImageRepositoryURL
+				return imageRepoObj.Image
 
 			}).ShouldNot(BeEmpty())
 

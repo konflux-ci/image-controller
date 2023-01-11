@@ -108,19 +108,19 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	generatedRepository := RepositoryInfo{
-		ImageRepositoryURL:          fmt.Sprintf("quay.io/%s/%s", quayOrganization, repo.Name),
-		CredentialsKubernetesSecret: robotAccountSecret.Name,
+		Image:  fmt.Sprintf("quay.io/%s/%s", quayOrganization, repo.Name),
+		Secret: robotAccountSecret.Name,
 	}
 	generatedRepositoryBytes, _ := json.Marshal(generatedRepository)
 
 	lookUpKey := types.NamespacedName{Name: component.Name, Namespace: component.Namespace}
 	r.Client.Get(ctx, lookUpKey, component)
 
-	component.Annotations["appstudio.redhat.com/generated-image-repository"] = string(generatedRepositoryBytes)
-	component.Annotations["appstudio.redhat.com/generate-image-repo"] = "false"
+	component.Annotations["image.redhat.com/image"] = string(generatedRepositoryBytes)
+	component.Annotations["image.redhat.com/generate"] = "false"
 
 	if err != nil {
-		component.Annotations["appstudio.redhat.com/generated-image-repository-error"] = err.Error()
+		component.Annotations["image.redhat.com/generate-error"] = err.Error()
 	}
 
 	if err := r.Client.Update(ctx, component); err != nil {
@@ -128,6 +128,10 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func generateSecretName(c appstudioredhatcomv1alpha1.Component) string {
+	return fmt.Sprintf("%s-%s", c.Name, strings.Split(string(c.UID), "-")[0])
 }
 
 // generateSecret dumps the robot account token into a Secret for future consumption.
@@ -161,12 +165,12 @@ func generateSecret(c appstudioredhatcomv1alpha1.Component, r quay.RobotAccount)
 // RepositoryInfo defines the structure of the Repository information being exposed to
 // external systems.
 type RepositoryInfo struct {
-	ImageRepositoryURL          string `json:"image_repository_url"`
-	CredentialsKubernetesSecret string `json:"credentials_kubernetes_secret"`
+	Image  string `json:"image"`
+	Secret string `json:"secret"`
 }
 
 func shouldGenerateImage(annotations map[string]string) bool {
-	if generate, present := annotations["appstudio.redhat.com/generate-image-repo"]; present && generate == "true" {
+	if generate, present := annotations["image.redhat.com/generate"]; present && generate == "true" {
 		return true
 	}
 	return false

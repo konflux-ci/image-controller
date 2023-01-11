@@ -23,7 +23,7 @@ type: Opaque
 
 ### Create a Component
 
-To request the controller to setup an image repository, annotate the `Component` with `appstudio.redhat.com/generate-image-repo: 'true'`.
+To request the controller to setup an image repository, annotate the `Component` with `image.redhat.com/generate: 'true'`.
 
 
 ```
@@ -31,7 +31,7 @@ apiVersion: appstudio.redhat.com/v1alpha1
 kind: Component
 metadata:
   annotations:
-    appstudio.redhat.com/generate-image-repo: 'true'
+    image.redhat.com/generate: 'true'
   name: billing
   namespace: image-controller-system
 spec:
@@ -48,8 +48,8 @@ The `Image controller` would create the necessary resources on Quay.io and write
 
 ```
 {
-   "image_repository_url":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing",
-   "credentials_kubernetes_secret":"billing-e562a75d-17dc-4c10-a2e6-924e120f6419",
+   "image":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing",
+   "secret":"billing-e562a75d",
 }
 ```
 
@@ -58,9 +58,9 @@ apiVersion: appstudio.redhat.com/v1alpha1
 kind: Component
 metadata:
   annotations:
-    appstudio.redhat.com/generate-image-repo: 'false'
-    appstudio.redhat.com/generated-image-repository: >-
-      {"image_repository_url":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing","credentials_kubernetes_secret":"billing-e562a75d-17dc-4c10-a2e6-924e120f6419"
+    image.redhat.com/generate: 'false'
+    image.redhat.com/image: >-
+      {"image":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing","secret":"billing-e562a75d"
       }
   name: billing
   namespace: image-controller-system
