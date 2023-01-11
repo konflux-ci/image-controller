@@ -8,6 +8,19 @@ The Image Controller for Stonesoup helps set up container image repositories for
 1. Install the project on your cluster by running `make deploy`. 
 2. Set up the Quay.io token that would be used by the controller to setup image repositories under the `quay.io/redhat-user-workloads` organization.
 
+```
+kind: Secret
+apiVersion: v1
+metadata:
+  name: quaytoken
+  namespace: image-controller-system
+data:
+  organization: quay.io/redhat-user-workloads
+  quaytoken: redacted
+type: Opaque
+```
+
+
 ### Create a Component
 
 To request the controller to setup an image repository, annotate the `Component` with `appstudio.redhat.com/generate-image-repo: 'true'`.
