@@ -39,6 +39,7 @@ import (
 
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/controllers"
+	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -98,10 +99,11 @@ var _ = BeforeSuite(func() {
 	httpClient = &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(httpClient)
 
+	quayClient := quay.NewQuayClient(httpClient, "remote-tests-disabled-use-mock", "https://quay.io/api/v1")
 	err = (&controllers.ComponentReconciler{
 		Client:     k8sManager.GetClient(),
 		Scheme:     k8sManager.GetScheme(),
-		HttpClient: httpClient,
+		QuayClient: &quayClient,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

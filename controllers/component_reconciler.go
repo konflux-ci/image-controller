@@ -20,10 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"net/http"
-	"os"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -42,13 +38,11 @@ const (
 	quayOrganization string = "redhat-user-workloads"
 )
 
-var defaultQuayToken string = ""
-
 // ComponentReconciler reconciles a Controller object
 type ComponentReconciler struct {
 	client.Client
 	Scheme     *runtime.Scheme
-	HttpClient *http.Client
+	QuayClient *quay.QuayClient
 }
 
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch;create;update;patch;delete
@@ -82,25 +76,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	// Use of the defaultQuayToken is a temporary affair
-	tokenPath := os.Getenv("DEV_TOKEN_PATH")
-	if tokenPath == "" {
-		// will be unset in prod
-		tokenPath = "/workspace/quaytoken"
-	}
-	if defaultQuayToken == "" {
-		content, err := ioutil.ReadFile(tokenPath)
-		if err != nil {
-			// if reading has failed, we should requeue the request so  that
-			// they are picked up once the internal error is fixed.
-			r.reportError(ctx, component)
-			return ctrl.Result{}, fmt.Errorf("Error reading the quay token : %w", err)
-		}
-		defaultQuayToken = string(content)
-	}
-
-	quayClient := quay.NewQuayClient(r.HttpClient, defaultQuayToken, "https://quay.io/api/v1")
-	repo, robot, err := generateImageRepository(*component, quayOrganization, quayClient)
+	repo, robot, err := generateImageRepository(*component, quayOrganization, *r.QuayClient)
 
 	if err != nil {
 		r.reportError(ctx, component)
@@ -139,10 +115,6 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	return ctrl.Result{}, nil
-}
-
-func generateSecretName(c appstudioredhatcomv1alpha1.Component) string {
-	return fmt.Sprintf("%s-%s", c.Name, strings.Split(string(c.UID), "-")[0])
 }
 
 // generateSecret dumps the robot account token into a Secret for future consumption.

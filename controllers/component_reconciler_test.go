@@ -18,10 +18,6 @@ package controllers
 
 import (
 	"testing"
-
-	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 func Test_shouldGenerateImage(t *testing.T) {
@@ -58,38 +54,6 @@ func Test_shouldGenerateImage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := shouldGenerateImage(tt.args.annotations); got != tt.want {
 				t.Errorf("name: %s, shouldGenerateImage() = %v, want %v", tt.name, got, tt.want)
-			}
-		})
-	}
-}
-func Test_generateSecretName(t *testing.T) {
-	type args struct {
-		c appstudioredhatcomv1alpha1.Component
-	}
-
-	tests := []struct {
-		name string
-		args args
-		want string
-	}{
-		{
-			"simle test for name generation of the secret",
-			args{
-				appstudioredhatcomv1alpha1.Component{
-					ObjectMeta: v1.ObjectMeta{
-						Name:      "componentname", // required for repo name generation
-						Namespace: "shbose",        // required for repo name generation
-						UID:       types.UID("473afb73-648b-4d3a-975f-a5bc48771885"),
-					},
-				},
-			},
-			"componentname-473afb73",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := generateSecretName(tt.args.c); got != tt.want {
-				t.Errorf("generateSecretName() = %v, want %v", got, tt.want)
 			}
 		})
 	}

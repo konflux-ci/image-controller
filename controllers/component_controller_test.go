@@ -18,8 +18,9 @@ import (
 )
 
 var _ = Describe("Component controller", func() {
+
 	Context("Upon creation of Component", func() {
-		It("Should be annotated", func() {
+		It("Should be annotated and Secret should be created", func() {
 			appComponent := &appstudioredhatcomv1alpha1.Component{
 				TypeMeta: v1.TypeMeta{
 					APIVersion: "appstudio.redhat.com/v1alpha1",
@@ -104,6 +105,13 @@ var _ = Describe("Component controller", func() {
 			})))
 
 			Eventually(func() string {
+				Expect(k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)).Should(BeNil())
+				annotations := createdHasComp.Annotations
+				return annotations["image.redhat.com/generate"]
+
+			}).Should((Equal("false")))
+
+			Eventually(func() string {
 
 				secretLookupKey := types.NamespacedName{Name: appComponent.Name, Namespace: appComponent.Namespace}
 				createdSecret := corev1.Secret{}
@@ -114,6 +122,50 @@ var _ = Describe("Component controller", func() {
 				"https://quay.io",
 				returnedRobotAccountName,
 				expectedToken)))
+
+			// Now that everthing is verified, we shall try to regenerate the images.
+
+			gock.Clean()
+
+			// API Call to the Repository API should return a message that the Repository already exists
+			gock.New("https://quay.io").
+				Post("/api/v1/repository").
+				Reply(400).JSON(map[string]string{
+				"error_message": "Repository already exists",
+			})
+
+			// API Call to the Robot account API should return a message that the Robot account already exists
+			gock.New("https://quay.io").
+				Put(fmt.Sprintf("/api/v1/organization/%s/robots/%s", quayOrganization, userProvidedRobotAccountName)).
+				Reply(400).JSON(map[string]string{
+				"message": "Existing robot with name",
+			})
+
+			// API Call to the Permissions API remains business as usual.
+			gock.New("https://quay.io").
+				Put(fmt.Sprintf("/api/v1/repository/redhat-user-workloads/default/bar/foo/permissions/user/%s", returnedRobotAccountName)).
+				Reply(200).JSON(map[string]string{})
+
+			// trigger reconcile again.
+			createdHasComp.Annotations["image.redhat.com/generate"] = "true"
+			Expect(k8sClient.Update(ctx, createdHasComp)).Should(BeNil())
+
+			Eventually(func() controllers.RepositoryInfo {
+
+				k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
+				annotations := createdHasComp.Annotations
+				imageRepo := annotations["image.redhat.com/image"]
+
+				imageRepoObj := controllers.RepositoryInfo{}
+				json.Unmarshal([]byte(imageRepo), &imageRepoObj)
+
+				return imageRepoObj
+
+			}).Should((Equal(controllers.RepositoryInfo{
+				Image:  "quay.io/redhat-user-workloads/default/bar/foo",
+				Secret: "foo",
+			})))
+
 		})
 	})
 })
