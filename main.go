@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"io/ioutil"
 	"net/http"
 	"os"
 
@@ -34,6 +35,7 @@ import (
 
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/controllers"
+	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -90,12 +92,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.ComponentReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+	tokenPath := "/workspace/quaytoken"
+	content, err := ioutil.ReadFile(tokenPath)
+	if err != nil {
+		setupLog.Error(err, "unable to read quay token")
+	}
 
-		// TODO: Pass the Quay.io client instead of the http client
-		HttpClient: &http.Client{Transport: &http.Transport{}},
+	quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, string(content), "")
+	if err = (&controllers.ComponentReconciler{
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		QuayClient: &quayClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Controller")
 		os.Exit(1)
