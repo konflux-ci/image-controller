@@ -30,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -65,7 +64,6 @@ type ComponentReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
 func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
 
 	// Fetch the Component instance
 	component := &appstudioredhatcomv1alpha1.Component{}
@@ -91,16 +89,30 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		tokenPath = "/workspace/quaytoken"
 	}
 	if defaultQuayToken == "" {
-		file, err := ioutil.ReadFile(tokenPath)
+		content, err := ioutil.ReadFile(tokenPath)
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("Error reading the quay token - requeue the request : %w", err)
+			// if reading has failed, we should requeue the request so  that
+			// they are picked up once the internal error is fixed.
+			r.reportError(ctx, component)
+			return ctrl.Result{}, fmt.Errorf("Error reading the quay token : %w", err)
 		}
-		defaultQuayToken = string(file)
+		defaultQuayToken = string(content)
 	}
 
 	quayClient := quay.NewQuayClient(r.HttpClient, defaultQuayToken, "https://quay.io/api/v1")
 	repo, robot, err := generateImageRepository(*component, quayOrganization, quayClient)
 
+	if err != nil {
+		r.reportError(ctx, component)
+		log.Log.Error(err, "Error in the repository generation process ")
+		return ctrl.Result{}, nil
+	}
+	if repo == nil || robot == nil {
+		r.reportError(ctx, component)
+		log.Log.Error(err, "Unknown error in the repository generation process ")
+		return ctrl.Result{}, nil
+
+	}
 	robotAccountSecret := generateSecret(*component, *robot)
 	err = r.Client.Create(ctx, &robotAccountSecret)
 	if err != nil {
@@ -114,14 +126,13 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	generatedRepositoryBytes, _ := json.Marshal(generatedRepository)
 
 	lookUpKey := types.NamespacedName{Name: component.Name, Namespace: component.Namespace}
-	r.Client.Get(ctx, lookUpKey, component)
+	err = r.Client.Get(ctx, lookUpKey, component)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("Error updating the Component's annotations - %w", err)
+	}
 
 	component.Annotations["image.redhat.com/image"] = string(generatedRepositoryBytes)
 	component.Annotations["image.redhat.com/generate"] = "false"
-
-	if err != nil {
-		component.Annotations["image.redhat.com/generate-error"] = err.Error()
-	}
 
 	if err := r.Client.Update(ctx, component); err != nil {
 		return ctrl.Result{}, fmt.Errorf("Error updating the component annotations - requeue the request : %w", err)
@@ -138,7 +149,7 @@ func generateSecretName(c appstudioredhatcomv1alpha1.Component) string {
 func generateSecret(c appstudioredhatcomv1alpha1.Component, r quay.RobotAccount) corev1.Secret {
 	secret := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      c.Name + "-" + string(uuid.NewUUID()),
+			Name:      c.Name,
 			Namespace: c.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
 				{
@@ -162,6 +173,13 @@ func generateSecret(c appstudioredhatcomv1alpha1.Component, r quay.RobotAccount)
 	return secret
 }
 
+func (r *ComponentReconciler) reportError(ctx context.Context, component *appstudioredhatcomv1alpha1.Component) (ctrl.Result, error) {
+	lookUpKey := types.NamespacedName{Name: component.Name, Namespace: component.Namespace}
+	r.Client.Get(ctx, lookUpKey, component)
+	component.Annotations["image.redhat.io/generate"] = "failed"
+	return ctrl.Result{}, r.Client.Status().Update(ctx, component)
+}
+
 // RepositoryInfo defines the structure of the Repository information being exposed to
 // external systems.
 type RepositoryInfo struct {
@@ -174,42 +192,6 @@ func shouldGenerateImage(annotations map[string]string) bool {
 		return true
 	}
 	return false
-}
-
-func generateRobotAccountName(component appstudioredhatcomv1alpha1.Component) string {
-	// if uuid is 08a177d2-6707-4a5a-9f81-b73ec5a74047,
-	// then the robot account name is redhat08a177d267074a5a9f81b73ec5a74047
-	uuid := strings.Replace(string(component.UID), "-", "", -1)
-	return fmt.Sprintf("redhat%s", uuid)
-}
-
-func generateImageRepository(component appstudioredhatcomv1alpha1.Component, quayNamespace string, quayClient quay.QuayClient) (*quay.Repository, *quay.RobotAccount, error) {
-	repo, err := quayClient.CreateRepository(quay.RepositoryRequest{
-		Namespace:   quayNamespace,
-		Visibility:  "public",
-		Description: "Stonesoup repository for the user",
-		Repository:  component.Namespace + "/" + component.Spec.Application + "/" + component.Name,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("Error creating repository %v", err)
-	}
-	fmt.Println(fmt.Sprintf("Successfully created repo %v", repo))
-
-	robot, err := quayClient.CreateRobotAccount(quayNamespace, generateRobotAccountName(component))
-	if err != nil {
-		return nil, nil, err
-	}
-
-	fmt.Println(fmt.Sprintf("Successfully created robot %v", robot))
-
-	err = quayClient.AddPermissionsToRobotAccount(quayNamespace, repo.Name, robot.Name)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	fmt.Println("Successfully added permission")
-
-	return repo, robot, err
 }
 
 // SetupWithManager sets up the controller with the Manager.

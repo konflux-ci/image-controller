@@ -18,9 +18,8 @@ func TestGenerateRemoteImage(t *testing.T) {
 
 	testComponent := v1alpha1.Component{
 		ObjectMeta: v1.ObjectMeta{
-			Name:            "automation-repo", // required for repo name generation
-			Namespace:       "shbose",          // required for repo name generation
-			ResourceVersion: "1234567890",      // required for robotaccountname generation
+			Name:      "automation-repo", // required for repo name generation
+			Namespace: "shbose",          // required for repo name generation
 		},
 		Spec: appstudioredhatcomv1alpha1.ComponentSpec{
 			Application: "applicationname", //  required for repo name generation
@@ -28,7 +27,7 @@ func TestGenerateRemoteImage(t *testing.T) {
 	}
 
 	expectedRepoName := testComponent.Namespace + "/" + testComponent.Spec.Application + "/" + testComponent.Name
-	expectedRobotAccountName := "a" + testComponent.ResourceVersion
+	expectedRobotAccountName := testComponent.Namespace + testComponent.Spec.Application + testComponent.Name
 	returnedRobotAccountName := quayOrganization + "+" + expectedRobotAccountName
 
 	client := &http.Client{Transport: &http.Transport{}}
@@ -38,15 +37,18 @@ func TestGenerateRemoteImage(t *testing.T) {
 		//skip test.
 		return
 	}
+
 	quayClient := quay.NewQuayClient(client, quayToken, "https://quay.io/api/v1")
 
 	createdRepository, createdRobotAccount, err := generateImageRepository(testComponent, "redhat-user-workloads", quayClient)
 
 	if err != nil {
 		t.Errorf("Error generating repository and setting up robot account, Expected nil, got %v", err)
-	} else if createdRepository.Name != expectedRepoName {
+	}
+	if createdRepository.Name != expectedRepoName {
 		t.Errorf("Error creating repository, Expected %s, got %v", expectedRepoName, createdRepository.Name)
-	} else if createdRobotAccount.Name != returnedRobotAccountName {
+	}
+	if createdRobotAccount.Name != returnedRobotAccountName {
 		t.Errorf("Error creating robot account, Expected %s, got %v", returnedRobotAccountName, createdRobotAccount.Name)
 	}
 }

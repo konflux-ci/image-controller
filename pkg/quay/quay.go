@@ -67,6 +67,10 @@ func (c QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) {
 		fmt.Println(err)
 		return nil, err
 	}
+
+	if res.StatusCode == 400 && data.ErrorMessage == "Repository already exists" {
+		data.Name = r.Repository
+	}
 	fmt.Println(string(body))
 	return data, nil
 
@@ -77,7 +81,7 @@ func (c QuayClient) CreateRobotAccount(organization string, robotName string) (*
 	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
 
 	payload := strings.NewReader(`{
-  "description": "Test bot account for stonesoup"
+  "description": "Robot account for Stonesoup Component"
 }`)
 
 	req, err := http.NewRequest(http.MethodPut, url, payload)
@@ -108,6 +112,10 @@ func (c QuayClient) CreateRobotAccount(organization string, robotName string) (*
 		fmt.Println(err)
 		return nil, err
 	}
+
+	if res.StatusCode == 400 && strings.Contains(data.Message, "Existing robot with name") {
+		data.Name = fmt.Sprintf("%s+%s", organization, robotName)
+	}
 	fmt.Println(string(body))
 	return data, nil
 }
@@ -124,7 +132,6 @@ func (c QuayClient) AddPermissionsToRobotAccount(organization, imageRepository, 
 	"role": "write"
   }`)
 
-	client := &http.Client{}
 	req, err := http.NewRequest(http.MethodPut, url, payload)
 
 	if err != nil {
@@ -134,10 +141,13 @@ func (c QuayClient) AddPermissionsToRobotAccount(organization, imageRepository, 
 	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
-	res, err := client.Do(req)
+	res, err := c.httpClient.Do(req)
+	fmt.Println(req)
 	if err != nil {
-		fmt.Println(err)
 		return err
+	}
+	if res.StatusCode != 200 {
+		return fmt.Errorf("Error adding permissions to the robot account, got status code %d", res.StatusCode)
 	}
 	defer res.Body.Close()
 

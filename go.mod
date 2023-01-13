@@ -4,7 +4,6 @@ go 1.18
 
 require (
 	github.com/h2non/gock v1.2.0
-	github.com/jarcoal/httpmock v1.2.0
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.20.1
 	github.com/redhat-appstudio/application-api v0.0.0-20221220162402-c1e887791dac

@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/h2non/gock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -33,8 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	"github.com/jarcoal/httpmock"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -97,6 +96,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	httpClient = &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(httpClient)
 
 	err = (&controllers.ComponentReconciler{
 		Client:     k8sManager.GetClient(),
@@ -115,8 +115,6 @@ var _ = BeforeSuite(func() {
 
 var _ = AfterSuite(func() {
 	cancel()
-
-	httpmock.Reset()
 
 	By("tearing down the test environment")
 	err := testEnv.Stop()

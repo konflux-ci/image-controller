@@ -22,6 +22,7 @@ type Repository struct {
 	TagExpirationS int            `json:"tag_expiration_s"`
 	Tags           map[string]Tag `json:"tags"`
 	StatusToken    string         `json:"status_token"`
+	ErrorMessage   string         `json:"error_message"`
 }
 
 type RepositoryRequest struct {
@@ -38,4 +39,9 @@ type RobotAccount struct {
 	LastAccessed string `json:"last_accessed"`
 	Token        string `json:"token"`
 	Name         string `json:"name"`
+	Message      string `json:"message"`
+}
+
+type QuayError struct {
+	ErrorMessage string `json:"error_type"`
 }

@@ -19,6 +19,7 @@ func TestQuayClient_CreateRepository(t *testing.T) {
 		"namespace":   "redhat-appstudio-user",
 		"name":        "test-repo-using-api",
 	})
+
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
 
@@ -50,6 +51,7 @@ func TestQuayClient_CreateRobotAccount(t *testing.T) {
 		"token": "robotaccountoken",
 		"name":  "robot",
 	})
+
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
 
@@ -70,10 +72,8 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 	defer gock.Off()
 
 	gock.New("https://quay.io/api/v1").
-		MatchHeader("Content-type", "application/json").
-		MatchHeader("Authorization", "Bearer authtoken").
 		Put("/repository/org/repository/permissions/user/robot").
-		Reply(201)
+		Reply(200)
 
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)

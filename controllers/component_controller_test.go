@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -12,16 +11,15 @@ import (
 	"github.com/h2non/gock"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/controllers"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ = Describe("Component controller", func() {
-
 	Context("Upon creation of Component", func() {
 		It("Should be annotated", func() {
-
 			appComponent := &appstudioredhatcomv1alpha1.Component{
 				TypeMeta: v1.TypeMeta{
 					APIVersion: "appstudio.redhat.com/v1alpha1",
@@ -48,7 +46,37 @@ var _ = Describe("Component controller", func() {
 				},
 			}
 
-			Expect(k8sClient).Should(Not(BeNil()))
+			defer gock.Off()
+			defer gock.Observe(gock.DumpRequest)
+			gock.InterceptClient(httpClient)
+
+			// response from Repository API
+			quayOrganization := "redhat-user-workloads"
+			expectedRepoName := fmt.Sprintf("%s/%s/%s", appComponent.Namespace, appComponent.Spec.Application, appComponent.Name)
+
+			// request & response from Robot API
+			userProvidedRobotAccountName := appComponent.Namespace + appComponent.Spec.Application + appComponent.Name
+			returnedRobotAccountName := quayOrganization + "+" + userProvidedRobotAccountName
+			expectedToken := "token"
+
+			gock.New("https://quay.io").
+				Post("/api/v1/repository").
+				Reply(200).JSON(map[string]string{
+				"description": "description",
+				"namespace":   quayOrganization,
+				"name":        expectedRepoName,
+			})
+
+			gock.New("https://quay.io").
+				Put(fmt.Sprintf("/api/v1/organization/%s/robots/%s", quayOrganization, userProvidedRobotAccountName)).
+				Reply(200).JSON(map[string]string{
+				"name":  returnedRobotAccountName,
+				"token": expectedToken,
+			})
+
+			gock.New("https://quay.io").
+				Put(fmt.Sprintf("/api/v1/repository/redhat-user-workloads/default/bar/foo/permissions/user/%s", returnedRobotAccountName)).
+				Reply(200).JSON(map[string]string{})
 
 			Expect(k8sClient.Create(ctx, appComponent)).Should(BeNil())
 			hasCompLookupKey := types.NamespacedName{Name: appComponent.Name, Namespace: appComponent.Namespace}
@@ -59,41 +87,7 @@ var _ = Describe("Component controller", func() {
 				return createdHasComp.ResourceVersion != ""
 			}).Should(BeTrue())
 
-			/*
-				Setup mock http client for Quay.io connections.
-			*/
-
-			quayOrganization := "redhat-appstudio-user"
-			uuidArray := strings.Replace(string(createdHasComp.UID), "-", "", -1)
-			expectedRobotAccountName := fmt.Sprintf("redhat%s", uuidArray)
-			returnedRobotAccountName := quayOrganization + "+" + expectedRobotAccountName
-			expectedToken := "token"
-			expectedRepoName := fmt.Sprintf("%s/%s/%s", appComponent.Namespace, appComponent.Spec.Application, appComponent.Name)
-
-			defer gock.Off()
-			defer gock.Observe(gock.DumpRequest)
-
-			gock.New("https://quay.io").
-				Post("/api/v1/repository").
-				MatchHeader("Content-type", "application/json").
-				MatchHeader("Authorization", "Bearer authtoken").
-				Reply(200).JSON(map[string]string{
-				"description": "description",
-				"namespace":   quayOrganization,
-				"name":        expectedRepoName, //fmt.Sprintf("%s/%s/%s", appComponent.Namespace, appComponent.Spec.Application, appComponent.Name),
-			})
-
-			gock.New("https://quay.io").
-				Put(fmt.Sprintf("/api/v1/organization/%s/robots/%s", quayOrganization, expectedRobotAccountName)).
-				MatchHeader("Content-type", "application/json").
-				MatchHeader("Authorization", "Bearer authtoken").
-				Reply(200).JSON(map[string]string{
-				// really the only thing we care about
-				"name":  returnedRobotAccountName,
-				"token": expectedToken,
-			})
-
-			Eventually(func() string {
+			Eventually(func() controllers.RepositoryInfo {
 
 				k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
 				annotations := createdHasComp.Annotations
@@ -102,10 +96,24 @@ var _ = Describe("Component controller", func() {
 				imageRepoObj := controllers.RepositoryInfo{}
 				json.Unmarshal([]byte(imageRepo), &imageRepoObj)
 
-				return imageRepoObj.Image
+				return imageRepoObj
 
-			}).ShouldNot(BeEmpty())
+			}).Should((Equal(controllers.RepositoryInfo{
+				Image:  "quay.io/redhat-user-workloads/default/bar/foo",
+				Secret: "foo",
+			})))
 
+			Eventually(func() string {
+
+				secretLookupKey := types.NamespacedName{Name: appComponent.Name, Namespace: appComponent.Namespace}
+				createdSecret := corev1.Secret{}
+				Expect(k8sClient.Get(context.Background(), secretLookupKey, &createdSecret)).Should(BeNil())
+
+				return string(createdSecret.Data[corev1.DockerConfigJsonKey][:])
+			}).Should(Equal(fmt.Sprintf(`{"auths":{"%s":{"username":"%s","password":"%s"}}}`,
+				"https://quay.io",
+				returnedRobotAccountName,
+				expectedToken)))
 		})
 	})
 })

@@ -49,7 +49,7 @@ The `Image controller` would create the necessary resources on Quay.io and write
 ```
 {
    "image":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing",
-   "secret":"billing-e562a75d",
+   "secret":"billing",
 }
 ```
 
@@ -60,7 +60,7 @@ metadata:
   annotations:
     image.redhat.com/generate: 'false'
     image.redhat.com/image: >-
-      {"image":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing","secret":"billing-e562a75d"
+      {"image":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing","secret":"billing"
       }
   name: billing
   namespace: image-controller-system
