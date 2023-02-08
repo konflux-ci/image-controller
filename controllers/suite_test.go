@@ -18,6 +18,7 @@ package controllers_test
 
 import (
 	"context"
+	"go/build"
 	"net/http"
 	"path/filepath"
 	"testing"
@@ -68,8 +69,13 @@ var _ = BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	By("bootstrapping test environment")
+
+	applicationApiDepVersion := "v0.0.0-20221220162402-c1e887791dac"
+
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
+		CRDDirectoryPaths: []string{
+			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "redhat-appstudio", "application-api@"+applicationApiDepVersion, "config", "crd", "bases"),
+		},
 		ErrorIfCRDPathMissing: true,
 	}
 
