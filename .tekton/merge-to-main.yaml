@@ -22,6 +22,9 @@ spec:
     name: docker-build
     bundle: quay.io/redhat-appstudio/hacbs-core-service-templates-bundle:latest
   workspaces:
+    - name: registry-auth
+      secret:
+        secretName: redhat-appstudio-registry-pull-secret
     - name: workspace
       volumeClaimTemplate:
         spec:
