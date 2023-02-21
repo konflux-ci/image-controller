@@ -13,11 +13,7 @@ spec:
     - name: revision
       value: "{{revision}}"
     - name: output-image
-      value: "quay.io/redhat-appstudio/user-workload:image-controller-{{revision}}"
-    - name: hermetic
-      value: true
-    - name: prefetch-input
-      value: gomod
+      value: "quay.io/redhat-appstudio/pull-request-builds:image-controller-{{revision}}"
   pipelineRef:
     name: docker-build
     bundle: quay.io/redhat-appstudio/hacbs-core-service-templates-bundle:latest
