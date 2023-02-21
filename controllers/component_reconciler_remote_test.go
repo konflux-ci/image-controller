@@ -28,7 +28,7 @@ func TestGenerateRemoteImage(t *testing.T) {
 
 	expectedRepoName := testComponent.Namespace + "/" + testComponent.Spec.Application + "/" + testComponent.Name
 	expectedRobotAccountName := testComponent.Namespace + testComponent.Spec.Application + testComponent.Name
-	returnedRobotAccountName := quayOrganization + "+" + expectedRobotAccountName
+	returnedRobotAccountName := "redhat-user-workloads" + "+" + expectedRobotAccountName
 
 	client := &http.Client{Transport: &http.Transport{}}
 

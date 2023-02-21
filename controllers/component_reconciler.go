@@ -34,15 +34,12 @@ import (
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
 )
 
-const (
-	quayOrganization string = "redhat-user-workloads"
-)
-
 // ComponentReconciler reconciles a Controller object
 type ComponentReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	QuayClient *quay.QuayClient
+	Scheme           *runtime.Scheme
+	QuayClient       *quay.QuayClient
+	QuayOrganization string
 }
 
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch;create;update;patch;delete
@@ -76,7 +73,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	repo, robot, err := generateImageRepository(*component, quayOrganization, *r.QuayClient)
+	repo, robot, err := generateImageRepository(*component, r.QuayOrganization, *r.QuayClient)
 
 	if err != nil {
 		r.reportError(ctx, component)
@@ -96,7 +93,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	generatedRepository := RepositoryInfo{
-		Image:  fmt.Sprintf("quay.io/%s/%s", quayOrganization, repo.Name),
+		Image:  fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, repo.Name),
 		Secret: robotAccountSecret.Name,
 	}
 	generatedRepositoryBytes, _ := json.Marshal(generatedRepository)

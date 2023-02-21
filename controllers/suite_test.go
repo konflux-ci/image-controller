@@ -107,9 +107,10 @@ var _ = BeforeSuite(func() {
 
 	quayClient := quay.NewQuayClient(httpClient, "remote-tests-disabled-use-mock", "https://quay.io/api/v1")
 	err = (&controllers.ComponentReconciler{
-		Client:     k8sManager.GetClient(),
-		Scheme:     k8sManager.GetScheme(),
-		QuayClient: &quayClient,
+		Client:           k8sManager.GetClient(),
+		Scheme:           k8sManager.GetScheme(),
+		QuayClient:       &quayClient,
+		QuayOrganization: "redhat-user-workloads",
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
