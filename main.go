@@ -21,6 +21,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -93,16 +94,21 @@ func main() {
 	}
 
 	tokenPath := "/workspace/quaytoken"
-	content, err := ioutil.ReadFile(tokenPath)
+	tokenContent, err := ioutil.ReadFile(tokenPath)
 	if err != nil {
 		setupLog.Error(err, "unable to read quay token")
 	}
-
-	quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, string(content), "")
+	orgPath := "/workspace/organization"
+	orgContent, err := ioutil.ReadFile(orgPath)
+	if err != nil {
+		setupLog.Error(err, "unable to read quay organization")
+	}
+	quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, strings.TrimSpace(string(tokenContent)), "https://quay.io/api/v1")
 	if err = (&controllers.ComponentReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		QuayClient: &quayClient,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		QuayClient:       &quayClient,
+		QuayOrganization: strings.TrimSpace(string(orgContent)),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Controller")
 		os.Exit(1)
