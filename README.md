@@ -15,7 +15,7 @@ metadata:
   name: quaytoken
   namespace: image-controller-system
 data:
-  organization: quay.io/redhat-user-workloads
+  organization: redhat-user-workloads
   quaytoken: redacted
 type: Opaque
 ```
