@@ -1,7 +1,7 @@
 apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
-  name: image-c-on-pull-request
+  name: image-controller-on-pull-request
   annotations:
     pipelinesascode.tekton.dev/on-event: "[pull_request]"
     pipelinesascode.tekton.dev/on-target-branch: "[main]"
@@ -16,11 +16,8 @@ spec:
       value: "quay.io/redhat-appstudio/pull-request-builds:image-controller-{{revision}}"
   pipelineRef:
     name: docker-build
-    bundle: quay.io/redhat-appstudio/hacbs-core-service-templates-bundle:latest
+    bundle: quay.io/redhat-appstudio-tekton-catalog/pipeline-core-services-docker-build:latest
   workspaces:
-    - name: registry-auth
-      secret:
-        secretName: redhat-appstudio-registry-pull-secret
     - name: workspace
       volumeClaimTemplate:
         spec:
