@@ -119,7 +119,7 @@ var _ = Describe("Component controller", func() {
 
 				return string(createdSecret.Data[corev1.DockerConfigJsonKey][:])
 			}).Should(Equal(fmt.Sprintf(`{"auths":{"%s":{"username":"%s","password":"%s"}}}`,
-				"https://quay.io",
+				"quay.io/redhat-user-workloads/default/bar/foo",
 				returnedRobotAccountName,
 				expectedToken)))
 
