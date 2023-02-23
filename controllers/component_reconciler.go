@@ -86,7 +86,10 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 
 	}
-	robotAccountSecret := generateSecret(*component, *robot)
+
+	imageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, repo.Name)
+	robotAccountSecret := generateSecret(*component, *robot, imageURL)
+
 	err = r.Client.Create(ctx, &robotAccountSecret)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("Error writing robot account token into a Secret - requeue the request - %w", err)
@@ -115,7 +118,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 // generateSecret dumps the robot account token into a Secret for future consumption.
-func generateSecret(c appstudioredhatcomv1alpha1.Component, r quay.RobotAccount) corev1.Secret {
+func generateSecret(c appstudioredhatcomv1alpha1.Component, r quay.RobotAccount, quayImageURL string) corev1.Secret {
 	secret := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      c.Name,
@@ -134,7 +137,7 @@ func generateSecret(c appstudioredhatcomv1alpha1.Component, r quay.RobotAccount)
 
 	ret := map[string]string{}
 	ret[corev1.DockerConfigJsonKey] = fmt.Sprintf(`{"auths":{"%s":{"username":"%s","password":"%s"}}}`,
-		"https://quay.io",
+		quayImageURL,
 		r.Name,
 		r.Token)
 
