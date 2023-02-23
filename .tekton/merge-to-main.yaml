@@ -1,7 +1,7 @@
 apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
-  name: pipeline-as-code-on-push
+  name: image-controller-on-push
   annotations:
     pipelinesascode.tekton.dev/on-event: "[push]"
     pipelinesascode.tekton.dev/on-target-branch: "[main]"
@@ -14,17 +14,10 @@ spec:
       value: "{{revision}}"
     - name: output-image
       value: "quay.io/redhat-appstudio/image-controller:{{revision}}" 
-    - name: path-context
-      value: .
-    - name: dockerfile
-      value: Dockerfile
   pipelineRef:
     name: docker-build
-    bundle: quay.io/redhat-appstudio/hacbs-core-service-templates-bundle:latest
+    bundle: quay.io/redhat-appstudio-tekton-catalog/pipeline-core-services-docker-build:latest
   workspaces:
-    - name: registry-auth
-      secret:
-        secretName: redhat-appstudio-registry-pull-secret
     - name: workspace
       volumeClaimTemplate:
         spec:
