@@ -46,7 +46,7 @@ spec:
         - /manager
         args:
         - --leader-elect
-        image: quay.io/shbose/image-controller
+        image: quay.io/redhat-appstudio/image-controller
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
