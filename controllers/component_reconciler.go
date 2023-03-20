@@ -69,6 +69,15 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// Error reading the object - requeue the request.
 		return ctrl.Result{}, fmt.Errorf("Error reading the object - requeue the request : %w", err)
 	}
+
+	if component.Status.Devfile == "" {
+		// The Component has been just created.
+		// Component controller (from Application Service) must set devfile model, wait for it.
+		log.Log.Info("Waiting for devfile model in component")
+		// Do not requeue as after model update a new update event will trigger a new reconcile
+		return ctrl.Result{}, nil
+	}
+
 	if !shouldGenerateImage(component.Annotations) {
 		return ctrl.Result{}, nil
 	}

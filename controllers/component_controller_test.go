@@ -88,6 +88,13 @@ var _ = Describe("Component controller", func() {
 				return createdHasComp.ResourceVersion != ""
 			}).Should(BeTrue())
 
+			createdHasComp.Status.Devfile = "devfile"
+			Expect(k8sClient.Status().Update(context.Background(), createdHasComp)).Should(BeNil())
+			Eventually(func() bool {
+				k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
+				return createdHasComp.Status.Devfile == "devfile"
+			}).Should(BeTrue())
+
 			Eventually(func() controllers.RepositoryInfo {
 
 				k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
