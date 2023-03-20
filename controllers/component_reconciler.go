@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -145,10 +146,11 @@ func generateSecret(c appstudioredhatcomv1alpha1.Component, r quay.RobotAccount,
 	}
 
 	ret := map[string]string{}
-	ret[corev1.DockerConfigJsonKey] = fmt.Sprintf(`{"auths":{"%s":{"username":"%s","password":"%s"}}}`,
+	authString := fmt.Sprintf("%s:%s", r.Name, r.Token)
+	ret[corev1.DockerConfigJsonKey] = fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`,
 		quayImageURL,
-		r.Name,
-		r.Token)
+		base64.StdEncoding.EncodeToString([]byte(authString)),
+	)
 
 	secret.StringData = ret
 	return secret
