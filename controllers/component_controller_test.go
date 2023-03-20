@@ -2,6 +2,7 @@ package controllers_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -88,6 +89,13 @@ var _ = Describe("Component controller", func() {
 				return createdHasComp.ResourceVersion != ""
 			}).Should(BeTrue())
 
+			createdHasComp.Status.Devfile = "devfile"
+			Expect(k8sClient.Status().Update(context.Background(), createdHasComp)).Should(BeNil())
+			Eventually(func() bool {
+				k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
+				return createdHasComp.Status.Devfile == "devfile"
+			}).Should(BeTrue())
+
 			Eventually(func() controllers.RepositoryInfo {
 
 				k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
@@ -118,10 +126,9 @@ var _ = Describe("Component controller", func() {
 				Expect(k8sClient.Get(context.Background(), secretLookupKey, &createdSecret)).Should(BeNil())
 
 				return string(createdSecret.Data[corev1.DockerConfigJsonKey][:])
-			}).Should(Equal(fmt.Sprintf(`{"auths":{"%s":{"username":"%s","password":"%s"}}}`,
+			}).Should(Equal(fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`,
 				"quay.io/redhat-user-workloads/default/bar/foo",
-				returnedRobotAccountName,
-				expectedToken)))
+				base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", returnedRobotAccountName, expectedToken))))))
 
 			// Now that everthing is verified, we shall try to regenerate the images.
 
