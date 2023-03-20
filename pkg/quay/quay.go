@@ -114,7 +114,33 @@ func (c QuayClient) CreateRobotAccount(organization string, robotName string) (*
 	}
 
 	if res.StatusCode == 400 && strings.Contains(data.Message, "Existing robot with name") {
-		data.Name = fmt.Sprintf("%s+%s", organization, robotName)
+		req, err = http.NewRequest(http.MethodGet, url, &bytes.Buffer{})
+		if err != nil {
+			fmt.Println(err)
+			return nil, err
+		}
+		req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+		req.Header.Add("Content-Type", "application/json")
+
+		res, err := c.httpClient.Do(req)
+		if err != nil {
+			fmt.Println(err)
+			return nil, err
+		}
+		defer res.Body.Close()
+
+		body, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			fmt.Println(err)
+			return nil, err
+		}
+
+		data = &RobotAccount{}
+		err = json.Unmarshal(body, data)
+		if err != nil {
+			fmt.Println(err)
+			return nil, err
+		}
 	}
 	fmt.Println(string(body))
 	return data, nil
