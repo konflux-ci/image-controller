@@ -1,19 +1,38 @@
+/*
+Copyright 2023 Red Hat, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package quay
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 )
 
 type QuayService interface {
-	CreateRepository(r RepositoryRequest, c QuayClient) (*Repository, error)
-	CreateRobotAccount(organization string, robotName string, c QuayClient) (*RobotAccount, error)
-	AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string, c QuayClient)
+	CreateRepository(r RepositoryRequest) (*Repository, error)
+	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
+	DeleteRobotAccount(organization string, robotName string) (bool, error)
+	AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error
 }
+
+var _ QuayService = (*QuayClient)(nil)
 
 type QuayClient struct {
 	url        string
@@ -30,7 +49,7 @@ func NewQuayClient(c *http.Client, authToken, url string) QuayClient {
 }
 
 // CreateRepository creates a new Quay.io image repository.
-func (c QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) {
+func (c *QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) {
 
 	url := fmt.Sprintf("%s/%s", c.url, "repository")
 
@@ -55,7 +74,7 @@ func (c QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) {
 	}
 	defer res.Body.Close()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println(err)
 		return nil, err
@@ -73,19 +92,17 @@ func (c QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) {
 	}
 	fmt.Println(string(body))
 	return data, nil
-
 }
 
 // CreateRobotAccount creates a new Quay.io robot account in the organization.
-func (c QuayClient) CreateRobotAccount(organization string, robotName string) (*RobotAccount, error) {
+func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (*RobotAccount, error) {
 	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
 
 	payload := strings.NewReader(`{
-  "description": "Robot account for Stonesoup Component"
+  "description": "Robot account for AppStudio Component"
 }`)
 
 	req, err := http.NewRequest(http.MethodPut, url, payload)
-
 	if err != nil {
 		fmt.Println(err)
 		return nil, err
@@ -100,7 +117,7 @@ func (c QuayClient) CreateRobotAccount(organization string, robotName string) (*
 	}
 	defer res.Body.Close()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println(err)
 		return nil, err
@@ -129,7 +146,7 @@ func (c QuayClient) CreateRobotAccount(organization string, robotName string) (*
 		}
 		defer res.Body.Close()
 
-		body, err := ioutil.ReadAll(res.Body)
+		body, err := io.ReadAll(res.Body)
 		if err != nil {
 			fmt.Println(err)
 			return nil, err
@@ -146,8 +163,44 @@ func (c QuayClient) CreateRobotAccount(organization string, robotName string) (*
 	return data, nil
 }
 
+// DeleteRobotAccount deletes given Quay.io robot account in the organization.
+func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (bool, error) {
+	url := fmt.Sprintf("%s/organization/%s/robots/%s", c.url, organization, robotName)
+
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == 204 {
+		return true, nil
+	}
+	if res.StatusCode == 404 {
+		return false, nil
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return false, err
+	}
+	data := &QuayError{}
+	err = json.Unmarshal(body, data)
+	if err != nil {
+		return false, err
+	}
+	return false, errors.New(data.ErrorMessage)
+}
+
 // AddPermissionsToRobotAccount enables "robotAccountName" to "write" to "repository"
-func (c QuayClient) AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error {
+func (c *QuayClient) AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error {
 
 	// example,
 	// url := "https://quay.io/api/v1/repository/redhat-appstudio/test-repo-using-api/permissions/user/redhat-appstudio+createdbysbose"
@@ -173,11 +226,11 @@ func (c QuayClient) AddPermissionsToRobotAccount(organization, imageRepository, 
 		return err
 	}
 	if res.StatusCode != 200 {
-		return fmt.Errorf("Error adding permissions to the robot account, got status code %d", res.StatusCode)
+		return fmt.Errorf("error adding permissions to the robot account, got status code %d", res.StatusCode)
 	}
 	defer res.Body.Close()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println(err)
 		return err

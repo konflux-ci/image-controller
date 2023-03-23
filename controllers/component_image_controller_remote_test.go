@@ -1,3 +1,18 @@
+/*
+Copyright 2023 Red Hat, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package controllers
 
 import (
@@ -6,18 +21,17 @@ import (
 	"testing"
 
 	"github.com/h2non/gock"
-	"github.com/redhat-appstudio/application-api/api/v1alpha1"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestGenerateRemoteImage(t *testing.T) {
 	defer gock.Off()
 	defer gock.Observe(gock.DumpRequest)
 
-	testComponent := v1alpha1.Component{
-		ObjectMeta: v1.ObjectMeta{
+	testComponent := appstudioredhatcomv1alpha1.Component{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:      "automation-repo", // required for repo name generation
 			Namespace: "shbose",          // required for repo name generation
 		},

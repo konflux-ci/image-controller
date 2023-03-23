@@ -11,18 +11,13 @@ rules:
   - secrets
   verbs:
   - create
-  - delete
   - get
   - list
-  - patch
-  - update
 - apiGroups:
   - appstudio.redhat.com
   resources:
   - components
   verbs:
-  - create
-  - delete
   - get
   - list
   - patch

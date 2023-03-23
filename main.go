@@ -107,6 +107,7 @@ func main() {
 	if err = (&controllers.ComponentReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
+		Log:              ctrl.Log.WithName("controllers").WithName("ComponentImage"),
 		QuayClient:       &quayClient,
 		QuayOrganization: strings.TrimSpace(string(orgContent)),
 	}).SetupWithManager(mgr); err != nil {
