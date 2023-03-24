@@ -1,5 +1,5 @@
-# The Image Controller for Stonesoup
-The Image Controller for Stonesoup helps set up container image repositories for StoneSoup `Components`. 
+# The Image Controller for AppStudio
+The Image Controller for AppStudio helps set up container image repositories for AppStudio `Components`. 
 
 ## Try it!
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2023.
+Copyright 2023 Red Hat, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/h2non/gock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -53,6 +54,7 @@ var (
 	testEnv    *envtest.Environment
 	cancel     context.CancelFunc
 	ctx        context.Context
+	log        logr.Logger
 	httpClient *http.Client
 )
 
@@ -68,6 +70,7 @@ var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
 	ctx, cancel = context.WithCancel(context.TODO())
+	log = ctrl.Log.WithName("testdebug")
 
 	By("bootstrapping test environment")
 
@@ -109,6 +112,7 @@ var _ = BeforeSuite(func() {
 	err = (&controllers.ComponentReconciler{
 		Client:           k8sManager.GetClient(),
 		Scheme:           k8sManager.GetScheme(),
+		Log:              ctrl.Log.WithName("controllers").WithName("ComponentImage"),
 		QuayClient:       &quayClient,
 		QuayOrganization: "redhat-user-workloads",
 	}).SetupWithManager(k8sManager)

@@ -1,5 +1,5 @@
 /*
-Copyright 2023.
+Copyright 2023 Red Hat, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ func Test_shouldGenerateImage(t *testing.T) {
 			args: args{
 				annotations: map[string]string{
 					"something-that-doesnt-matter": "",
-					"image.redhat.com/generate":    "false",
+					GenerateImageAnnotationName:    "false",
 				},
 			},
 			want: false,
@@ -44,7 +44,7 @@ func Test_shouldGenerateImage(t *testing.T) {
 			args: args{
 				annotations: map[string]string{
 					"something-that-doesnt-matter": "",
-					"image.redhat.com/generate":    "true",
+					GenerateImageAnnotationName:    "true",
 				},
 			},
 			want: true,
