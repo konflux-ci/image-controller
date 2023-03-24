@@ -11,8 +11,10 @@ rules:
   - secrets
   verbs:
   - create
+  - delete
   - get
   - list
+  - watch
 - apiGroups:
   - appstudio.redhat.com
   resources:

@@ -40,7 +40,7 @@ const (
 	ImageAnnotationName         = "image.redhat.com/image"
 	GenerateImageAnnotationName = "image.redhat.com/generate"
 
-	ImageRepositoryFinalizer = "image-repository.component.appstudio.openshift.io/finalizer"
+	ImageRepositoryFinalizer = "image-controller.appstudio.openshift.io/image-repository"
 )
 
 // RepositoryInfo defines the structure of the Repository information being exposed to external systems.
@@ -163,7 +163,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// Prepare data to update the component with
 	generatedRepository := RepositoryInfo{
-		Image:  fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, repo.Name),
+		Image:  imageURL,
 		Secret: robotAccountSecret.Name,
 	}
 	generatedRepositoryBytes, _ := json.Marshal(generatedRepository)
