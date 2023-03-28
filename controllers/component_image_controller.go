@@ -37,8 +37,9 @@ import (
 )
 
 const (
-	ImageAnnotationName         = "image.redhat.com/image"
-	GenerateImageAnnotationName = "image.redhat.com/generate"
+	ImageAnnotationName                 = "image.redhat.com/image"
+	GenerateImageAnnotationName         = "image.redhat.com/generate"
+	DeleteImageRepositoryAnnotationName = "image.redhat.com/delete-image-repo"
 
 	ImageRepositoryFinalizer = "image-controller.appstudio.openshift.io/image-repository"
 )
@@ -100,12 +101,25 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				log.Info(fmt.Sprintf("Deleted robot account %s", robotAccountName))
 			}
 
+			if val, exists := component.Annotations[DeleteImageRepositoryAnnotationName]; exists && val == "true" {
+				imageRepo := generateRepositoryName(component)
+				isRepoDeleted, err := r.QuayClient.DeleteRepository(r.QuayOrganization, imageRepo)
+				if err != nil {
+					log.Error(err, "failed to delete image repository")
+					// Do not block Component deletion if failed to delete image repository
+				}
+				if isRepoDeleted {
+					log.Info(fmt.Sprintf("Deleted image repository %s", imageRepo))
+				}
+			}
+
 			if err := r.Client.Get(ctx, req.NamespacedName, component); err != nil {
 				log.Error(err, "failed to get Component")
 				return ctrl.Result{}, err
 			}
 			controllerutil.RemoveFinalizer(component, ImageRepositoryFinalizer)
 			if err := r.Client.Update(ctx, component); err != nil {
+				log.Error(err, "failed to remove image repository finalizer")
 				return ctrl.Result{}, err
 			}
 			log.Info("Image repository finalizer removed from the Component")
@@ -128,7 +142,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	repo, robotAccount, err := generateImageRepository(*component, r.QuayOrganization, *r.QuayClient)
+	repo, robotAccount, err := r.generateImageRepository(component)
 	if err != nil {
 		r.reportError(ctx, component)
 		log.Error(err, "Error in the repository generation process")
@@ -150,6 +164,8 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err := r.Client.Delete(ctx, existingRobotAccountSecret); err != nil {
 			log.Error(err, fmt.Sprintf("failed to delete robot account secret %v", robotAccountSecretKey))
 			return ctrl.Result{}, err
+		} else {
+			log.Info(fmt.Sprintf("Deleted old robot account secret %v", robotAccountSecretKey))
 		}
 	} else if !errors.IsNotFound(err) {
 		log.Error(err, fmt.Sprintf("failed to read robot account secret %v", robotAccountSecretKey))
@@ -198,6 +214,44 @@ func (r *ComponentReconciler) reportError(ctx context.Context, component *appstu
 	}
 	component.Annotations[GenerateImageAnnotationName] = "failed"
 	return r.Client.Update(ctx, component)
+}
+
+func generateRobotAccountName(component *appstudioredhatcomv1alpha1.Component) string {
+	//TODO: replace component.Namespace with the name of the Space
+	return component.Namespace + component.Spec.Application + component.Name
+}
+
+func generateRepositoryName(component *appstudioredhatcomv1alpha1.Component) string {
+	return component.Namespace + "/" + component.Spec.Application + "/" + component.Name
+}
+
+func (r *ComponentReconciler) generateImageRepository(component *appstudioredhatcomv1alpha1.Component) (*quay.Repository, *quay.RobotAccount, error) {
+	imageRepositoryName := generateRepositoryName(component)
+	repo, err := r.QuayClient.CreateRepository(quay.RepositoryRequest{
+		Namespace:   r.QuayOrganization,
+		Visibility:  "public",
+		Description: "AppStudio repository for the user",
+		Repository:  imageRepositoryName,
+	})
+	if err != nil {
+		r.Log.Error(err, fmt.Sprintf("failed to create image repository %s", imageRepositoryName))
+		return nil, nil, err
+	}
+
+	robotAccountName := generateRobotAccountName(component)
+	robotAccount, err := r.QuayClient.CreateRobotAccount(r.QuayOrganization, robotAccountName)
+	if err != nil {
+		r.Log.Error(err, fmt.Sprintf("failed to create robot account %s", robotAccountName))
+		return nil, nil, err
+	}
+
+	err = r.QuayClient.AddPermissionsToRobotAccount(r.QuayOrganization, repo.Name, robotAccount.Name)
+	if err != nil {
+		r.Log.Error(err, fmt.Sprintf("failed to add permissions to robot account %s", robotAccountName))
+		return nil, nil, err
+	}
+
+	return repo, robotAccount, nil
 }
 
 func shouldGenerateImage(annotations map[string]string) bool {

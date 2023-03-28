@@ -24,6 +24,7 @@ import (
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 func TestGenerateRemoteImage(t *testing.T) {
@@ -54,7 +55,12 @@ func TestGenerateRemoteImage(t *testing.T) {
 
 	quayClient := quay.NewQuayClient(client, quayToken, "https://quay.io/api/v1")
 
-	createdRepository, createdRobotAccount, err := generateImageRepository(testComponent, "redhat-user-workloads", quayClient)
+	r := ComponentReconciler{
+		QuayClient:       &quayClient,
+		QuayOrganization: "redhat-user-workloads",
+		Log:              ctrl.Log.WithName("TestGenerateImageRepository"),
+	}
+	createdRepository, createdRobotAccount, err := r.generateImageRepository(&testComponent)
 
 	if err != nil {
 		t.Errorf("Error generating repository and setting up robot account, Expected nil, got %v", err)
