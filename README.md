@@ -39,6 +39,8 @@ spec:
   componentName: billing
 ```
 
+If `Component`'s auto-generated image repository should be deleted after component deletion, add `image.redhat.com/delete-image-repo` annotation to the `Component`.
+
 ### Verify 
 
 The `Image controller` would create the necessary resources on Quay.io and write out the details of the same into the `Component` resource as an annotation, namely: 
