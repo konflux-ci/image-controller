@@ -53,6 +53,18 @@ func TestCreateRepository(t *testing.T) {
 	}
 }
 
+func TestDeleteRepository(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+
+	_, err := quayClient.DeleteRepository(quayOrgName, quayImageRepoName)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCreateRobotAccount(t *testing.T) {
 	if quayToken == "" {
 		return

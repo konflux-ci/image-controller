@@ -47,8 +47,9 @@ var _ = Describe("Component image controller", func() {
 					Name:      "foo",
 					Namespace: "default",
 					Annotations: map[string]string{
-						"foo":                       "bar",
-						"image.redhat.com/generate": "true",
+						"foo":                                   "bar",
+						controllers.GenerateImageAnnotationName: "true",
+						controllers.DeleteImageRepositoryAnnotationName: "true",
 					},
 				},
 				Spec: appstudioredhatcomv1alpha1.ComponentSpec{
@@ -194,6 +195,10 @@ var _ = Describe("Component image controller", func() {
 
 			gock.New("https://quay.io").
 				Delete(fmt.Sprintf("/api/v1/organization/%s/robots/%s", quayOrganization, userProvidedRobotAccountName)).
+				Reply(204).JSON(map[string]string{})
+
+			gock.New("https://quay.io").
+				Delete(fmt.Sprintf("/api/v1/repository/%s/%s", quayOrganization, expectedRepoName)).
 				Reply(204).JSON(map[string]string{})
 
 			Expect(k8sClient.Delete(ctx, appComponent)).To(Succeed())
