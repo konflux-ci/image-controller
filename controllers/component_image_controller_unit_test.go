@@ -17,128 +17,93 @@ limitations under the License.
 package controllers
 
 import (
-	"fmt"
-	"net/http"
+	"encoding/json"
+	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
-	"github.com/h2non/gock"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	"github.com/redhat-appstudio/image-controller/pkg/quay"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/uuid"
-	ctrl "sigs.k8s.io/controller-runtime"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestShouldGenerateImage(t *testing.T) {
-	type args struct {
-		annotations map[string]string
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{
-			name: "dont generate image repo",
-			args: args{
-				annotations: map[string]string{
-					"something-that-doesnt-matter": "",
-					GenerateImageAnnotationName:    "false",
-				},
-			},
-			want: false,
-		},
-		{
-			name: "generate image repo",
-			args: args{
-				annotations: map[string]string{
-					"something-that-doesnt-matter": "",
-					GenerateImageAnnotationName:    "true",
-				},
-			},
-			want: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldGenerateImage(tt.args.annotations); got != tt.want {
-				t.Errorf("name: %s, shouldGenerateImage() = %v, want %v", tt.name, got, tt.want)
-			}
-		})
-	}
+func deepCopyComponent(src *appstudioredhatcomv1alpha1.Component) *appstudioredhatcomv1alpha1.Component {
+	var copy appstudioredhatcomv1alpha1.Component
+	data, _ := json.Marshal(*src)
+	json.Unmarshal(data, &copy)
+	return &copy
 }
 
-func TestGenerateImageRepository(t *testing.T) {
-	defer gock.Off()
-	defer gock.GetUnmatchedRequests()
+func TestGenerateRobotAccountName(t *testing.T) {
+	NameGeneratorTest(t, generateRobotAccountName)
+}
 
-	testComponent := appstudioredhatcomv1alpha1.Component{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      "componentname", // required for repo name generation
-			Namespace: "shbose",        // required for repo name generation
-			UID:       uuid.NewUUID(),
+func TestGenerateImageRepositoryName(t *testing.T) {
+	NameGeneratorTest(t, generateImageRepositoryName)
+}
+
+type NameGeneratorFunc func(*appstudioredhatcomv1alpha1.Component) string
+
+func NameGeneratorTest(t *testing.T, nameGenFunc NameGeneratorFunc) {
+	funcFQN := runtime.FuncForPC(reflect.ValueOf(nameGenFunc).Pointer()).Name()
+	funcFQNParts := strings.Split(funcFQN, ".")
+	funcName := funcFQNParts[len(funcFQNParts)-1]
+
+	component := &appstudioredhatcomv1alpha1.Component{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "componentName",
+			Namespace: "componentNamespace",
 		},
 		Spec: appstudioredhatcomv1alpha1.ComponentSpec{
-			Application: "applicationname", //  required for repo name generation
+			Application: "applicationName",
 		},
 	}
 
-	expectedNamespace := "redhat-appstudio-user"
-	expectedRepoName := testComponent.Namespace + "/" + testComponent.Spec.Application + "/" + testComponent.Name
-
-	expectedRobotAccountName := testComponent.Namespace + testComponent.Spec.Application + testComponent.Name
-	returnedRobotAccountName := expectedNamespace + "+" + expectedRobotAccountName
-	expectedToken := "token"
-
-	gock.New("https://quay.io/api/v1").
-		MatchHeader("Content-type", "application/json").
-		MatchHeader("Authorization", "Bearer authtoken").
-		Post("/repository").
-		Reply(200).JSON(map[string]string{
-		"description": "description",
-		"namespace":   expectedNamespace,
-		"name":        expectedRepoName,
+	t.Run("should generate valid k8s name", func(t *testing.T) {
+		name := nameGenFunc(component)
+		if strings.ToLower(name) != name {
+			t.Error(funcName + ": k8s name should not have capital letters")
+		}
 	})
 
-	gock.New("https://quay.io/api/v1").
-		MatchHeader("Content-type", "application/json").
-		MatchHeader("Authorization", "Bearer authtoken").
-		Put(fmt.Sprintf("/organization/redhat-appstudio-user/robots/%s", expectedRobotAccountName)).
-		Reply(200).JSON(map[string]string{
-		// really the only thing we care about
-		"name":  returnedRobotAccountName,
-		"token": expectedToken,
+	t.Run("should generate deterministic name", func(t *testing.T) {
+		name1 := nameGenFunc(component)
+		name2 := nameGenFunc(component)
+		if name1 != name2 {
+			t.Error(funcName + ": should return deterministic names")
+		}
 	})
 
-	gock.New("https://quay.io/api/v1").
-		// TODO: Fix me,
-		// The code commented out below is a workaround for Gock not being able to match the URL.
-		// Given only one HTTP call remains, we can be sure that this is that gets called.
-		//Put(fmt.Sprintf("/repository/redhat-appstudio-user/shbose/applicationname/componentname/permissions/user/%s", returnedRobotAccountName)).
-		Reply(200).JSON(map[string]string{})
+	t.Run("should generate different name for component with different name", func(t *testing.T) {
+		component2 := deepCopyComponent(component)
+		component2.Name = "anotherName"
 
-	client := &http.Client{Transport: &http.Transport{}}
-	gock.InterceptClient(client)
+		name1 := nameGenFunc(component)
+		name2 := nameGenFunc(component2)
+		if name1 == name2 {
+			t.Error(funcName + ": should return different names")
+		}
+	})
 
-	quayClient := quay.NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
-	r := ComponentReconciler{
-		QuayClient:       &quayClient,
-		QuayOrganization: expectedNamespace,
-		Log:              ctrl.Log.WithName("TestGenerateImageRepository"),
-	}
+	t.Run("should generate different name for component with different namespace", func(t *testing.T) {
+		component2 := deepCopyComponent(component)
+		component2.Namespace = "anotherNamespace"
 
-	createdRepository, createdRobotAccount, err := r.generateImageRepository(&testComponent)
+		name1 := nameGenFunc(component)
+		name2 := nameGenFunc(component2)
+		if name1 == name2 {
+			t.Error(funcName + ": should return different names")
+		}
+	})
 
-	if err != nil {
-		t.Errorf("Error generating repository and setting up robot account, Expected nil, got %v", err)
-	}
-	if createdRepository.Name != expectedRepoName {
-		t.Errorf("Error creating repository, Expected %s, got %v", expectedRepoName, createdRepository.Name)
-	}
-	if createdRobotAccount.Name != returnedRobotAccountName {
-		t.Errorf("Error creating robot account, Expected %s, got %v", returnedRobotAccountName, createdRobotAccount.Name)
-	}
-	if createdRobotAccount.Token != expectedToken {
-		t.Errorf("Error creating robot account, Expected %s, got %v", expectedToken, createdRobotAccount.Token)
-	}
+	t.Run("should generate different name for component with different application", func(t *testing.T) {
+		component2 := deepCopyComponent(component)
+		component2.Spec.Application = "anotherApp"
+
+		name1 := nameGenFunc(component)
+		name2 := nameGenFunc(component2)
+		if name1 == name2 {
+			t.Error(funcName + ": should return different names")
+		}
+	})
 }

@@ -18,9 +18,10 @@ package controllers
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -32,8 +33,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
-	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	appstudioapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
+	appstudiospiapiv1beta1 "github.com/redhat-appstudio/service-provider-integration-operator/api/v1beta1"
 )
 
 const (
@@ -50,25 +52,54 @@ type RepositoryInfo struct {
 	Secret string `json:"secret"`
 }
 
+type ImageControllerAction int
+
+const (
+	NoAction ImageControllerAction = iota
+	ProvisionImageRepositoryAction
+	RegenrateImageRepositoryTokenAction
+)
+
+type ImageRepositoryProvisionStatus struct {
+	// Image repository flow
+	isImageRepositoryCreated bool
+	isRobotAccountCreated    bool
+	isRobotAccountConfigured bool
+
+	// Image repository robot account token flow
+	isTokenSubmittedToSPI        bool
+	isSPIAccessTokenReady        bool
+	isSPIAccessTokenOwnerSet     bool
+	isSPIAccessTokenBindingReady bool
+}
+
+func NewImageRepositoryProvisionStatus() *ImageRepositoryProvisionStatus {
+	return &ImageRepositoryProvisionStatus{}
+}
+
 // ComponentReconciler reconciles a Controller object
 type ComponentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	Log    logr.Logger
 
-	QuayClient       *quay.QuayClient
+	QuayClient       quay.QuayService
 	QuayOrganization string
+
+	ImageRepositoryProvision map[string]*ImageRepositoryProvisionStatus
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&appstudioredhatcomv1alpha1.Component{}).
+		For(&appstudioapiv1alpha1.Component{}).
 		Complete(r)
 }
 
-//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;delete
+//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=spiaccesstokens,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=spiaccesstokenbindings,verbs=get;list;watch;create;
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -76,7 +107,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	log := r.Log.WithValues("Component", req.NamespacedName)
 
 	// Fetch the Component instance
-	component := &appstudioredhatcomv1alpha1.Component{}
+	component := &appstudioapiv1alpha1.Component{}
 	err := r.Client.Get(ctx, req.NamespacedName, component)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -102,7 +133,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 
 			if val, exists := component.Annotations[DeleteImageRepositoryAnnotationName]; exists && val == "true" {
-				imageRepo := generateRepositoryName(component)
+				imageRepo := generateImageRepositoryName(component)
 				isRepoDeleted, err := r.QuayClient.DeleteRepository(r.QuayOrganization, imageRepo)
 				if err != nil {
 					log.Error(err, "failed to delete image repository")
@@ -128,10 +159,6 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	if !shouldGenerateImage(component.Annotations) {
-		return ctrl.Result{}, nil
-	}
-
 	// This is workaround for Application Service that doesn't properly handle component updates
 	// while initial operations with the Component are in progress.
 	if component.Status.Devfile == "" {
@@ -142,72 +169,36 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	repo, robotAccount, err := r.generateImageRepository(component)
-	if err != nil {
-		r.reportError(ctx, component)
-		log.Error(err, "Error in the repository generation process")
-		return ctrl.Result{}, nil
-	}
-	if repo == nil || robotAccount == nil {
-		r.reportError(ctx, component)
-		log.Error(err, "Unknown error in the repository generation process")
-		return ctrl.Result{}, nil
-	}
-
-	// Create secret with the reposuitory credentials
-	imageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, repo.Name)
-	robotAccountSecret := generateSecret(*component, *robotAccount, imageURL)
-
-	robotAccountSecretKey := types.NamespacedName{Namespace: robotAccountSecret.Namespace, Name: robotAccountSecret.Name}
-	existingRobotAccountSecret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, robotAccountSecretKey, existingRobotAccountSecret); err == nil {
-		if err := r.Client.Delete(ctx, existingRobotAccountSecret); err != nil {
-			log.Error(err, fmt.Sprintf("failed to delete robot account secret %v", robotAccountSecretKey))
+	switch getRequestedAction(component.Annotations) {
+	case ProvisionImageRepositoryAction:
+		done, err := r.ProvisionImageRepository(ctx, component)
+		if err != nil {
+			if done {
+				// Permanent error
+				log.Error(err, "failed to provision image repository for the Component")
+				if err := r.reportError(ctx, component); err != nil {
+					log.Error(err, "failed to set error on the Component")
+				}
+				return ctrl.Result{}, nil
+			}
+			// Continue provision flow with a new retry
 			return ctrl.Result{}, err
-		} else {
-			log.Info(fmt.Sprintf("Deleted old robot account secret %v", robotAccountSecretKey))
 		}
-	} else if !errors.IsNotFound(err) {
-		log.Error(err, fmt.Sprintf("failed to read robot account secret %v", robotAccountSecretKey))
-		return ctrl.Result{}, err
-	}
-
-	if err := r.Client.Create(ctx, &robotAccountSecret); err != nil {
-		log.Error(err, fmt.Sprintf("error writing robot account token into Secret: %v", robotAccountSecretKey))
-		return ctrl.Result{}, err
-	}
-
-	// Prepare data to update the component with
-	generatedRepository := RepositoryInfo{
-		Image:  imageURL,
-		Secret: robotAccountSecret.Name,
-	}
-	generatedRepositoryBytes, _ := json.Marshal(generatedRepository)
-
-	// Update component with the generated data and add finalizer
-	err = r.Client.Get(ctx, req.NamespacedName, component)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("error updating the Component's annotations: %w", err)
-	}
-	if component.ObjectMeta.DeletionTimestamp.IsZero() {
-		component.Annotations[ImageAnnotationName] = string(generatedRepositoryBytes)
-		component.Annotations[GenerateImageAnnotationName] = "false"
-
-		if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
-			controllerutil.AddFinalizer(component, ImageRepositoryFinalizer)
+		if !done {
+			return ctrl.Result{RequeueAfter: time.Second}, nil
 		}
+		log.Info("Image repository provision successfully finished")
 
-		if err := r.Client.Update(ctx, component); err != nil {
-			return ctrl.Result{}, fmt.Errorf("error updating the component: %w", err)
+	case RegenrateImageRepositoryTokenAction:
+		if err := r.RegenerateImageRepositoryToken(ctx, component); err != nil {
+			return ctrl.Result{}, err
 		}
-		log.Info("Image regipository finaliziler added to the Component")
-		log.Info("Component updated successfully")
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *ComponentReconciler) reportError(ctx context.Context, component *appstudioredhatcomv1alpha1.Component) error {
+func (r *ComponentReconciler) reportError(ctx context.Context, component *appstudioapiv1alpha1.Component) error {
 	lookUpKey := types.NamespacedName{Name: component.Name, Namespace: component.Namespace}
 	if err := r.Client.Get(ctx, lookUpKey, component); err != nil {
 		return err
@@ -216,76 +207,304 @@ func (r *ComponentReconciler) reportError(ctx context.Context, component *appstu
 	return r.Client.Update(ctx, component)
 }
 
-func generateRobotAccountName(component *appstudioredhatcomv1alpha1.Component) string {
+// getRequestedAction returns what jobs is requested for the component
+func getRequestedAction(annotations map[string]string) ImageControllerAction {
+	if generateValue, present := annotations[GenerateImageAnnotationName]; present {
+		if generateValue == "true" {
+			return ProvisionImageRepositoryAction
+		}
+		if generateValue == "regenerate-token" {
+			return RegenrateImageRepositoryTokenAction
+		}
+	}
+	return NoAction
+}
+
+// generateRobotAccountName generates predictable robot account name for given component
+func generateRobotAccountName(component *appstudioapiv1alpha1.Component) string {
 	//TODO: replace component.Namespace with the name of the Space
-	return component.Namespace + component.Spec.Application + component.Name
+	return strings.ToLower(component.Namespace + component.Spec.Application + component.Name)
 }
 
-func generateRepositoryName(component *appstudioredhatcomv1alpha1.Component) string {
-	return component.Namespace + "/" + component.Spec.Application + "/" + component.Name
+// generateImageRepositoryName generates predictable image repository name for given component
+func generateImageRepositoryName(component *appstudioapiv1alpha1.Component) string {
+	return strings.ToLower(component.Namespace + "/" + component.Spec.Application + "/" + component.Name)
 }
 
-func (r *ComponentReconciler) generateImageRepository(component *appstudioredhatcomv1alpha1.Component) (*quay.Repository, *quay.RobotAccount, error) {
-	imageRepositoryName := generateRepositoryName(component)
-	repo, err := r.QuayClient.CreateRepository(quay.RepositoryRequest{
-		Namespace:   r.QuayOrganization,
-		Visibility:  "public",
-		Description: "AppStudio repository for the user",
-		Repository:  imageRepositoryName,
-	})
-	if err != nil {
-		r.Log.Error(err, fmt.Sprintf("failed to create image repository %s", imageRepositoryName))
-		return nil, nil, err
+// ProvisionImageRepository does complete provision of image repositroy for given component,
+// including uploading credentials to SPI and binding and linking them to pipeline service account.
+func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, component *appstudioapiv1alpha1.Component) (bool, error) {
+	componentKey := types.NamespacedName{Namespace: component.Namespace, Name: component.Name}
+	log := r.Log.WithValues("ImageRepoProvisonForComponent", componentKey)
+	var err error
+
+	// Get or create repository provision status
+	imageRepoName := generateImageRepositoryName(component)
+	imageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, imageRepoName)
+	rps, exists := r.ImageRepositoryProvision[imageRepoName]
+	if !exists {
+		rps = NewImageRepositoryProvisionStatus()
+		r.ImageRepositoryProvision[imageRepoName] = rps
 	}
 
+	if !rps.isImageRepositoryCreated {
+		repo, err := r.QuayClient.CreateRepository(quay.RepositoryRequest{
+			Namespace:   r.QuayOrganization,
+			Visibility:  "public",
+			Description: "AppStudio repository for the user",
+			Repository:  imageRepoName,
+		})
+		if err != nil {
+			r.Log.Error(err, fmt.Sprintf("failed to create image repository %s", imageRepoName))
+			return false, err
+		}
+		if repo == nil {
+			return false, fmt.Errorf("unknown error in the image repository creation process")
+		}
+
+		rps.isImageRepositoryCreated = true
+	}
+
+	var robotAccount *quay.RobotAccount
 	robotAccountName := generateRobotAccountName(component)
-	robotAccount, err := r.QuayClient.CreateRobotAccount(r.QuayOrganization, robotAccountName)
-	if err != nil {
-		r.Log.Error(err, fmt.Sprintf("failed to create robot account %s", robotAccountName))
-		return nil, nil, err
+
+	if !rps.isRobotAccountCreated {
+		robotAccount, err = r.QuayClient.CreateRobotAccount(r.QuayOrganization, robotAccountName)
+		if err != nil {
+			r.Log.Error(err, fmt.Sprintf("failed to create robot account %s", robotAccountName))
+			return false, err
+		}
+		if robotAccount == nil {
+			return false, fmt.Errorf("unknown error in the robot account creation process")
+		}
+
+		rps.isRobotAccountCreated = true
 	}
 
-	err = r.QuayClient.AddPermissionsToRobotAccount(r.QuayOrganization, repo.Name, robotAccount.Name)
-	if err != nil {
-		r.Log.Error(err, fmt.Sprintf("failed to add permissions to robot account %s", robotAccountName))
-		return nil, nil, err
+	if !rps.isRobotAccountConfigured {
+		err := r.QuayClient.AddPermissionsToRobotAccount(r.QuayOrganization, imageRepoName, robotAccountName)
+		if err != nil {
+			r.Log.Error(err, fmt.Sprintf("failed to add permissions to robot account %s", robotAccountName))
+			return false, err
+		}
+
+		rps.isRobotAccountConfigured = true
 	}
 
-	return repo, robotAccount, nil
+	if !rps.isTokenSubmittedToSPI {
+		if robotAccount == nil {
+			robotAccount, err = r.QuayClient.GetRobotAccount(r.QuayOrganization, robotAccountName)
+			if err != nil {
+				r.Log.Error(err, fmt.Sprintf("failed to get robot account %s", robotAccountName))
+				return false, err
+			}
+		}
+
+		// Name SPIAccessToken the same as robot account
+		robotAccountTokenSecret := generateUploadToSPISecret(component, robotAccount, imageURL)
+		if err := r.Client.Create(ctx, robotAccountTokenSecret); err != nil {
+			log.Error(err, fmt.Sprintf("error writing robot account token into Secret: %s", robotAccountTokenSecret.Name))
+			return false, err
+		}
+
+		rps.isTokenSubmittedToSPI = true
+	}
+
+	spiAccessToken := &appstudiospiapiv1beta1.SPIAccessToken{}
+	spiAccessTokenKey := types.NamespacedName{Namespace: component.Namespace, Name: robotAccountName}
+	if err := r.Client.Get(ctx, spiAccessTokenKey, spiAccessToken); err != nil {
+		if !errors.IsNotFound(err) {
+			log.Error(err, fmt.Sprintf("failed to get SPIAccessToken %v", spiAccessTokenKey))
+			return false, err
+		}
+		// Wait for the token object to be created by SPI
+		log.Info(fmt.Sprintf("waiting for SPIAccessToken %v existance", spiAccessTokenKey))
+		return false, nil
+	}
+
+	if !rps.isSPIAccessTokenReady {
+		if spiAccessToken.Status.Phase != appstudiospiapiv1beta1.SPIAccessTokenPhaseReady {
+			log.Info(fmt.Sprintf("waiting for SPIAccessToken %v readiness", spiAccessTokenKey))
+			return false, nil
+		}
+
+		rps.isSPIAccessTokenReady = true
+	}
+
+	if !rps.isSPIAccessTokenOwnerSet {
+		// Add owner reference to ensure SPIAccessToken is deleted together with the component
+		spiAccessToken.ObjectMeta.OwnerReferences = append(spiAccessToken.ObjectMeta.OwnerReferences,
+			metav1.OwnerReference{
+				Name:       component.Name,
+				Kind:       component.Kind,
+				APIVersion: component.APIVersion,
+				UID:        component.UID,
+			},
+		)
+
+		if err := r.Client.Update(ctx, spiAccessToken); err != nil {
+			log.Error(err, fmt.Sprintf("failed to update owner reference of SPIAccessToken %v", spiAccessTokenKey))
+			return false, err
+		}
+
+		rps.isSPIAccessTokenOwnerSet = true
+	}
+
+	spiAccessTokenBinding := &appstudiospiapiv1beta1.SPIAccessTokenBinding{}
+	spiAccessTokenBindingKey := types.NamespacedName{Namespace: component.Namespace, Name: robotAccountName}
+	if err := r.Client.Get(ctx, spiAccessTokenBindingKey, spiAccessTokenBinding); err != nil {
+		if !errors.IsNotFound(err) {
+			log.Error(err, fmt.Sprintf("failed to get SPIAccessTokenBinding %v", spiAccessTokenBindingKey))
+			return false, err
+		}
+		// SPIAccessTokenBinding does not exists, create it
+		spiAccessTokenBinding = generateSPIAccessTokenBinding(component, imageURL, robotAccountName)
+		if err := r.Client.Create(ctx, spiAccessTokenBinding); err != nil {
+			log.Error(err, fmt.Sprintf("failed to create SPIAccessTokenBinding %v", spiAccessTokenBindingKey))
+			return false, err
+		}
+
+		return false, nil
+	}
+
+	if !rps.isSPIAccessTokenBindingReady {
+		if spiAccessTokenBinding.Status.Phase != appstudiospiapiv1beta1.SPIAccessTokenBindingPhaseInjected {
+			log.Info(fmt.Sprintf("waiting for SPIAccessTokenBinding %v readiness", spiAccessTokenBindingKey))
+			return false, nil
+		}
+
+		rps.isSPIAccessTokenBindingReady = true
+	}
+
+	// Update component with the generated data and add finalizer
+	if err := r.Client.Get(ctx, componentKey, component); err != nil {
+		log.Error(err, "failed to get component")
+		return false, err
+	}
+
+	if component.ObjectMeta.DeletionTimestamp.IsZero() {
+		generatedRepository := RepositoryInfo{
+			Image:  imageURL,
+			Secret: spiAccessTokenBinding.Status.SyncedObjectRef.Name,
+		}
+		generatedRepositoryBytes, _ := json.Marshal(generatedRepository)
+
+		component.Annotations[ImageAnnotationName] = string(generatedRepositoryBytes)
+		component.Annotations[GenerateImageAnnotationName] = "false"
+
+		isFinalizerAdded := false
+		if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
+			controllerutil.AddFinalizer(component, ImageRepositoryFinalizer)
+			isFinalizerAdded = true
+		}
+
+		if err := r.Client.Update(ctx, component); err != nil {
+			log.Error(err, "failed to update component")
+			return false, err
+		}
+
+		if isFinalizerAdded {
+			log.Info("Image regipository finaliziler added to the Component")
+		}
+		log.Info("Component updated successfully")
+	}
+
+	// Mark the provision completely finished
+	delete(r.ImageRepositoryProvision, imageRepoName)
+
+	return true, nil
 }
 
-func shouldGenerateImage(annotations map[string]string) bool {
-	if generate, present := annotations[GenerateImageAnnotationName]; present && generate == "true" {
-		return true
+func (r *ComponentReconciler) RegenerateImageRepositoryToken(ctx context.Context, component *appstudioapiv1alpha1.Component) error {
+	componentKey := types.NamespacedName{Namespace: component.Namespace, Name: component.Name}
+	log := r.Log.WithValues("RegenrateImageRepositoryToken", componentKey)
+
+	imageRepoName := generateImageRepositoryName(component)
+	imageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, imageRepoName)
+	robotAccountName := generateRobotAccountName(component)
+
+	robotAccount, err := r.QuayClient.RegenerateRobotAccountToken(r.QuayOrganization, robotAccountName)
+	if err != nil {
+		log.Error(err, "failed to regenerate quayrobot account token")
+		return err
 	}
-	return false
+
+	robotAccountTokenSecret := generateUploadToSPISecret(component, robotAccount, imageURL)
+	if err := r.Client.Create(ctx, robotAccountTokenSecret); err != nil {
+		log.Error(err, fmt.Sprintf("error writing robot account token into Secret: %s", robotAccountTokenSecret.Name))
+		return err
+	}
+
+	// There is no point in waiting for the token readiness
+
+	if err := r.Client.Get(ctx, componentKey, component); err != nil {
+		return err
+	}
+	component.Annotations[GenerateImageAnnotationName] = "false"
+	return r.Client.Update(ctx, component)
 }
 
-// generateSecret dumps the robot account token into a Secret for future consumption.
-func generateSecret(c appstudioredhatcomv1alpha1.Component, r quay.RobotAccount, quayImageURL string) corev1.Secret {
-	secret := corev1.Secret{
+// generateUploadToSPISecret generates a secret to upload robot account credentials to SPI.
+func generateUploadToSPISecret(component *appstudioapiv1alpha1.Component, robotAccount *quay.RobotAccount, quayImageURL string) *corev1.Secret {
+	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      c.Name,
-			Namespace: c.Namespace,
+			Name:      component.Name + "-upload-image-registry-secret",
+			Namespace: component.Namespace,
+			Labels: map[string]string{
+				"spi.appstudio.redhat.com/upload-secret": "token",
+			},
+		},
+		Type: corev1.SecretTypeOpaque,
+		StringData: map[string]string{
+			// Name SPIAccessToken the same as robot account, because the token is singleton for the robot account.
+			"spiTokenName": robotAccount.Name,
+			"providerUrl":  quayImageURL,
+			"userName":     robotAccount.Name,
+			"tokenData":    robotAccount.Token,
+		},
+	}
+}
+
+func generateSPIAccessTokenBinding(component *appstudioapiv1alpha1.Component, imageURL, robotAccountName string) *appstudiospiapiv1beta1.SPIAccessTokenBinding {
+	pipelineServiceAccountName := "pipeline"
+
+	return &appstudiospiapiv1beta1.SPIAccessTokenBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      robotAccountName,
+			Namespace: component.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
 				{
-					Name:       c.Name,
-					APIVersion: c.APIVersion,
-					Kind:       c.Kind,
-					UID:        c.UID,
+					Name:       component.Name,
+					Kind:       component.Kind,
+					APIVersion: component.APIVersion,
+					UID:        component.UID,
 				},
 			},
 		},
-		Type: corev1.SecretTypeDockerConfigJson,
+		Spec: appstudiospiapiv1beta1.SPIAccessTokenBindingSpec{
+			RepoUrl:  imageURL,
+			Lifetime: "-1",
+			Secret: appstudiospiapiv1beta1.SecretSpec{
+				Type: corev1.SecretTypeDockerConfigJson,
+				LinkedTo: []appstudiospiapiv1beta1.SecretLink{
+					{
+						ServiceAccount: appstudiospiapiv1beta1.ServiceAccountLink{
+							As: appstudiospiapiv1beta1.ServiceAccountLinkTypeSecret,
+							Reference: corev1.LocalObjectReference{
+								Name: pipelineServiceAccountName,
+							},
+						},
+					},
+					{
+						ServiceAccount: appstudiospiapiv1beta1.ServiceAccountLink{
+							As: appstudiospiapiv1beta1.ServiceAccountLinkTypeImagePullSecret,
+							Reference: corev1.LocalObjectReference{
+								Name: pipelineServiceAccountName,
+							},
+						},
+					},
+				},
+			},
+		},
 	}
-
-	secretData := map[string]string{}
-	authString := fmt.Sprintf("%s:%s", r.Name, r.Token)
-	secretData[corev1.DockerConfigJsonKey] = fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`,
-		quayImageURL,
-		base64.StdEncoding.EncodeToString([]byte(authString)),
-	)
-
-	secret.StringData = secretData
-	return secret
 }

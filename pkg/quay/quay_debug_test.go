@@ -27,7 +27,7 @@ var (
 	quayApiUrl = "https://quay.io/api/v1"
 
 	quayOrgName          = "test-org"
-	quayImageRepoName    = "test-component-repo"
+	quayImageRepoName    = "namespace/application/component"
 	quayRobotAccountName = "test-robot-account"
 )
 
@@ -62,6 +62,21 @@ func TestDeleteRepository(t *testing.T) {
 	_, err := quayClient.DeleteRepository(quayOrgName, quayImageRepoName)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGetRobotAccount(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+
+	robotAccount, err := quayClient.GetRobotAccount(quayOrgName, quayRobotAccountName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if robotAccount == nil {
+		t.Fatal("Robot account should not be nil")
 	}
 }
 
@@ -101,5 +116,20 @@ func TestAddPermissionsToRobotAccount(t *testing.T) {
 	err := quayClient.AddPermissionsToRobotAccount(quayOrgName, quayImageRepoName, quayRobotAccountName)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRegenerateRobotAccountToken(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+
+	robotAccount, err := quayClient.RegenerateRobotAccountToken(quayOrgName, quayRobotAccountName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if robotAccount == nil {
+		t.Fatal("Updated robot account should not be nil")
 	}
 }

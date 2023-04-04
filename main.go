@@ -37,6 +37,7 @@ import (
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/controllers"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
+	appstudiospiapiv1beta1 "github.com/redhat-appstudio/service-provider-integration-operator/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -49,6 +50,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(appstudioredhatcomv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(appstudiospiapiv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -105,11 +107,12 @@ func main() {
 	}
 	quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, strings.TrimSpace(string(tokenContent)), "https://quay.io/api/v1")
 	if err = (&controllers.ComponentReconciler{
-		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		Log:              ctrl.Log.WithName("controllers").WithName("ComponentImage"),
-		QuayClient:       &quayClient,
-		QuayOrganization: strings.TrimSpace(string(orgContent)),
+		Client:                   mgr.GetClient(),
+		Scheme:                   mgr.GetScheme(),
+		Log:                      ctrl.Log.WithName("controllers").WithName("ComponentImage"),
+		QuayClient:               &quayClient,
+		QuayOrganization:         strings.TrimSpace(string(orgContent)),
+		ImageRepositoryProvision: make(map[string]*controllers.ImageRepositoryProvisionStatus),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Controller")
 		os.Exit(1)

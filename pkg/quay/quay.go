@@ -27,11 +27,13 @@ import (
 )
 
 type QuayService interface {
-	CreateRepository(r RepositoryRequest) (*Repository, error)
+	CreateRepository(repositoryRequest RepositoryRequest) (*Repository, error)
 	DeleteRepository(organization, imageRepository string) (bool, error)
+	GetRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
 	AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error
+	RegenerateRobotAccountToken(organization string, robotName string) (*RobotAccount, error)
 	GetAllRepositories(organization string) ([]Repository, error)
 	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
 }
@@ -53,11 +55,11 @@ func NewQuayClient(c *http.Client, authToken, url string) QuayClient {
 }
 
 // CreateRepository creates a new Quay.io image repository.
-func (c *QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) {
+func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Repository, error) {
 
 	url := fmt.Sprintf("%s/%s", c.url, "repository")
 
-	b, err := json.Marshal(r)
+	b, err := json.Marshal(repositoryRequest)
 	if err != nil {
 		fmt.Println(err)
 		return nil, err
@@ -92,9 +94,11 @@ func (c *QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) 
 	}
 
 	if res.StatusCode == 400 && data.ErrorMessage == "Repository already exists" {
-		data.Name = r.Repository
+		data.Name = repositoryRequest.Repository
+	} else if data.ErrorMessage != "" {
+		return data, errors.New(data.ErrorMessage)
 	}
-	fmt.Println(string(body))
+
 	return data, nil
 }
 
@@ -134,6 +138,43 @@ func (c *QuayClient) DeleteRepository(organization, imageRepository string) (boo
 	return false, errors.New(data.ErrorMessage)
 }
 
+func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*RobotAccount, error) {
+	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
+
+	req, err := http.NewRequest(http.MethodGet, url, &bytes.Buffer{})
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+
+	data := &RobotAccount{}
+	err = json.Unmarshal(body, data)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+
+	if data.Message != "" {
+		return data, errors.New(data.Message)
+	}
+	return data, nil
+}
+
 // CreateRobotAccount creates a new Quay.io robot account in the organization.
 func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (*RobotAccount, error) {
 	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
@@ -171,35 +212,11 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 	}
 
 	if res.StatusCode == 400 && strings.Contains(data.Message, "Existing robot with name") {
-		req, err = http.NewRequest(http.MethodGet, url, &bytes.Buffer{})
+		data, err = c.GetRobotAccount(organization, robotName)
 		if err != nil {
-			fmt.Println(err)
-			return nil, err
-		}
-		req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-		req.Header.Add("Content-Type", "application/json")
-
-		res, err := c.httpClient.Do(req)
-		if err != nil {
-			fmt.Println(err)
-			return nil, err
-		}
-		defer res.Body.Close()
-
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			fmt.Println(err)
-			return nil, err
-		}
-
-		data = &RobotAccount{}
-		err = json.Unmarshal(body, data)
-		if err != nil {
-			fmt.Println(err)
 			return nil, err
 		}
 	}
-	fmt.Println(string(body))
 	return data, nil
 }
 
@@ -277,6 +294,43 @@ func (c *QuayClient) AddPermissionsToRobotAccount(organization, imageRepository,
 	}
 	fmt.Println(string(body))
 	return nil
+}
+
+func (c *QuayClient) RegenerateRobotAccountToken(organization string, robotName string) (*RobotAccount, error) {
+	url := fmt.Sprintf("%s/organization/%s/robots/%s/regenerate", c.url, organization, robotName)
+
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+
+	data := &RobotAccount{}
+	err = json.Unmarshal(body, data)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+
+	if data.Message != "" {
+		return data, errors.New(data.Message)
+	}
+	return data, nil
 }
 
 // Returns all repositories of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
