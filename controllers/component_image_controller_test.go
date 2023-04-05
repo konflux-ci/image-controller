@@ -101,9 +101,9 @@ var _ = Describe("Component image controller", func() {
 				return generatedRobotAccount, nil
 			}
 
-			isAddPermissionsToRobotAccountInvoked := false
-			AddPermissionsToRobotAccountFunc = func(organization, imageRepository, robotAccountName string) error {
-				isAddPermissionsToRobotAccountInvoked = true
+			isAddWritePermissionsToRobotAccountInvoked := false
+			AddWritePermissionsToRobotAccountFunc = func(organization, imageRepository, robotAccountName string) error {
+				isAddWritePermissionsToRobotAccountInvoked = true
 				Expect(organization).To(Equal(TestQuayOrganization))
 				Expect(imageRepository).To(Equal(expectedImageRepositoryName))
 				Expect(robotAccountName).To(Equal(expectedRobotAccountName))
@@ -119,7 +119,7 @@ var _ = Describe("Component image controller", func() {
 				return isCreateRobotAccountInvoked
 			}, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				return isAddPermissionsToRobotAccountInvoked
+				return isAddWritePermissionsToRobotAccountInvoked
 			}, timeout, interval).Should(BeTrue())
 
 			// Check the token submision via secret to SPI

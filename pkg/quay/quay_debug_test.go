@@ -107,13 +107,13 @@ func TestDeleteRobotAccount(t *testing.T) {
 	}
 }
 
-func TestAddPermissionsToRobotAccount(t *testing.T) {
+func TestAddWritePermissionsToRobotAccount(t *testing.T) {
 	if quayToken == "" {
 		return
 	}
 	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
 
-	err := quayClient.AddPermissionsToRobotAccount(quayOrgName, quayImageRepoName, quayRobotAccountName)
+	err := quayClient.AddWritePermissionsToRobotAccount(quayOrgName, quayImageRepoName, quayRobotAccountName)
 	if err != nil {
 		t.Fatal(err)
 	}

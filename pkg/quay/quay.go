@@ -32,7 +32,7 @@ type QuayService interface {
 	GetRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
-	AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error
+	AddWritePermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error
 	RegenerateRobotAccountToken(organization string, robotName string) (*RobotAccount, error)
 	GetAllRepositories(organization string) ([]Repository, error)
 	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
@@ -179,9 +179,7 @@ func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*Ro
 func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (*RobotAccount, error) {
 	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
 
-	payload := strings.NewReader(`{
-  "description": "Robot account for AppStudio Component"
-}`)
+	payload := strings.NewReader(`{"description": "Robot account for AppStudio Component"}`)
 
 	req, err := http.NewRequest(http.MethodPut, url, payload)
 	if err != nil {
@@ -256,17 +254,13 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 	return false, errors.New(data.ErrorMessage)
 }
 
-// AddPermissionsToRobotAccount enables "robotAccountName" to "write" to "repository"
-func (c *QuayClient) AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error {
-
-	// example,
+// AddWritePermissionsToRobotAccount enables "robotAccountName" to "write" to "repository"
+func (c *QuayClient) AddWritePermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error {
 	// url := "https://quay.io/api/v1/repository/redhat-appstudio/test-repo-using-api/permissions/user/redhat-appstudio+createdbysbose"
+	robotAccountFullName := organization + "+" + robotAccountName
+	url := fmt.Sprintf("%s/repository/%s/%s/permissions/user/%s", c.url, organization, imageRepository, robotAccountFullName)
 
-	url := fmt.Sprintf("%s/repository/%s/%s/permissions/user/%s", c.url, organization, imageRepository, robotAccountName)
-	fmt.Println(url)
-	payload := strings.NewReader(`{
-	"role": "write"
-  }`)
+	payload := strings.NewReader(`{"role": "write"}`)
 
 	req, err := http.NewRequest(http.MethodPut, url, payload)
 
@@ -278,7 +272,6 @@ func (c *QuayClient) AddPermissionsToRobotAccount(organization, imageRepository,
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
-	fmt.Println(req)
 	if err != nil {
 		return err
 	}

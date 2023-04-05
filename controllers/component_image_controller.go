@@ -57,7 +57,7 @@ type ImageControllerAction int
 const (
 	NoAction ImageControllerAction = iota
 	ProvisionImageRepositoryAction
-	RegenrateImageRepositoryTokenAction
+	RegenerateImageRepositoryTokenAction
 )
 
 type ImageRepositoryProvisionStatus struct {
@@ -189,7 +189,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		log.Info("Image repository provision successfully finished")
 
-	case RegenrateImageRepositoryTokenAction:
+	case RegenerateImageRepositoryTokenAction:
 		if err := r.RegenerateImageRepositoryToken(ctx, component); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -214,7 +214,7 @@ func getRequestedAction(annotations map[string]string) ImageControllerAction {
 			return ProvisionImageRepositoryAction
 		}
 		if generateValue == "regenerate-token" {
-			return RegenrateImageRepositoryTokenAction
+			return RegenerateImageRepositoryTokenAction
 		}
 	}
 	return NoAction
@@ -261,6 +261,7 @@ func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, comp
 		if repo == nil {
 			return false, fmt.Errorf("unknown error in the image repository creation process")
 		}
+		log.Info(fmt.Sprintf("Image repository %s created for %v component", repo.Name, componentKey))
 
 		rps.isImageRepositoryCreated = true
 	}
@@ -277,12 +278,13 @@ func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, comp
 		if robotAccount == nil {
 			return false, fmt.Errorf("unknown error in the robot account creation process")
 		}
+		log.Info(fmt.Sprintf("Robot account %s created for %s image repository", robotAccount.Name, imageURL))
 
 		rps.isRobotAccountCreated = true
 	}
 
 	if !rps.isRobotAccountConfigured {
-		err := r.QuayClient.AddPermissionsToRobotAccount(r.QuayOrganization, imageRepoName, robotAccountName)
+		err := r.QuayClient.AddWritePermissionsToRobotAccount(r.QuayOrganization, imageRepoName, robotAccountName)
 		if err != nil {
 			r.Log.Error(err, fmt.Sprintf("failed to add permissions to robot account %s", robotAccountName))
 			return false, err
@@ -298,6 +300,7 @@ func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, comp
 				r.Log.Error(err, fmt.Sprintf("failed to get robot account %s", robotAccountName))
 				return false, err
 			}
+			log.Info(fmt.Sprintf("Submitted robot account %s token to SPI", robotAccountName))
 		}
 
 		// Name SPIAccessToken the same as robot account
@@ -415,9 +418,11 @@ func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, comp
 	return true, nil
 }
 
+// RegenerateImageRepositoryToken refreshes token of robot account connected to the image repository.
+// Uploads the new token to SPI, so the used by client pipeline secret gets updated as well.
 func (r *ComponentReconciler) RegenerateImageRepositoryToken(ctx context.Context, component *appstudioapiv1alpha1.Component) error {
 	componentKey := types.NamespacedName{Namespace: component.Namespace, Name: component.Name}
-	log := r.Log.WithValues("RegenrateImageRepositoryToken", componentKey)
+	log := r.Log.WithValues("RegenerateImageRepositoryToken", componentKey)
 
 	imageRepoName := generateImageRepositoryName(component)
 	imageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, imageRepoName)
@@ -428,12 +433,14 @@ func (r *ComponentReconciler) RegenerateImageRepositoryToken(ctx context.Context
 		log.Error(err, "failed to regenerate quayrobot account token")
 		return err
 	}
+	log.Info(fmt.Sprintf("Refreshed token of %s robot account", robotAccount.Name))
 
 	robotAccountTokenSecret := generateUploadToSPISecret(component, robotAccount, imageURL)
 	if err := r.Client.Create(ctx, robotAccountTokenSecret); err != nil {
 		log.Error(err, fmt.Sprintf("error writing robot account token into Secret: %s", robotAccountTokenSecret.Name))
 		return err
 	}
+	log.Info(fmt.Sprintf("Submitted update of robot account %s token to SPI", robotAccountName))
 
 	// There is no point in waiting for the token readiness
 
