@@ -79,7 +79,10 @@ var _ = Describe("Component image controller", func() {
 			expectedRobotAccountName := generateRobotAccountName(component)
 			expectedImageRepoURL := fmt.Sprintf("quay.io/%s/%s", TestQuayOrganization, expectedImageRepositoryName)
 
-			generatedRobotAccount := &quay.RobotAccount{Name: expectedRobotAccountName, Token: "token1234"}
+			generatedRobotAccount := &quay.RobotAccount{
+				Name:  TestQuayOrganization + "+" + expectedRobotAccountName,
+				Token: "token1234",
+			}
 
 			ResetTestQuayClient()
 
@@ -122,20 +125,32 @@ var _ = Describe("Component image controller", func() {
 				return isAddWritePermissionsToRobotAccountInvoked
 			}, timeout, interval).Should(BeTrue())
 
+			Eventually(func() bool {
+				imageRepositoryFinalizerFound := false
+				component = getComponent(componentKey)
+				for _, finalizer := range component.Finalizers {
+					if finalizer == ImageRepositoryFinalizer {
+						imageRepositoryFinalizerFound = true
+						break
+					}
+				}
+				return imageRepositoryFinalizerFound
+			}, timeout, interval).Should(BeTrue())
+
 			// Check the token submision via secret to SPI
 			uploadToSPISecret := generateUploadToSPISecret(component, generatedRobotAccount, expectedImageRepoURL)
 			uploadToSPISecretKey := types.NamespacedName{Namespace: uploadToSPISecret.Namespace, Name: uploadToSPISecret.Name}
 			uploadToSPISecret = waitSecretCreated(uploadToSPISecretKey)
 			Expect(uploadToSPISecret.Labels["spi.appstudio.redhat.com/upload-secret"]).To(Equal("token"))
-			Expect(string(uploadToSPISecret.Data["spiTokenName"])).To(Equal(generatedRobotAccount.Name))
-			Expect(string(uploadToSPISecret.Data["providerUrl"])).To(Equal(expectedImageRepoURL))
+			Expect(string(uploadToSPISecret.Data["spiTokenName"])).To(Equal(expectedRobotAccountName))
+			Expect(string(uploadToSPISecret.Data["providerUrl"])).To(Equal("https://" + expectedImageRepoURL))
 			Expect(string(uploadToSPISecret.Data["userName"])).To(Equal(generatedRobotAccount.Name))
 			Expect(string(uploadToSPISecret.Data["tokenData"])).To(Equal(generatedRobotAccount.Token))
 
 			// Mimic SPI by deleting the secret and creating SPIAccessToken
 			Expect(k8sClient.Delete(ctx, uploadToSPISecret)).To(Succeed())
 
-			spiAccessTokenKey := types.NamespacedName{Namespace: component.Namespace, Name: generatedRobotAccount.Name}
+			spiAccessTokenKey := types.NamespacedName{Namespace: component.Namespace, Name: expectedRobotAccountName}
 			createSPIAccessToken(spiAccessTokenKey)
 			// Simulate SPI working
 			time.Sleep(time.Second)
@@ -150,9 +165,9 @@ var _ = Describe("Component image controller", func() {
 					spiAccessToken.OwnerReferences[0].Kind == "Component"
 			}, timeout, interval).Should(BeTrue())
 
-			spiAccessTokenBindingKey := types.NamespacedName{Namespace: component.Namespace, Name: generatedRobotAccount.Name}
+			spiAccessTokenBindingKey := spiAccessTokenKey
 			spiAccessTokenBinding := waitSPIAccessTokenBinding(spiAccessTokenBindingKey)
-			Expect(spiAccessTokenBinding.Spec.RepoUrl).To(Equal(expectedImageRepoURL))
+			Expect(spiAccessTokenBinding.Spec.RepoUrl).To(Equal("https://" + expectedImageRepoURL))
 			Expect(spiAccessTokenBinding.Spec.Lifetime).To(Equal("-1"))
 			Expect(len(spiAccessTokenBinding.ObjectMeta.OwnerReferences)).To(Equal(1))
 			Expect(spiAccessTokenBinding.ObjectMeta.OwnerReferences[0].Name).To(Equal(component.Name))
@@ -168,15 +183,6 @@ var _ = Describe("Component image controller", func() {
 			Expect(repositoryInfo.Image).To(Equal(expectedImageRepoURL))
 			Expect(repositoryInfo.Secret).To(HavePrefix(spiAccessTokenBinding.Name))
 
-			imageRepositoryFinalizerFound := false
-			for _, finalizer := range component.Finalizers {
-				if finalizer == ImageRepositoryFinalizer {
-					imageRepositoryFinalizerFound = true
-					break
-				}
-			}
-			Expect(imageRepositoryFinalizerFound).To((BeTrue()))
-
 			waitComponentAnnotationValue(componentKey, GenerateImageAnnotationName, "false")
 		})
 
@@ -187,7 +193,10 @@ var _ = Describe("Component image controller", func() {
 			expectedRobotAccountName := generateRobotAccountName(component)
 			expectedImageRepoURL := fmt.Sprintf("quay.io/%s/%s", TestQuayOrganization, expectedImageRepositoryName)
 
-			regeneratedRobotAccount := &quay.RobotAccount{Name: expectedRobotAccountName, Token: "token5678"}
+			regeneratedRobotAccount := &quay.RobotAccount{
+				Name:  TestQuayOrganization + "+" + expectedRobotAccountName,
+				Token: "token5678",
+			}
 
 			ResetTestQuayClient()
 
@@ -212,8 +221,8 @@ var _ = Describe("Component image controller", func() {
 			}, timeout, interval).Should(BeTrue())
 
 			uploadToSPISecret = waitSecretCreated(uploadToSPISecretKey)
-			Expect(string(uploadToSPISecret.Data["spiTokenName"])).To(Equal(regeneratedRobotAccount.Name))
-			Expect(string(uploadToSPISecret.Data["providerUrl"])).To(Equal(expectedImageRepoURL))
+			Expect(string(uploadToSPISecret.Data["spiTokenName"])).To(Equal(expectedRobotAccountName))
+			Expect(string(uploadToSPISecret.Data["providerUrl"])).To(Equal("https://" + expectedImageRepoURL))
 			Expect(string(uploadToSPISecret.Data["userName"])).To(Equal(regeneratedRobotAccount.Name))
 			Expect(string(uploadToSPISecret.Data["tokenData"])).To(Equal(regeneratedRobotAccount.Token))
 

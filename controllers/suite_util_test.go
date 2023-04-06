@@ -234,7 +234,12 @@ func createSPIAccessToken(resourceKey types.NamespacedName) {
 func waitSPIAccessToken(resourceKey types.NamespacedName) *appstudiospiapiv1beta1.SPIAccessToken {
 	spiAccesToken := &appstudiospiapiv1beta1.SPIAccessToken{}
 	Eventually(func() bool {
-		Expect(k8sClient.Get(ctx, resourceKey, spiAccesToken)).Should(Succeed())
+		if err := k8sClient.Get(ctx, resourceKey, spiAccesToken); err != nil {
+			if !errors.IsNotFound(err) {
+				Fail(err.Error())
+			}
+			return false
+		}
 		return spiAccesToken.ResourceVersion != ""
 	}, timeout, interval).Should(BeTrue())
 	return spiAccesToken
@@ -249,7 +254,12 @@ func makeSPIAccessTokenReady(resourceKey types.NamespacedName) {
 func waitSPIAccessTokenBinding(resourceKey types.NamespacedName) *appstudiospiapiv1beta1.SPIAccessTokenBinding {
 	spiAccesTokenBinding := &appstudiospiapiv1beta1.SPIAccessTokenBinding{}
 	Eventually(func() bool {
-		Expect(k8sClient.Get(ctx, resourceKey, spiAccesTokenBinding)).Should(Succeed())
+		if err := k8sClient.Get(ctx, resourceKey, spiAccesTokenBinding); err != nil {
+			if !errors.IsNotFound(err) {
+				Fail(err.Error())
+			}
+			return false
+		}
 		return spiAccesTokenBinding.ResourceVersion != ""
 	}, timeout, interval).Should(BeTrue())
 	return spiAccesTokenBinding

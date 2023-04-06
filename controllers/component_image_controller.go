@@ -61,16 +61,11 @@ const (
 )
 
 type ImageRepositoryProvisionStatus struct {
-	// Image repository flow
 	isImageRepositoryCreated bool
 	isRobotAccountCreated    bool
 	isRobotAccountConfigured bool
-
-	// Image repository robot account token flow
-	isTokenSubmittedToSPI        bool
-	isSPIAccessTokenReady        bool
-	isSPIAccessTokenOwnerSet     bool
-	isSPIAccessTokenBindingReady bool
+	isTokenSubmittedToSPI    bool
+	isSPIAccessTokenOwnerSet bool
 }
 
 func NewImageRepositoryProvisionStatus() *ImageRepositoryProvisionStatus {
@@ -98,8 +93,8 @@ func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;delete
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=spiaccesstokens,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=spiaccesstokenbindings,verbs=get;list;watch;create;
+//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=spiaccesstokens,verbs=get;list;watch;update;patch;delete
+//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=spiaccesstokenbindings,verbs=get;list;watch;create;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -283,6 +278,23 @@ func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, comp
 		rps.isRobotAccountCreated = true
 	}
 
+	// Add finalizer to the component in order to clean up robot account and image repository if requested
+	if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) && component.ObjectMeta.DeletionTimestamp.IsZero() {
+		if err := r.Client.Get(ctx, componentKey, component); err != nil {
+			log.Error(err, "failed to get component")
+			return false, err
+		}
+		if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) && component.ObjectMeta.DeletionTimestamp.IsZero() {
+			controllerutil.AddFinalizer(component, ImageRepositoryFinalizer)
+
+			if err := r.Client.Update(ctx, component); err != nil {
+				log.Error(err, "failed to update component")
+				return false, err
+			}
+			log.Info("Image regipository finaliziler added to the Component")
+		}
+	}
+
 	if !rps.isRobotAccountConfigured {
 		err := r.QuayClient.AddWritePermissionsToRobotAccount(r.QuayOrganization, imageRepoName, robotAccountName)
 		if err != nil {
@@ -303,7 +315,7 @@ func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, comp
 			log.Info(fmt.Sprintf("Submitted robot account %s token to SPI", robotAccountName))
 		}
 
-		// Name SPIAccessToken the same as robot account
+		// Name SPIAccessToken the same as robot account (without orgname+ prefix)
 		robotAccountTokenSecret := generateUploadToSPISecret(component, robotAccount, imageURL)
 		if err := r.Client.Create(ctx, robotAccountTokenSecret); err != nil {
 			log.Error(err, fmt.Sprintf("error writing robot account token into Secret: %s", robotAccountTokenSecret.Name))
@@ -324,14 +336,9 @@ func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, comp
 		log.Info(fmt.Sprintf("waiting for SPIAccessToken %v existance", spiAccessTokenKey))
 		return false, nil
 	}
-
-	if !rps.isSPIAccessTokenReady {
-		if spiAccessToken.Status.Phase != appstudiospiapiv1beta1.SPIAccessTokenPhaseReady {
-			log.Info(fmt.Sprintf("waiting for SPIAccessToken %v readiness", spiAccessTokenKey))
-			return false, nil
-		}
-
-		rps.isSPIAccessTokenReady = true
+	if spiAccessToken.Status.Phase != appstudiospiapiv1beta1.SPIAccessTokenPhaseReady {
+		log.Info(fmt.Sprintf("waiting for SPIAccessToken %v readiness", spiAccessTokenKey))
+		return false, nil
 	}
 
 	if !rps.isSPIAccessTokenOwnerSet {
@@ -344,7 +351,6 @@ func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, comp
 				UID:        component.UID,
 			},
 		)
-
 		if err := r.Client.Update(ctx, spiAccessToken); err != nil {
 			log.Error(err, fmt.Sprintf("failed to update owner reference of SPIAccessToken %v", spiAccessTokenKey))
 			return false, err
@@ -366,20 +372,14 @@ func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, comp
 			log.Error(err, fmt.Sprintf("failed to create SPIAccessTokenBinding %v", spiAccessTokenBindingKey))
 			return false, err
 		}
-
+		return false, nil
+	}
+	if spiAccessTokenBinding.Status.Phase != appstudiospiapiv1beta1.SPIAccessTokenBindingPhaseInjected {
+		log.Info(fmt.Sprintf("waiting for SPIAccessTokenBinding %v readiness", spiAccessTokenBindingKey))
 		return false, nil
 	}
 
-	if !rps.isSPIAccessTokenBindingReady {
-		if spiAccessTokenBinding.Status.Phase != appstudiospiapiv1beta1.SPIAccessTokenBindingPhaseInjected {
-			log.Info(fmt.Sprintf("waiting for SPIAccessTokenBinding %v readiness", spiAccessTokenBindingKey))
-			return false, nil
-		}
-
-		rps.isSPIAccessTokenBindingReady = true
-	}
-
-	// Update component with the generated data and add finalizer
+	// Update component with the generated data
 	if err := r.Client.Get(ctx, componentKey, component); err != nil {
 		log.Error(err, "failed to get component")
 		return false, err
@@ -395,19 +395,9 @@ func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, comp
 		component.Annotations[ImageAnnotationName] = string(generatedRepositoryBytes)
 		component.Annotations[GenerateImageAnnotationName] = "false"
 
-		isFinalizerAdded := false
-		if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
-			controllerutil.AddFinalizer(component, ImageRepositoryFinalizer)
-			isFinalizerAdded = true
-		}
-
 		if err := r.Client.Update(ctx, component); err != nil {
 			log.Error(err, "failed to update component")
 			return false, err
-		}
-
-		if isFinalizerAdded {
-			log.Info("Image regipository finaliziler added to the Component")
 		}
 		log.Info("Component updated successfully")
 	}
@@ -453,6 +443,16 @@ func (r *ComponentReconciler) RegenerateImageRepositoryToken(ctx context.Context
 
 // generateUploadToSPISecret generates a secret to upload robot account credentials to SPI.
 func generateUploadToSPISecret(component *appstudioapiv1alpha1.Component, robotAccount *quay.RobotAccount, quayImageURL string) *corev1.Secret {
+	// Make robot account name a valid k8s name
+	// user-org+namespaceapplication-samplecomponent-sample -> namespaceapplication-samplecomponent-sample
+	var robotAccountName string
+	robotAccountNameParts := strings.Split(robotAccount.Name, "+")
+	if len(robotAccountNameParts) > 1 {
+		robotAccountName = robotAccountNameParts[1]
+	} else {
+		robotAccountName = robotAccountNameParts[0]
+	}
+
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      component.Name + "-upload-image-registry-secret",
@@ -464,8 +464,8 @@ func generateUploadToSPISecret(component *appstudioapiv1alpha1.Component, robotA
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
 			// Name SPIAccessToken the same as robot account, because the token is singleton for the robot account.
-			"spiTokenName": robotAccount.Name,
-			"providerUrl":  quayImageURL,
+			"spiTokenName": robotAccountName,
+			"providerUrl":  "https://" + quayImageURL,
 			"userName":     robotAccount.Name,
 			"tokenData":    robotAccount.Token,
 		},
@@ -489,7 +489,7 @@ func generateSPIAccessTokenBinding(component *appstudioapiv1alpha1.Component, im
 			},
 		},
 		Spec: appstudiospiapiv1beta1.SPIAccessTokenBindingSpec{
-			RepoUrl:  imageURL,
+			RepoUrl:  "https://" + imageURL,
 			Lifetime: "-1",
 			Secret: appstudiospiapiv1beta1.SecretSpec{
 				Type: corev1.SecretTypeDockerConfigJson,
