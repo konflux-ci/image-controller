@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -278,40 +279,57 @@ func (c *QuayClient) AddPermissionsToRobotAccount(organization, imageRepository,
 
 // Returns all repositories of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
 func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, error) {
-	url := fmt.Sprintf("%s/repository?last_modified=true&namespace=%s", c.url, organization)
+	repo_url := fmt.Sprintf("%s/repository", c.url)
+	values := url.Values{}
+	values.Add("last_modified", "true")
+	values.Add("namespace", organization)
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequest(http.MethodGet, repo_url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create new request, error: %s", err)
 	}
 
+	req.URL.RawQuery = values.Encode()
 	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if res.StatusCode != 200 {
-		fmt.Printf("error getting repositories, got status code %d", res.StatusCode)
-		return nil, err
-	}
-
-	defer res.Body.Close()
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	type Response struct {
-		Repositories []Repository
+		Repositories []Repository `json:"repositories"`
+		NextPage     string       `json:"next_page"`
 	}
 	var response Response
-	err = json.Unmarshal(body, &response)
-	if err != nil {
-		return nil, err
+	var repositories []Repository
+
+	for {
+		res, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to Do request, error: %s", err)
+		}
+		if res.StatusCode != 200 {
+			return nil, fmt.Errorf("error getting repositories, got status code %d", res.StatusCode)
+		}
+
+		defer res.Body.Close()
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body, error: %s", err)
+		}
+
+		err = json.Unmarshal(body, &response)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal body, error: %s", err)
+		}
+
+		repositories = append(repositories, response.Repositories...)
+
+		if response.NextPage == "" || values.Get("next_page") == response.NextPage {
+			break
+		}
+
+		values.Add("next_page", response.NextPage)
+		req.URL.RawQuery = values.Encode()
 	}
-	return response.Repositories, nil
+	return repositories, nil
 }
 
 // Returns all robot accounts of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
@@ -320,7 +338,7 @@ func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, e
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create new request, error: %s", err)
 	}
 
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
@@ -328,17 +346,16 @@ func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, e
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to Do request, error: %s", err)
 	}
 	if res.StatusCode != 200 {
-		fmt.Printf("error getting robot accounts, got status code %d", res.StatusCode)
-		return nil, err
+		return nil, fmt.Errorf("error getting repositories, got status code %d", res.StatusCode)
 	}
 
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read response body, error: %s", err)
 	}
 
 	type Response struct {
@@ -347,7 +364,7 @@ func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, e
 	var response Response
 	err = json.Unmarshal(body, &response)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal body, error: %s", err)
 	}
 	return response.Robots, nil
 }
