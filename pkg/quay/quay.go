@@ -275,3 +275,79 @@ func (c *QuayClient) AddPermissionsToRobotAccount(organization, imageRepository,
 	fmt.Println(string(body))
 	return nil
 }
+
+// Returns all repositories of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
+func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, error) {
+	url := fmt.Sprintf("%s/repository?last_modified=true&namespace=%s", c.url, organization)
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode != 200 {
+		fmt.Printf("error getting repositories, got status code %d", res.StatusCode)
+		return nil, err
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	type Response struct {
+		Repositories []Repository
+	}
+	var response Response
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return nil, err
+	}
+	return response.Repositories, nil
+}
+
+// Returns all robot accounts of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
+func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, error) {
+	url := fmt.Sprintf("%s/organization/%s/robots", c.url, organization)
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode != 200 {
+		fmt.Printf("error getting robot accounts, got status code %d", res.StatusCode)
+		return nil, err
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	type Response struct {
+		Robots []RobotAccount
+	}
+	var response Response
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return nil, err
+	}
+	return response.Robots, nil
+}
