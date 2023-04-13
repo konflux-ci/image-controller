@@ -326,7 +326,7 @@ func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, erro
 			break
 		}
 
-		values.Add("next_page", response.NextPage)
+		values.Set("next_page", response.NextPage)
 		req.URL.RawQuery = values.Encode()
 	}
 	return repositories, nil
