@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -31,6 +32,8 @@ type QuayService interface {
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
 	AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error
+	GetAllRepositories(organization string) ([]Repository, error)
+	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
 }
 
 var _ QuayService = (*QuayClient)(nil)
@@ -274,4 +277,96 @@ func (c *QuayClient) AddPermissionsToRobotAccount(organization, imageRepository,
 	}
 	fmt.Println(string(body))
 	return nil
+}
+
+// Returns all repositories of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
+func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, error) {
+	repo_url := fmt.Sprintf("%s/repository", c.url)
+	values := url.Values{}
+	values.Add("last_modified", "true")
+	values.Add("namespace", organization)
+
+	req, err := http.NewRequest(http.MethodGet, repo_url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new request, error: %s", err)
+	}
+
+	req.URL.RawQuery = values.Encode()
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	type Response struct {
+		Repositories []Repository `json:"repositories"`
+		NextPage     string       `json:"next_page"`
+	}
+	var response Response
+	var repositories []Repository
+
+	for {
+		res, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to Do request, error: %s", err)
+		}
+		if res.StatusCode != 200 {
+			return nil, fmt.Errorf("error getting repositories, got status code %d", res.StatusCode)
+		}
+
+		defer res.Body.Close()
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body, error: %s", err)
+		}
+
+		err = json.Unmarshal(body, &response)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal body, error: %s", err)
+		}
+
+		repositories = append(repositories, response.Repositories...)
+
+		if response.NextPage == "" || values.Get("next_page") == response.NextPage {
+			break
+		}
+
+		values.Set("next_page", response.NextPage)
+		req.URL.RawQuery = values.Encode()
+	}
+	return repositories, nil
+}
+
+// Returns all robot accounts of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
+func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, error) {
+	url := fmt.Sprintf("%s/organization/%s/robots", c.url, organization)
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new request, error: %s", err)
+	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to Do request, error: %s", err)
+	}
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("error getting repositories, got status code %d", res.StatusCode)
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body, error: %s", err)
+	}
+
+	type Response struct {
+		Robots []RobotAccount
+	}
+	var response Response
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal body, error: %s", err)
+	}
+	return response.Robots, nil
 }
