@@ -32,6 +32,8 @@ type QuayService interface {
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
 	AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error
+	GetAllRepositories(organization string) ([]Repository, error)
+	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
 }
 
 var _ QuayService = (*QuayClient)(nil)
