@@ -198,6 +198,10 @@ func (r *ComponentReconciler) reportError(ctx context.Context, component *appstu
 	if err := r.Client.Get(ctx, lookUpKey, component); err != nil {
 		return err
 	}
+	if !component.ObjectMeta.DeletionTimestamp.IsZero() {
+		// No need to report error on component deletion
+		return nil
+	}
 	component.Annotations[GenerateImageAnnotationName] = "failed"
 	return r.Client.Update(ctx, component)
 }
@@ -279,14 +283,20 @@ func (r *ComponentReconciler) ProvisionImageRepository(ctx context.Context, comp
 	}
 
 	// Add finalizer to the component in order to clean up robot account and image repository if requested
-	if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) && component.ObjectMeta.DeletionTimestamp.IsZero() {
+	if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
 		if err := r.Client.Get(ctx, componentKey, component); err != nil {
 			log.Error(err, "failed to get component")
 			return false, err
 		}
-		if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) && component.ObjectMeta.DeletionTimestamp.IsZero() {
+		if !component.ObjectMeta.DeletionTimestamp.IsZero() {
+			delete(r.ImageRepositoryProvision, imageRepoName)
+			// Ignore all errors
+			r.QuayClient.DeleteRobotAccount(r.QuayOrganization, robotAccountName)
+			r.QuayClient.DeleteRepository(r.QuayOrganization, imageRepoName)
+			return false, fmt.Errorf("image repository provision canceled due to component deletion")
+		}
+		if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
 			controllerutil.AddFinalizer(component, ImageRepositoryFinalizer)
-
 			if err := r.Client.Update(ctx, component); err != nil {
 				log.Error(err, "failed to update component")
 				return false, err
