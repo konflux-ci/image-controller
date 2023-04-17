@@ -178,3 +178,17 @@ func TestQuayClient_GetAllRobotAccounts(t *testing.T) {
 		t.Errorf("Error getting all robot accounts, Expected nil, got %v", err)
 	}
 }
+
+func TestQuayClient_handleRobotName(t *testing.T) {
+	shortName, err := handleRobotName("robot")
+	if err != nil {
+		t.Errorf("error handling shortname, got: %s", err)
+	}
+	longName, err := handleRobotName("org+robot")
+	if err != nil {
+		t.Errorf("error handling longname, got: %s", err)
+	}
+	if shortName != longName {
+		t.Errorf("expected shortname `%s` to be the same as longname `%s`", shortName, longName)
+	}
+}
