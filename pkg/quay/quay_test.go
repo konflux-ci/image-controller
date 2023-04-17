@@ -191,4 +191,17 @@ func TestQuayClient_handleRobotName(t *testing.T) {
 	if shortName != longName {
 		t.Errorf("expected shortname `%s` to be the same as longname `%s`", shortName, longName)
 	}
+
+	_, err = handleRobotName("")
+	if err == nil {
+		t.Error("false match for empty string")
+	}
+	_, err = handleRobotName("org+second+test")
+	if err == nil {
+		t.Error("false match for two plus signs")
+	}
+	_, err = handleRobotName("+")
+	if err == nil {
+		t.Error("false match for `+`")
+	}
 }
