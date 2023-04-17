@@ -136,6 +136,10 @@ func (c *QuayClient) DeleteRepository(organization, imageRepository string) (boo
 
 // CreateRobotAccount creates a new Quay.io robot account in the organization.
 func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (*RobotAccount, error) {
+	robotName, err := handleRobotName(robotName)
+	if err != nil {
+		return nil, err
+	}
 	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
 
 	payload := strings.NewReader(`{
@@ -205,6 +209,10 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 
 // DeleteRobotAccount deletes given Quay.io robot account in the organization.
 func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (bool, error) {
+	robotName, err := handleRobotName(robotName)
+	if err != nil {
+		return false, err
+	}
 	url := fmt.Sprintf("%s/organization/%s/robots/%s", c.url, organization, robotName)
 
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
@@ -369,4 +377,16 @@ func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, e
 		return nil, fmt.Errorf("failed to unmarshal body, error: %s", err)
 	}
 	return response.Robots, nil
+}
+
+// If robotName is in longform, return shortname
+func handleRobotName(robotName string) (string, error) {
+	if strings.Contains(robotName, "+") {
+		parts := strings.Split(robotName, "+")
+		if len(parts) != 2 {
+			return robotName, fmt.Errorf("robotName could not be split into two parts, expected len 2, got len %d", len(parts))
+		}
+		robotName = parts[1]
+	}
+	return robotName, nil
 }
