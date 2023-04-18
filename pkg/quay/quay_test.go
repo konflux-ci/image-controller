@@ -16,6 +16,8 @@ limitations under the License.
 package quay
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -176,5 +178,87 @@ func TestQuayClient_GetAllRobotAccounts(t *testing.T) {
 
 	if err != nil {
 		t.Errorf("Error getting all robot accounts, Expected nil, got %v", err)
+	}
+}
+
+func TestQuayClient_handleRobotName(t *testing.T) {
+	invalidRobotNameErr := fmt.Errorf("robot name is invalid, must match `^([a-z0-9]+(?:[._-][a-z0-9]+)*)$` (one plus sign in the middle is also allowed)")
+	testCases := []struct {
+		name         string
+		input        string
+		expectedName string
+		expectedErr  error
+	}{
+		{
+			name:         "valid short name",
+			input:        "robot",
+			expectedName: "robot",
+			expectedErr:  nil,
+		},
+		{
+			name:         "valid long name",
+			input:        "org+robot",
+			expectedName: "robot",
+			expectedErr:  nil,
+		},
+		{
+			name:         "empty input",
+			input:        "",
+			expectedName: "",
+			expectedErr:  invalidRobotNameErr,
+		},
+		{
+			name:         "two plus signs in name",
+			input:        "org+second+test",
+			expectedName: "",
+			expectedErr:  invalidRobotNameErr,
+		},
+		{
+			name:         "lone plus sign",
+			input:        "+",
+			expectedName: "",
+			expectedErr:  invalidRobotNameErr,
+		},
+		{
+			name:         "special character in name",
+			input:        "robot!robot",
+			expectedName: "",
+			expectedErr:  invalidRobotNameErr,
+		},
+		{
+			name:         "uppercase character in name",
+			input:        "RobOt",
+			expectedName: "",
+			expectedErr:  invalidRobotNameErr,
+		},
+		{
+			name:         "leading spaces in name",
+			input:        "  robot  ",
+			expectedName: "robot",
+			expectedErr:  nil,
+		},
+		{
+			name:         "non-alphanumeric character in name",
+			input:        "róbot",
+			expectedName: "",
+			expectedErr:  invalidRobotNameErr,
+		},
+		{
+			name:         "allowed characters in name",
+			input:        "robot_robot-robot.robot",
+			expectedName: "robot_robot-robot.robot",
+			expectedErr:  nil,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actualName, actualErr := handleRobotName(tc.input)
+			if actualName != tc.expectedName {
+				t.Errorf("expected robot name `%s` but got `%s`", tc.expectedName, actualName)
+			}
+			if (actualErr != nil || tc.expectedErr != nil) && errors.Is(actualErr, tc.expectedErr) {
+				t.Errorf("expected error `%s`, but got `%s`", tc.expectedErr, actualErr)
+			}
+		})
 	}
 }
