@@ -385,6 +385,7 @@ func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, e
 func handleRobotName(robotName string) (string, error) {
 	// Regexp from quay api `^([a-z0-9]+(?:[._-][a-z0-9]+)*)$` with one plus sign in the middle allowed (representing longname)
 	r, err := regexp.Compile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\+[a-z0-9]+(?:[._-][a-z0-9]+)*)?$`)
+	robotName = strings.TrimSpace(robotName)
 	if err != nil {
 		return "", fmt.Errorf("failed to compile regex, error: %s", err)
 	}
