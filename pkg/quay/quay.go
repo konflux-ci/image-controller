@@ -35,6 +35,8 @@ type QuayService interface {
 	AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error
 	GetAllRepositories(organization string) ([]Repository, error)
 	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
+	GetTagsFromPage(organization, repository string, page int) ([]Tag, bool, error)
+	DeleteTag(organization, repository, tag string) (bool, error)
 }
 
 var _ QuayService = (*QuayClient)(nil)
