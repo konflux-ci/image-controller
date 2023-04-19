@@ -6,6 +6,7 @@ type Tag struct {
 	Name           string `json:"name"`
 	ManifestDigest string `json:"manifest_digest,omitempty"`
 	Size           int    `json:"int"`
+	StartTS        int64  `json:"start_ts"`
 }
 
 type Repository struct {
