@@ -401,3 +401,66 @@ func handleRobotName(robotName string) (string, error) {
 	}
 	return robotName, nil
 }
+
+func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) ([]Tag, bool, error) {
+	url := fmt.Sprintf("%s/repository/%s/%s/tag/?page=%d", c.url, organization, repository, page)
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to create new request, error: %s", err)
+	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to Do request, error: %s", err)
+	}
+	if res.StatusCode != 200 {
+		return nil, false, fmt.Errorf("error getting repositories, got status code %d", res.StatusCode)
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to read response body, error: %s", err)
+	}
+
+	var response struct {
+		Tags          []Tag
+		Page          int
+		HasAdditional bool
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to unmarshal body, error: %s", err)
+	}
+	return response.Tags, response.HasAdditional, nil
+}
+
+func (c *QuayClient) DeleteTag(organization, repository, tag string) (bool, error) {
+	url := fmt.Sprintf("%s/repository/%s/%s/tag/%s", c.url, organization, repository, tag)
+
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to Do request, error: %s", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == 204 {
+		return true, nil
+	}
+	if res.StatusCode == 404 {
+		return false, nil
+	}
+	return false, fmt.Errorf("error deleting tag")
+}
