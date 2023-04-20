@@ -43,6 +43,8 @@ type RobotAccount struct {
 	Message      string `json:"message"`
 }
 
+// Quay API can sometimes return {"error": "..."} and sometimes {"error_message": "..."} without the field error
 type QuayError struct {
-	ErrorMessage string `json:"error_type"`
+	Error        string `json:"error,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
 }

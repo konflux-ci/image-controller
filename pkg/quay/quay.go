@@ -464,5 +464,18 @@ func (c *QuayClient) DeleteTag(organization, repository, tag string) (bool, erro
 	if res.StatusCode == 404 {
 		return false, nil
 	}
-	return false, fmt.Errorf("error deleting tag")
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return false, fmt.Errorf("failed to read response body, error: %s", err)
+	}
+	data := &QuayError{}
+	err = json.Unmarshal(body, data)
+	if err != nil {
+		return false, fmt.Errorf("failed to unmarshal body, error: %s", err)
+	}
+	if data.Error != "" {
+		return false, errors.New(data.Error)
+	}
+	return false, errors.New(data.ErrorMessage)
 }

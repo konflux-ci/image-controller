@@ -365,6 +365,15 @@ func TestQuayClient_DeleteTag(t *testing.T) {
 			deleted:    false,
 			err:        fmt.Errorf("error deleting tag"),
 			statusCode: 500,
+			response:   []byte(`{"error":"error deleting tag"}`),
+		},
+		{
+			name:       "error message deleting tag",
+			tag:        "tag",
+			deleted:    false,
+			err:        fmt.Errorf("error deleting tag"),
+			statusCode: 500,
+			response:   []byte(`{"error_message":"error deleting tag"}`),
 		},
 	}
 	for _, tc := range testCases {
@@ -377,7 +386,8 @@ func TestQuayClient_DeleteTag(t *testing.T) {
 				MatchHeader("Authorization", "Bearer authtoken").
 				MatchHeader("Content-Type", "application/json").
 				Delete(fmt.Sprintf("repository/%s/%s/tag/%s", org, repo, tc.tag)).
-				Reply(tc.statusCode)
+				Reply(tc.statusCode).
+				JSON(tc.response)
 
 			deleted, err := quayClient.DeleteTag(org, repo, tc.tag)
 			if tc.deleted != deleted {
