@@ -274,21 +274,18 @@ func TestQuayClient_GetTagsFromPage(t *testing.T) {
 		name          string
 		pages         int
 		tagsPerPage   int
-		totalTags     int
 		hasAdditional []bool
 	}{
 		{
 			name:          "Single Page",
 			pages:         1,
 			tagsPerPage:   2,
-			totalTags:     2,
 			hasAdditional: []bool{false},
 		},
 		{
 			name:          "Multiple Pages",
 			pages:         3,
 			tagsPerPage:   2,
-			totalTags:     6,
 			hasAdditional: []bool{true, true, false},
 		},
 	}
