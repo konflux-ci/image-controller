@@ -503,6 +503,9 @@ func generateSPIAccessTokenBinding(component *appstudioapiv1alpha1.Component, im
 			Lifetime: "-1",
 			Secret: appstudiospiapiv1beta1.SecretSpec{
 				Type: corev1.SecretTypeDockerConfigJson,
+				Annotations: map[string]string{
+					"spi.appstudio.redhat.com/config-json-type": "kubernetes",
+				},
 				LinkedTo: []appstudiospiapiv1beta1.SecretLink{
 					{
 						ServiceAccount: appstudiospiapiv1beta1.ServiceAccountLink{
