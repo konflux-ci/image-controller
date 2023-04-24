@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"github.com/h2non/gock"
@@ -258,6 +259,142 @@ func TestQuayClient_handleRobotName(t *testing.T) {
 			}
 			if (actualErr != nil || tc.expectedErr != nil) && errors.Is(actualErr, tc.expectedErr) {
 				t.Errorf("expected error `%s`, but got `%s`", tc.expectedErr, actualErr)
+			}
+		})
+	}
+}
+
+func TestQuayClient_GetTagsFromPage(t *testing.T) {
+	defer gock.Off()
+
+	org := "test_org"
+	repo := "test_repo"
+
+	testCases := []struct {
+		name          string
+		pages         int
+		tagsPerPage   int
+		hasAdditional []bool
+	}{
+		{
+			name:          "Single Page",
+			pages:         1,
+			tagsPerPage:   2,
+			hasAdditional: []bool{false},
+		},
+		{
+			name:          "Multiple Pages",
+			pages:         3,
+			tagsPerPage:   2,
+			hasAdditional: []bool{true, true, false},
+		},
+	}
+
+	for _, tc := range testCases {
+		client := &http.Client{Transport: &http.Transport{}}
+		gock.InterceptClient(client)
+
+		quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+
+		t.Run(tc.name, func(t *testing.T) {
+
+			for page := 1; page <= tc.pages; page++ {
+				mockTags := make([]Tag, tc.tagsPerPage)
+				for i := 0; i < tc.tagsPerPage; i++ {
+					mockTags[i] = Tag{
+						Name: fmt.Sprintf("tag%d", (page-1)*tc.tagsPerPage+i),
+					}
+				}
+
+				gock.New("https://quay.io/api/v1").
+					MatchHeader("Authorization", "Bearer authtoken").
+					MatchHeader("Content-Type", "application/json").
+					Get(fmt.Sprintf("repository/%s/%s/tag/", org, repo)).
+					MatchParam("page", fmt.Sprintf("%d", page)).
+					Reply(200).
+					JSON(map[string]interface{}{
+						"tags":           mockTags,
+						"has_additional": tc.hasAdditional[page-1],
+					})
+				tags, hasAdditional, err := quayClient.GetTagsFromPage(org, repo, page)
+				if err != nil {
+					t.Errorf("error getting all tags from page, expected `nil`, got `%s`", err)
+				}
+				if !reflect.DeepEqual(mockTags, tags) {
+					t.Errorf("tags are not the same, expected `%v`, got `%v`", mockTags, tags)
+				}
+				if hasAdditional != tc.hasAdditional[page-1] {
+					t.Errorf("hasAdditional is not the same, expected `%t`, got `%t`", tc.hasAdditional[page-1], hasAdditional)
+				}
+			}
+		})
+	}
+}
+
+func TestQuayClient_DeleteTag(t *testing.T) {
+	defer gock.Off()
+
+	org := "test_org"
+	repo := "test_repo"
+
+	testCases := []struct {
+		name       string
+		tag        string
+		deleted    bool
+		err        error
+		statusCode int
+		response   []byte
+	}{
+		{
+			name:       "tag deleted succesfully",
+			tag:        "tag",
+			deleted:    true,
+			err:        nil,
+			statusCode: 204,
+		},
+		{
+			name:       "tag not found",
+			tag:        "tag",
+			deleted:    false,
+			err:        nil,
+			statusCode: 404,
+		},
+		{
+			name:       "error deleting tag",
+			tag:        "tag",
+			deleted:    false,
+			err:        fmt.Errorf("error deleting tag"),
+			statusCode: 500,
+			response:   []byte(`{"error":"error deleting tag"}`),
+		},
+		{
+			name:       "error message deleting tag",
+			tag:        "tag",
+			deleted:    false,
+			err:        fmt.Errorf("error deleting tag"),
+			statusCode: 500,
+			response:   []byte(`{"error_message":"error deleting tag"}`),
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &http.Client{Transport: &http.Transport{}}
+			gock.InterceptClient(client)
+
+			quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+			gock.New("https://quay.io/api/v1").
+				MatchHeader("Authorization", "Bearer authtoken").
+				MatchHeader("Content-Type", "application/json").
+				Delete(fmt.Sprintf("repository/%s/%s/tag/%s", org, repo, tc.tag)).
+				Reply(tc.statusCode).
+				JSON(tc.response)
+
+			deleted, err := quayClient.DeleteTag(org, repo, tc.tag)
+			if tc.deleted != deleted {
+				t.Errorf("expected deleted to be `%v`, got `%v`", tc.deleted, deleted)
+			}
+			if (tc.err != nil && err == nil) || (tc.err == nil && err != nil) {
+				t.Errorf("expected error to be `%v`, got `%v`", tc.err, err)
 			}
 		})
 	}

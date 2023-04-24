@@ -35,6 +35,8 @@ type QuayService interface {
 	AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error
 	GetAllRepositories(organization string) ([]Repository, error)
 	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
+	GetTagsFromPage(organization, repository string, page int) ([]Tag, bool, error)
+	DeleteTag(organization, repository, tag string) (bool, error)
 }
 
 var _ QuayService = (*QuayClient)(nil)
@@ -131,6 +133,9 @@ func (c *QuayClient) DeleteRepository(organization, imageRepository string) (boo
 	err = json.Unmarshal(body, data)
 	if err != nil {
 		return false, err
+	}
+	if data.Error != "" {
+		return false, errors.New(data.Error)
 	}
 	return false, errors.New(data.ErrorMessage)
 }
@@ -244,6 +249,9 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 	err = json.Unmarshal(body, data)
 	if err != nil {
 		return false, err
+	}
+	if data.Error != "" {
+		return false, errors.New(data.Error)
 	}
 	return false, errors.New(data.ErrorMessage)
 }
@@ -400,4 +408,80 @@ func handleRobotName(robotName string) (string, error) {
 		robotName = parts[1]
 	}
 	return robotName, nil
+}
+
+func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) ([]Tag, bool, error) {
+	url := fmt.Sprintf("%s/repository/%s/%s/tag/?page=%d", c.url, organization, repository, page)
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to create new request, error: %s", err)
+	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to Do request, error: %s", err)
+	}
+	if res.StatusCode != 200 {
+		return nil, false, fmt.Errorf("error getting repositories, got status code %d", res.StatusCode)
+	}
+
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to read response body, error: %s", err)
+	}
+
+	var response struct {
+		Tags          []Tag `json:"tags"`
+		Page          int   `json:"page"`
+		HasAdditional bool  `json:"has_additional"`
+	}
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to unmarshal body, error: %s", err)
+	}
+	return response.Tags, response.HasAdditional, nil
+}
+
+func (c *QuayClient) DeleteTag(organization, repository, tag string) (bool, error) {
+	url := fmt.Sprintf("%s/repository/%s/%s/tag/%s", c.url, organization, repository, tag)
+
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to Do request, error: %s", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == 204 {
+		return true, nil
+	}
+	if res.StatusCode == 404 {
+		return false, nil
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return false, fmt.Errorf("failed to read response body, error: %s", err)
+	}
+	data := &QuayError{}
+	err = json.Unmarshal(body, data)
+	if err != nil {
+		return false, fmt.Errorf("failed to unmarshal body, error: %s", err)
+	}
+	if data.Error != "" {
+		return false, errors.New(data.Error)
+	}
+	return false, errors.New(data.ErrorMessage)
 }
