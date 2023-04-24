@@ -134,6 +134,9 @@ func (c *QuayClient) DeleteRepository(organization, imageRepository string) (boo
 	if err != nil {
 		return false, err
 	}
+	if data.Error != "" {
+		return false, errors.New(data.Error)
+	}
 	return false, errors.New(data.ErrorMessage)
 }
 
@@ -246,6 +249,9 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 	err = json.Unmarshal(body, data)
 	if err != nil {
 		return false, err
+	}
+	if data.Error != "" {
+		return false, errors.New(data.Error)
 	}
 	return false, errors.New(data.ErrorMessage)
 }
