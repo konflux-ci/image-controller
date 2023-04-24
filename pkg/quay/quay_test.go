@@ -313,8 +313,8 @@ func TestQuayClient_GetTagsFromPage(t *testing.T) {
 					MatchParam("page", fmt.Sprintf("%d", page)).
 					Reply(200).
 					JSON(map[string]interface{}{
-						"Tags":          mockTags,
-						"HasAdditional": tc.hasAdditional[page-1],
+						"tags":           mockTags,
+						"has_additional": tc.hasAdditional[page-1],
 					})
 				tags, hasAdditional, err := quayClient.GetTagsFromPage(org, repo, page)
 				if err != nil {
