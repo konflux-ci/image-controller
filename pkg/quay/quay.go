@@ -430,9 +430,9 @@ func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) 
 	}
 
 	var response struct {
-		Tags          []Tag
-		Page          int
-		HasAdditional bool
+		Tags          []Tag `json:"tags"`
+		Page          int   `json:"page"`
+		HasAdditional bool  `json:"has_additonal"`
 	}
 	err = json.Unmarshal(body, &response)
 	if err != nil {
