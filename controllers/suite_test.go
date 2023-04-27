@@ -112,7 +112,6 @@ var _ = BeforeSuite(func() {
 	err = (&controllers.ComponentReconciler{
 		Client:           k8sManager.GetClient(),
 		Scheme:           k8sManager.GetScheme(),
-		Log:              ctrl.Log.WithName("controllers").WithName("ComponentImage"),
 		QuayClient:       &quayClient,
 		QuayOrganization: "redhat-user-workloads",
 	}).SetupWithManager(k8sManager)

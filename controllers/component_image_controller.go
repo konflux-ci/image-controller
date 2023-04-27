@@ -30,9 +30,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/go-logr/logr"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	l "github.com/redhat-appstudio/image-controller/pkg/logs"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
 )
 
@@ -54,7 +55,6 @@ type RepositoryInfo struct {
 type ComponentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-	Log    logr.Logger
 
 	QuayClient       *quay.QuayClient
 	QuayOrganization string
@@ -73,7 +73,8 @@ func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := r.Log.WithValues("Component", req.NamespacedName)
+	log := ctrllog.FromContext(ctx).WithName("ComponentImageRepository")
+	ctx = ctrllog.IntoContext(ctx, log)
 
 	// Fetch the Component instance
 	component := &appstudioredhatcomv1alpha1.Component{}
@@ -94,35 +95,35 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			robotAccountName := generateRobotAccountName(component)
 			isDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, robotAccountName)
 			if err != nil {
-				log.Error(err, "failed to delete robot account")
+				log.Error(err, "failed to delete robot account", l.Action, l.ActionDelete, l.Audit, "true")
 				// Do not block Component deletion if failed to delete robot account
 			}
 			if isDeleted {
-				log.Info(fmt.Sprintf("Deleted robot account %s", robotAccountName))
+				log.Info(fmt.Sprintf("Deleted robot account %s", robotAccountName), l.Action, l.ActionDelete)
 			}
 
 			if val, exists := component.Annotations[DeleteImageRepositoryAnnotationName]; exists && val == "true" {
 				imageRepo := generateRepositoryName(component)
 				isRepoDeleted, err := r.QuayClient.DeleteRepository(r.QuayOrganization, imageRepo)
 				if err != nil {
-					log.Error(err, "failed to delete image repository")
+					log.Error(err, "failed to delete image repository", l.Action, l.ActionDelete, l.Audit, "true")
 					// Do not block Component deletion if failed to delete image repository
 				}
 				if isRepoDeleted {
-					log.Info(fmt.Sprintf("Deleted image repository %s", imageRepo))
+					log.Info(fmt.Sprintf("Deleted image repository %s", imageRepo), l.Action, l.ActionDelete)
 				}
 			}
 
 			if err := r.Client.Get(ctx, req.NamespacedName, component); err != nil {
-				log.Error(err, "failed to get Component")
+				log.Error(err, "failed to get Component", l.Action, l.ActionView)
 				return ctrl.Result{}, err
 			}
 			controllerutil.RemoveFinalizer(component, ImageRepositoryFinalizer)
 			if err := r.Client.Update(ctx, component); err != nil {
-				log.Error(err, "failed to remove image repository finalizer")
+				log.Error(err, "failed to remove image repository finalizer", l.Action, l.ActionUpdate)
 				return ctrl.Result{}, err
 			}
-			log.Info("Image repository finalizer removed from the Component")
+			log.Info("Image repository finalizer removed from the Component", l.Action, l.ActionDelete)
 		}
 
 		return ctrl.Result{}, nil
@@ -142,7 +143,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	repo, robotAccount, err := r.generateImageRepository(component)
+	repo, robotAccount, err := r.generateImageRepository(ctx, component)
 	if err != nil {
 		r.reportError(ctx, component)
 		log.Error(err, "Error in the repository generation process")
@@ -162,20 +163,21 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	existingRobotAccountSecret := &corev1.Secret{}
 	if err := r.Client.Get(ctx, robotAccountSecretKey, existingRobotAccountSecret); err == nil {
 		if err := r.Client.Delete(ctx, existingRobotAccountSecret); err != nil {
-			log.Error(err, fmt.Sprintf("failed to delete robot account secret %v", robotAccountSecretKey))
+			log.Error(err, fmt.Sprintf("failed to delete robot account secret %v", robotAccountSecretKey), l.Action, l.ActionDelete)
 			return ctrl.Result{}, err
 		} else {
-			log.Info(fmt.Sprintf("Deleted old robot account secret %v", robotAccountSecretKey))
+			log.Info(fmt.Sprintf("Deleted old robot account secret %v", robotAccountSecretKey), l.Action, l.ActionDelete)
 		}
 	} else if !errors.IsNotFound(err) {
-		log.Error(err, fmt.Sprintf("failed to read robot account secret %v", robotAccountSecretKey))
+		log.Error(err, fmt.Sprintf("failed to read robot account secret %v", robotAccountSecretKey), l.Action, l.ActionView)
 		return ctrl.Result{}, err
 	}
 
 	if err := r.Client.Create(ctx, &robotAccountSecret); err != nil {
-		log.Error(err, fmt.Sprintf("error writing robot account token into Secret: %v", robotAccountSecretKey))
+		log.Error(err, fmt.Sprintf("error writing robot account token into Secret: %v", robotAccountSecretKey), l.Action, l.ActionAdd)
 		return ctrl.Result{}, err
 	}
+	log.Info(fmt.Sprintf("Created image registry secret %s for Component", robotAccountSecretKey.Name), l.Action, l.ActionAdd)
 
 	// Prepare data to update the component with
 	generatedRepository := RepositoryInfo{
@@ -200,8 +202,8 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err := r.Client.Update(ctx, component); err != nil {
 			return ctrl.Result{}, fmt.Errorf("error updating the component: %w", err)
 		}
-		log.Info("Image regipository finaliziler added to the Component")
-		log.Info("Component updated successfully")
+		log.Info("Image regipository finaliziler added to the Component", l.Action, l.ActionUpdate)
+		log.Info("Component updated successfully", l.Action, l.ActionUpdate)
 	}
 
 	return ctrl.Result{}, nil
@@ -225,7 +227,9 @@ func generateRepositoryName(component *appstudioredhatcomv1alpha1.Component) str
 	return component.Namespace + "/" + component.Spec.Application + "/" + component.Name
 }
 
-func (r *ComponentReconciler) generateImageRepository(component *appstudioredhatcomv1alpha1.Component) (*quay.Repository, *quay.RobotAccount, error) {
+func (r *ComponentReconciler) generateImageRepository(ctx context.Context, component *appstudioredhatcomv1alpha1.Component) (*quay.Repository, *quay.RobotAccount, error) {
+	log := ctrllog.FromContext(ctx)
+
 	imageRepositoryName := generateRepositoryName(component)
 	repo, err := r.QuayClient.CreateRepository(quay.RepositoryRequest{
 		Namespace:   r.QuayOrganization,
@@ -234,20 +238,20 @@ func (r *ComponentReconciler) generateImageRepository(component *appstudioredhat
 		Repository:  imageRepositoryName,
 	})
 	if err != nil {
-		r.Log.Error(err, fmt.Sprintf("failed to create image repository %s", imageRepositoryName))
+		log.Error(err, fmt.Sprintf("failed to create image repository %s", imageRepositoryName), l.Action, l.ActionAdd, l.Audit, "true")
 		return nil, nil, err
 	}
 
 	robotAccountName := generateRobotAccountName(component)
 	robotAccount, err := r.QuayClient.CreateRobotAccount(r.QuayOrganization, robotAccountName)
 	if err != nil {
-		r.Log.Error(err, fmt.Sprintf("failed to create robot account %s", robotAccountName))
+		log.Error(err, fmt.Sprintf("failed to create robot account %s", robotAccountName), l.Action, l.ActionAdd, l.Audit, "true")
 		return nil, nil, err
 	}
 
-	err = r.QuayClient.AddPermissionsToRobotAccount(r.QuayOrganization, repo.Name, robotAccount.Name)
+	err = r.QuayClient.AddWritePermissionsToRobotAccount(r.QuayOrganization, repo.Name, robotAccount.Name)
 	if err != nil {
-		r.Log.Error(err, fmt.Sprintf("failed to add permissions to robot account %s", robotAccountName))
+		log.Error(err, fmt.Sprintf("failed to add permissions to robot account %s", robotAccountName), l.Action, l.ActionUpdate, l.Audit, "true")
 		return nil, nil, err
 	}
 

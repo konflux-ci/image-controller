@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	neturl "net/url"
 	"regexp"
 	"strings"
 )
@@ -30,9 +30,10 @@ import (
 type QuayService interface {
 	CreateRepository(r RepositoryRequest) (*Repository, error)
 	DeleteRepository(organization, imageRepository string) (bool, error)
+	GetRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
-	AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error
+	AddWritePermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error
 	GetAllRepositories(organization string) ([]Repository, error)
 	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
 	GetTagsFromPage(organization, repository string, page int) ([]Tag, bool, error)
@@ -57,47 +58,41 @@ func NewQuayClient(c *http.Client, authToken, url string) QuayClient {
 
 // CreateRepository creates a new Quay.io image repository.
 func (c *QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) {
-
 	url := fmt.Sprintf("%s/%s", c.url, "repository")
 
 	b, err := json.Marshal(r)
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal repository request data: %w", err)
 	}
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
-
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		return nil, fmt.Errorf("failed to Do request: %w", err)
 	}
 	defer res.Body.Close()
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	data := &Repository{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 
 	if res.StatusCode == 400 && data.ErrorMessage == "Repository already exists" {
 		data.Name = r.Repository
+	} else if data.ErrorMessage != "" {
+		return data, errors.New(data.ErrorMessage)
 	}
-	fmt.Println(string(body))
 	return data, nil
 }
 
@@ -107,14 +102,14 @@ func (c *QuayClient) DeleteRepository(organization, imageRepository string) (boo
 
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to Do request: %w", err)
 	}
 	defer res.Body.Close()
 
@@ -127,17 +122,50 @@ func (c *QuayClient) DeleteRepository(organization, imageRepository string) (boo
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to read response body: %w", err)
 	}
 	data := &QuayError{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 	if data.Error != "" {
 		return false, errors.New(data.Error)
 	}
 	return false, errors.New(data.ErrorMessage)
+}
+
+func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*RobotAccount, error) {
+	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
+
+	req, err := http.NewRequest(http.MethodGet, url, &bytes.Buffer{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to Do request: %w", err)
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	data := &RobotAccount{}
+	err = json.Unmarshal(body, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
+	}
+
+	if data.Message != "" {
+		return data, errors.New(data.Message)
+	}
+	return data, nil
 }
 
 // CreateRobotAccount creates a new Quay.io robot account in the organization.
@@ -148,68 +176,38 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 	}
 	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
 
-	payload := strings.NewReader(`{
-  "description": "Robot account for AppStudio Component"
-}`)
+	payload := strings.NewReader(`{"description": "Robot account for AppStudio Component"}`)
 
 	req, err := http.NewRequest(http.MethodPut, url, payload)
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		return nil, fmt.Errorf("failed to Do request: %w", err)
 	}
 	defer res.Body.Close()
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	data := &RobotAccount{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 
 	if res.StatusCode == 400 && strings.Contains(data.Message, "Existing robot with name") {
-		req, err = http.NewRequest(http.MethodGet, url, &bytes.Buffer{})
+		data, err = c.GetRobotAccount(organization, robotName)
 		if err != nil {
-			fmt.Println(err)
-			return nil, err
-		}
-		req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-		req.Header.Add("Content-Type", "application/json")
-
-		res, err := c.httpClient.Do(req)
-		if err != nil {
-			fmt.Println(err)
-			return nil, err
-		}
-		defer res.Body.Close()
-
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			fmt.Println(err)
-			return nil, err
-		}
-
-		data = &RobotAccount{}
-		err = json.Unmarshal(body, data)
-		if err != nil {
-			fmt.Println(err)
 			return nil, err
 		}
 	}
-	fmt.Println(string(body))
 	return data, nil
 }
 
@@ -223,14 +221,14 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to Do request: %w", err)
 	}
 	defer res.Body.Close()
 
@@ -243,12 +241,12 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to read response body: %w", err)
 	}
 	data := &QuayError{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 	if data.Error != "" {
 		return false, errors.New(data.Error)
@@ -256,54 +254,59 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 	return false, errors.New(data.ErrorMessage)
 }
 
-// AddPermissionsToRobotAccount enables "robotAccountName" to "write" to "repository"
-func (c *QuayClient) AddPermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error {
+// AddWritePermissionsToRobotAccount enables "robotAccountName" to "write" to "repository"
+func (c *QuayClient) AddWritePermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error {
+	var robotAccountFullName string
+	if robotName, err := handleRobotName(robotAccountName); err == nil {
+		robotAccountFullName = organization + "+" + robotName
+	} else {
+		return err
+	}
 
-	// example,
 	// url := "https://quay.io/api/v1/repository/redhat-appstudio/test-repo-using-api/permissions/user/redhat-appstudio+createdbysbose"
+	url := fmt.Sprintf("%s/repository/%s/%s/permissions/user/%s", c.url, organization, imageRepository, robotAccountFullName)
 
-	url := fmt.Sprintf("%s/repository/%s/%s/permissions/user/%s", c.url, organization, imageRepository, robotAccountName)
-	fmt.Println(url)
-	payload := strings.NewReader(`{
-	"role": "write"
-  }`)
+	payload := strings.NewReader(`{"role": "write"}`)
 
 	req, err := http.NewRequest(http.MethodPut, url, payload)
-
 	if err != nil {
-		fmt.Println(err)
-		return err
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
-	fmt.Println(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to Do request: %w", err)
 	}
 	if res.StatusCode != 200 {
-		return fmt.Errorf("error adding permissions to the robot account, got status code %d", res.StatusCode)
+		var message string
+		defer res.Body.Close()
+		// Ignore read errors while getting returned by quay API error
+		if body, err := io.ReadAll(res.Body); err == nil {
+			data := &QuayError{}
+			if err := json.Unmarshal(body, data); err == nil {
+				if data.ErrorMessage != "" {
+					message = data.ErrorMessage
+				} else {
+					message = data.Error
+				}
+			}
+		}
+		return fmt.Errorf("failed to add write permissions to the robot account. Status code: %d, message: %s", res.StatusCode, message)
 	}
-	defer res.Body.Close()
-
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		fmt.Println(err)
-		return err
-	}
-	fmt.Println(string(body))
 	return nil
 }
 
 // Returns all repositories of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
 func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, error) {
-	repo_url := fmt.Sprintf("%s/repository", c.url)
-	values := url.Values{}
+	url := fmt.Sprintf("%s/repository", c.url)
+
+	values := neturl.Values{}
 	values.Add("last_modified", "true")
 	values.Add("namespace", organization)
 
-	req, err := http.NewRequest(http.MethodGet, repo_url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new request, error: %s", err)
 	}
@@ -357,7 +360,7 @@ func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, e
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create new request, error: %s", err)
+		return nil, fmt.Errorf("failed to create new request: %w", err)
 	}
 
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
@@ -365,16 +368,16 @@ func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, e
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to Do request, error: %s", err)
+		return nil, fmt.Errorf("failed to Do request: %w", err)
 	}
 	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("error getting repositories, got status code %d", res.StatusCode)
+		return nil, fmt.Errorf("failed to get robot accounts. Status code: %d", res.StatusCode)
 	}
 
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body, error: %s", err)
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	type Response struct {
@@ -383,7 +386,7 @@ func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, e
 	var response Response
 	err = json.Unmarshal(body, &response)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal body, error: %s", err)
+		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 	return response.Robots, nil
 }
@@ -415,7 +418,7 @@ func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) 
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to create new request, error: %s", err)
+		return nil, false, fmt.Errorf("failed to create new request: %w", err)
 	}
 
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
@@ -423,16 +426,16 @@ func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) 
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to Do request, error: %s", err)
+		return nil, false, fmt.Errorf("failed to Do request: %w", err)
 	}
 	if res.StatusCode != 200 {
-		return nil, false, fmt.Errorf("error getting repositories, got status code %d", res.StatusCode)
+		return nil, false, fmt.Errorf("failed to get repository tags. Status code: %d", res.StatusCode)
 	}
 
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to read response body, error: %s", err)
+		return nil, false, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	var response struct {
@@ -442,7 +445,7 @@ func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) 
 	}
 	err = json.Unmarshal(body, &response)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to unmarshal body, error: %s", err)
+		return nil, false, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 	return response.Tags, response.HasAdditional, nil
 }
@@ -473,12 +476,12 @@ func (c *QuayClient) DeleteTag(organization, repository, tag string) (bool, erro
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return false, fmt.Errorf("failed to read response body, error: %s", err)
+		return false, fmt.Errorf("failed to read response body: %w", err)
 	}
 	data := &QuayError{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
-		return false, fmt.Errorf("failed to unmarshal body, error: %s", err)
+		return false, fmt.Errorf("failed to unmarshal response body: %s", err)
 	}
 	if data.Error != "" {
 		return false, errors.New(data.Error)

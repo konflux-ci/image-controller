@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
@@ -26,7 +27,6 @@ import (
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
-	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 func TestShouldGenerateImage(t *testing.T) {
@@ -124,10 +124,8 @@ func TestGenerateImageRepository(t *testing.T) {
 	r := ComponentReconciler{
 		QuayClient:       &quayClient,
 		QuayOrganization: expectedNamespace,
-		Log:              ctrl.Log.WithName("TestGenerateImageRepository"),
 	}
-
-	createdRepository, createdRobotAccount, err := r.generateImageRepository(&testComponent)
+	createdRepository, createdRobotAccount, err := r.generateImageRepository(context.TODO(), &testComponent)
 
 	if err != nil {
 		t.Errorf("Error generating repository and setting up robot account, Expected nil, got %v", err)
