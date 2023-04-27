@@ -90,7 +90,7 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 	defer gock.Off()
 
 	gock.New("https://quay.io/api/v1").
-		Put("/repository/org/repository/permissions/user/robot").
+		Put("/repository/org/repository/permissions/user/org\\+robot").
 		Reply(200)
 
 	client := &http.Client{Transport: &http.Transport{}}
@@ -98,7 +98,7 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 
 	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
 
-	err := quayClient.AddPermissionsToRobotAccount("org", "repository", "robot")
+	err := quayClient.AddWritePermissionsToRobotAccount("org", "repository", "robot")
 
 	if err != nil {
 		t.Errorf("Error creating repository, Expected nil, got %v", err)

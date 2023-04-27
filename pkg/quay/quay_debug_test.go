@@ -27,7 +27,7 @@ var (
 	quayApiUrl = "https://quay.io/api/v1"
 
 	quayOrgName          = "test-org"
-	quayImageRepoName    = "test-component-repo"
+	quayImageRepoName    = "namespace/application/component"
 	quayRobotAccountName = "test-robot-account"
 )
 
@@ -98,7 +98,7 @@ func TestAddPermissionsToRobotAccount(t *testing.T) {
 	}
 	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
 
-	err := quayClient.AddPermissionsToRobotAccount(quayOrgName, quayImageRepoName, quayRobotAccountName)
+	err := quayClient.AddWritePermissionsToRobotAccount(quayOrgName, quayImageRepoName, quayRobotAccountName)
 	if err != nil {
 		t.Fatal(err)
 	}
