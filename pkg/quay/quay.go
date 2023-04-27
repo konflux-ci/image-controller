@@ -85,7 +85,7 @@ func (c *QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) 
 	data := &Repository{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshall response body: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 
 	if res.StatusCode == 400 && data.ErrorMessage == "Repository already exists" {
@@ -127,7 +127,7 @@ func (c *QuayClient) DeleteRepository(organization, imageRepository string) (boo
 	data := &QuayError{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
-		return false, fmt.Errorf("failed to unmarshall response body: %w", err)
+		return false, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 	if data.Error != "" {
 		return false, errors.New(data.Error)
@@ -159,7 +159,7 @@ func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*Ro
 	data := &RobotAccount{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshall response body: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 
 	if data.Message != "" {
@@ -199,7 +199,7 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 	data := &RobotAccount{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshall response body: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 
 	if res.StatusCode == 400 && strings.Contains(data.Message, "Existing robot with name") {
@@ -246,7 +246,7 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 	data := &QuayError{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
-		return false, fmt.Errorf("failed to unmarshall response body: %w", err)
+		return false, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 	if data.Error != "" {
 		return false, errors.New(data.Error)
