@@ -96,6 +96,44 @@ func (c *QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) 
 	return data, nil
 }
 
+// IsRepositoryExists checks if the specified image repository exists in quay.
+func (c *QuayClient) IsRepositoryExists(organization, imageRepository string) (bool, error) {
+	url := fmt.Sprintf("%s/repository/%s/%s", c.url, organization, imageRepository)
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("failed to Do request: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == 404 {
+		return false, fmt.Errorf("Not Found")
+	} else if res.StatusCode == 200 {
+		return true, nil
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return false, fmt.Errorf("failed to read response body: %w", err)
+	}
+	data := &QuayError{}
+	err = json.Unmarshal(body, data)
+	if err != nil {
+		return false, fmt.Errorf("failed to unmarshal response body: %w", err)
+	}
+	if data.Error != "" {
+		return false, errors.New(data.Error)
+	}
+	return false, errors.New(data.ErrorMessage)
+}
+
 // DeleteRepository deletes specified image repository.
 func (c *QuayClient) DeleteRepository(organization, imageRepository string) (bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s", c.url, organization, imageRepository)
