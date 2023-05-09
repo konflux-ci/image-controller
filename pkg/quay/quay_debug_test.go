@@ -17,6 +17,7 @@ package quay
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -52,15 +53,15 @@ func TestCreateRepository(t *testing.T) {
 	}
 }
 
-func TestIsRepositoryExists(t *testing.T) {
+func TestDoesRepositoryExist(t *testing.T) {
 	if quayToken == "" {
 		return
 	}
 	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
-	exists, err := quayClient.IsRepositoryExists(quayOrgName, quayImageRepoName)
+	exists, err := quayClient.DoesRepositoryExist(quayOrgName, quayImageRepoName)
 	if exists == true && err == nil {
 		t.Log("Repository exists")
-	} else if exists == false && err.Error() == "Not Found" {
+	} else if exists == false && strings.Contains(err.Error(), "does not exist") {
 		t.Log("Repository does not exists")
 	} else {
 		t.Fatalf("Unexpected error: %s\n", err.Error())

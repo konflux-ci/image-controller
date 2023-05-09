@@ -96,8 +96,8 @@ func (c *QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) 
 	return data, nil
 }
 
-// IsRepositoryExists checks if the specified image repository exists in quay.
-func (c *QuayClient) IsRepositoryExists(organization, imageRepository string) (bool, error) {
+// DoesRepositoryExist checks if the specified image repository exists in quay.
+func (c *QuayClient) DoesRepositoryExist(organization, imageRepository string) (bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s", c.url, organization, imageRepository)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -114,7 +114,7 @@ func (c *QuayClient) IsRepositoryExists(organization, imageRepository string) (b
 	defer res.Body.Close()
 
 	if res.StatusCode == 404 {
-		return false, fmt.Errorf("Not Found")
+		return false, fmt.Errorf("repository %s does not exist in %s organization", imageRepository, organization)
 	} else if res.StatusCode == 200 {
 		return true, nil
 	}
