@@ -17,6 +17,7 @@ package quay
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -43,13 +44,27 @@ func TestCreateRepository(t *testing.T) {
 		Description: "Test repository",
 		Repository:  quayImageRepoName,
 	}
-
 	repo, err := quayClient.CreateRepository(repositoryRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if repo == nil {
 		t.Fatal("Created repository should not be nil")
+	}
+}
+
+func TestDoesRepositoryExist(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+	exists, err := quayClient.DoesRepositoryExist(quayOrgName, quayImageRepoName)
+	if exists == true && err == nil {
+		t.Log("Repository exists")
+	} else if exists == false && strings.Contains(err.Error(), "does not exist") {
+		t.Log("Repository does not exists")
+	} else {
+		t.Fatalf("Unexpected error: %s\n", err.Error())
 	}
 }
 
@@ -77,6 +92,26 @@ func TestCreateRobotAccount(t *testing.T) {
 	}
 	if robotAccount == nil {
 		t.Fatal("Created robot account should not be nil")
+	}
+}
+
+func TestGetRobotAccount(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+
+	robotAccount, err := quayClient.GetRobotAccount(quayOrgName, quayRobotAccountName)
+	if err != nil {
+		if err.Error() == "Could not find robot with specified username" {
+			t.Logf("Robot account %s does not exists", quayRobotAccountName)
+		} else {
+			t.Fatalf("Unknown error: %s\n", err.Error())
+		}
+	} else if robotAccount.Name == quayOrgName+"+"+quayRobotAccountName {
+		t.Logf("Robot account %s exists", quayRobotAccountName)
+	} else {
+		t.Fatalf("Unexpected response: %v\n", robotAccount)
 	}
 }
 
