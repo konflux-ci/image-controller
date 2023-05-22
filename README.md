@@ -1,3 +1,4 @@
+[![codecov](https://codecov.io/gh/redhat-appstudio/image-controller/branch/main/graph/badge.svg)](https://codecov.io/gh/redhat-appstudio/image-controller)
 # The Image Controller for AppStudio
 The Image Controller for AppStudio helps set up container image repositories for AppStudio `Components`. 
 
