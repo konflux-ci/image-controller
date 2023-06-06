@@ -145,12 +145,16 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	repo, robotAccount, err := r.generateImageRepository(ctx, component)
 	if err != nil {
-		r.reportError(ctx, component)
+		if err := r.reportError(ctx, component); err != nil {
+			log.Error(err, fmt.Sprintf("fail to report error on %s", component.GetName()))
+		}
 		log.Error(err, "Error in the repository generation process")
 		return ctrl.Result{}, nil
 	}
 	if repo == nil || robotAccount == nil {
-		r.reportError(ctx, component)
+		if err := r.reportError(ctx, component); err != nil {
+			log.Error(err, fmt.Sprintf("fail to report error on %s", component.GetName()))
+		}
 		log.Error(err, "Unknown error in the repository generation process")
 		return ctrl.Result{}, nil
 	}

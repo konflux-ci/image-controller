@@ -104,36 +104,42 @@ var _ = Describe("Component image controller", func() {
 			createdHasComp := &appstudioredhatcomv1alpha1.Component{}
 
 			Eventually(func() bool {
-				k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
+				Expect(k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)).Should(Succeed())
 				return createdHasComp.ResourceVersion != ""
 			}).Should(BeTrue())
 
 			createdHasComp.Status.Devfile = "devfile"
 			Expect(k8sClient.Status().Update(context.Background(), createdHasComp)).Should(BeNil())
 			Eventually(func() bool {
-				k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
+				Expect(k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)).Should(Succeed())
 				return createdHasComp.Status.Devfile == "devfile"
 			}).Should(BeTrue())
 
 			Eventually(func() controllers.RepositoryInfo {
-				k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
+				Expect(k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)).Should(Succeed())
 				annotations := createdHasComp.Annotations
 				imageRepo := annotations[controllers.ImageAnnotationName]
 
+				if imageRepo == "" {
+					// The controller may not finish the work to set the annotation yet.
+					// Return empty object for continuing wait
+					return controllers.RepositoryInfo{}
+				}
+
 				imageRepoObj := controllers.RepositoryInfo{}
-				json.Unmarshal([]byte(imageRepo), &imageRepoObj)
+				Expect(json.Unmarshal([]byte(imageRepo), &imageRepoObj)).Should(Succeed())
 
 				return imageRepoObj
-			}).Should((Equal(controllers.RepositoryInfo{
+			}).Should(Equal(controllers.RepositoryInfo{
 				Image:  "quay.io/redhat-user-workloads/default/bar/foo",
 				Secret: "foo",
-			})))
+			}))
 
 			Eventually(func() string {
 				Expect(k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)).Should(BeNil())
 				annotations := createdHasComp.Annotations
 				return annotations["image.redhat.com/generate"]
-			}).Should((Equal("false")))
+			}).Should(Equal("false"))
 
 			Eventually(func() string {
 				createdSecret := corev1.Secret{}
@@ -143,7 +149,7 @@ var _ = Describe("Component image controller", func() {
 				"quay.io/redhat-user-workloads/default/bar/foo",
 				base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", returnedRobotAccountName, expectedToken))))))
 
-			// Now that everthing is verified, we shall try to regenerate the images.
+			// Now that everything is verified, we shall try to regenerate the images.
 
 			gock.Clean()
 
@@ -178,18 +184,18 @@ var _ = Describe("Component image controller", func() {
 			Expect(k8sClient.Update(ctx, createdHasComp)).Should(BeNil())
 
 			Eventually(func() controllers.RepositoryInfo {
-				k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
+				Expect(k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)).Should(Succeed())
 				annotations := createdHasComp.Annotations
 				imageRepo := annotations[controllers.ImageAnnotationName]
 
 				imageRepoObj := controllers.RepositoryInfo{}
-				json.Unmarshal([]byte(imageRepo), &imageRepoObj)
+				Expect(json.Unmarshal([]byte(imageRepo), &imageRepoObj)).Should(Succeed())
 
 				return imageRepoObj
-			}).Should((Equal(controllers.RepositoryInfo{
+			}).Should(Equal(controllers.RepositoryInfo{
 				Image:  "quay.io/redhat-user-workloads/default/bar/foo",
 				Secret: "foo",
-			})))
+			}))
 
 			// Check robot account deletion on Component deletion
 
