@@ -234,6 +234,21 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
+	//400 has special handling
+	//see below
+	if res.StatusCode > 400 {
+		message := "Failed to create robot account"
+		data := &QuayError{}
+		if err := json.Unmarshal(body, data); err == nil {
+			if data.ErrorMessage != "" {
+				message = data.ErrorMessage
+			} else {
+				message = data.Error
+			}
+		}
+		return nil, fmt.Errorf("failed to create robot account. Status code: %d, message: %s", res.StatusCode, message)
+	}
+
 	data := &RobotAccount{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
@@ -245,6 +260,8 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 		if err != nil {
 			return nil, err
 		}
+	} else if res.StatusCode == 400 {
+		return nil, fmt.Errorf("failed to create robot account. Status code: %d, message: %s", res.StatusCode, data.Message)
 	}
 	return data, nil
 }

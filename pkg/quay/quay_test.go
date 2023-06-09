@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/h2non/gock"
@@ -83,6 +84,31 @@ func TestQuayClient_CreateRobotAccount(t *testing.T) {
 		t.Errorf("Error creating repository, Expected %s, got %v", "robotaccountoken", r)
 	} else if r.Name != "robot" {
 		t.Errorf("Error creating repository, Expected %s, got %v", "robot", r)
+	}
+}
+
+func TestQuayClient_CreateRobotAccountErrorHandling(t *testing.T) {
+	defer gock.Off()
+
+	gock.New("https://quay.io/api/v1").
+		MatchHeader("Content-type", "application/json").
+		MatchHeader("Authorization", "Bearer authtoken").
+		Put("/organization/org/robots/robot").
+		Reply(401).JSON(map[string]string{
+		"message": "Unauthorised",
+	})
+
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+
+	_, err := quayClient.CreateRobotAccount("org", "robot")
+
+	if err == nil {
+		t.Errorf("Failure was not reported")
+	} else if strings.Contains(err.Error(), "Unauthorised") {
+		t.Errorf("Unexpected error message %s should contain 'Unauthorised'", err.Error())
 	}
 }
 
