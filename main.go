@@ -19,15 +19,14 @@ package main
 import (
 	"flag"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	"github.com/hashicorp/go-retryablehttp"
 	uberzap "go.uber.org/zap"
 	uberzapcore "go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -111,13 +110,7 @@ func main() {
 	if err != nil {
 		setupLog.Error(err, "unable to read quay organization")
 	}
-
-	retryableClient := retryablehttp.NewClient()
-	retryableClient.Logger = nil // no logs retryablehttp will log
-	retryableClient.RetryMax = 5
-	retryableClient.RetryWaitMax = 10 * time.Second
-
-	quayClient := quay.NewQuayClient(retryableClient.StandardClient(), strings.TrimSpace(string(tokenContent)), "https://quay.io/api/v1")
+	quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, strings.TrimSpace(string(tokenContent)), "https://quay.io/api/v1")
 	if err = (&controllers.ComponentReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
