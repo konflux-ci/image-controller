@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -128,7 +129,6 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 		return ctrl.Result{}, nil
 	}
-
 	if !shouldGenerateImage(component.Annotations) {
 		return ctrl.Result{}, nil
 	}
@@ -159,7 +159,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	// Create secret with the reposuitory credentials
+	// Create secret with the repository credentials
 	imageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, repo.Name)
 	robotAccountSecret := generateSecret(*component, *robotAccount, imageURL)
 
@@ -201,13 +201,42 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 		if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
 			controllerutil.AddFinalizer(component, ImageRepositoryFinalizer)
+			log.Info("Image repository finalizer added to the Component", l.Action, l.ActionUpdate)
 		}
 
 		if err := r.Client.Update(ctx, component); err != nil {
 			return ctrl.Result{}, fmt.Errorf("error updating the component: %w", err)
 		}
-		log.Info("Image regipository finaliziler added to the Component", l.Action, l.ActionUpdate)
 		log.Info("Component updated successfully", l.Action, l.ActionUpdate)
+
+		// Here we do some trick.
+		// The problem is that the component update triggers both: a new reconcile and operator cache update.
+		// In other words we are getting race condition. If a new reconcile is triggered before cache update,
+		// requested build action will be repeated, because the last update has not yet visible for the operator.
+		// For example, instead of one initial pipeline run we could get two.
+		// To resolve the problem above, instead of just ending the reconcile loop here,
+		// we are waiting for the cache update. This approach prevents next reconciles with outdated cache.
+		isComponentInCacheUpToDate := false
+		for i := 0; i < 5; i++ {
+			if err = r.Client.Get(ctx, req.NamespacedName, component); err == nil {
+				if component.Annotations[GenerateImageAnnotationName] == "false" {
+					isComponentInCacheUpToDate = true
+					break
+				}
+				// Outdated version of the component, wait more.
+			} else {
+				if errors.IsNotFound(err) {
+					// The component was deleted
+					isComponentInCacheUpToDate = true
+					break
+				}
+				log.Error(err, "failed to get the component for annotation update check", l.Action, l.ActionView)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !isComponentInCacheUpToDate {
+			log.Info("failed to wait for updated cache. Requested action could be repeated.", l.Audit, "true")
+		}
 	}
 
 	return ctrl.Result{}, nil
