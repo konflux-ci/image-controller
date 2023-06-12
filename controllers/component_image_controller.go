@@ -230,7 +230,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 					isComponentInCacheUpToDate = true
 					break
 				}
-				log.Error(err, "failed to get the component")
+				log.Error(err, "failed to get the component for annotation update check", l.Action, l.ActionView)
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
