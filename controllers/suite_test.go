@@ -14,34 +14,29 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers_test
+package controllers
 
 import (
 	"context"
 	"go/build"
-	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/h2non/gock"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	"github.com/redhat-appstudio/image-controller/controllers"
-	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -49,21 +44,18 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	cfg        *rest.Config
-	k8sClient  client.Client
-	testEnv    *envtest.Environment
-	cancel     context.CancelFunc
-	ctx        context.Context
-	log        logr.Logger
-	httpClient *http.Client
+	cfg       *rest.Config
+	k8sClient client.Client
+	testEnv   *envtest.Environment
+	cancel    context.CancelFunc
+	ctx       context.Context
+	log       logr.Logger
 )
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecsWithDefaultAndCustomReporters(t,
-		"Controller Suite",
-		[]Reporter{printer.NewlineReporter{}})
+	RunSpecs(t, "Controller Suite")
 }
 
 var _ = BeforeSuite(func() {
@@ -105,15 +97,11 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	httpClient = &http.Client{Transport: &http.Transport{}}
-	gock.InterceptClient(httpClient)
-
-	quayClient := quay.NewQuayClient(httpClient, "remote-tests-disabled-use-mock", "https://quay.io/api/v1")
-	err = (&controllers.ComponentReconciler{
+	err = (&ComponentReconciler{
 		Client:           k8sManager.GetClient(),
 		Scheme:           k8sManager.GetScheme(),
-		QuayClient:       &quayClient,
-		QuayOrganization: "redhat-user-workloads",
+		QuayClient:       testQuayClient,
+		QuayOrganization: testQuayOrg,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -122,8 +110,7 @@ var _ = BeforeSuite(func() {
 		err = k8sManager.Start(ctx)
 		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
 	}()
-
-}, 60)
+})
 
 var _ = AfterSuite(func() {
 	cancel()

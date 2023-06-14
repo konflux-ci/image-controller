@@ -29,45 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 )
 
-func TestShouldGenerateImage(t *testing.T) {
-	type args struct {
-		annotations map[string]string
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{
-			name: "dont generate image repo",
-			args: args{
-				annotations: map[string]string{
-					"something-that-doesnt-matter": "",
-					GenerateImageAnnotationName:    "false",
-				},
-			},
-			want: false,
-		},
-		{
-			name: "generate image repo",
-			args: args{
-				annotations: map[string]string{
-					"something-that-doesnt-matter": "",
-					GenerateImageAnnotationName:    "true",
-				},
-			},
-			want: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldGenerateImage(tt.args.annotations); got != tt.want {
-				t.Errorf("name: %s, shouldGenerateImage() = %v, want %v", tt.name, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestGenerateImageRepository(t *testing.T) {
 	defer gock.Off()
 	defer gock.GetUnmatchedRequests()
@@ -122,10 +83,10 @@ func TestGenerateImageRepository(t *testing.T) {
 
 	quayClient := quay.NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
 	r := ComponentReconciler{
-		QuayClient:       &quayClient,
+		QuayClient:       quayClient,
 		QuayOrganization: expectedNamespace,
 	}
-	createdRepository, createdRobotAccount, err := r.generateImageRepository(context.TODO(), &testComponent)
+	createdRepository, createdRobotAccount, err := r.generateImageRepository(context.TODO(), &testComponent, &GenerateRepositoryOpts{Visibility: "public"})
 
 	if err != nil {
 		t.Errorf("Error generating repository and setting up robot account, Expected nil, got %v", err)

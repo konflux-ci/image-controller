@@ -56,10 +56,10 @@ func TestGenerateRemoteImage(t *testing.T) {
 	quayClient := quay.NewQuayClient(client, quayToken, "https://quay.io/api/v1")
 
 	r := ComponentReconciler{
-		QuayClient:       &quayClient,
+		QuayClient:       quayClient,
 		QuayOrganization: "redhat-user-workloads",
 	}
-	createdRepository, createdRobotAccount, err := r.generateImageRepository(context.TODO(), &testComponent)
+	createdRepository, createdRobotAccount, err := r.generateImageRepository(context.TODO(), &testComponent, &GenerateRepositoryOpts{Visibility: "public"})
 
 	if err != nil {
 		t.Errorf("Error generating repository and setting up robot account, Expected nil, got %v", err)

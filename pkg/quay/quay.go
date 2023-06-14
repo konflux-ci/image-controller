@@ -28,7 +28,7 @@ import (
 )
 
 type QuayService interface {
-	CreateRepository(r RepositoryRequest) (*Repository, error)
+	CreateRepository(repositoryRequest RepositoryRequest) (*Repository, error)
 	DeleteRepository(organization, imageRepository string) (bool, error)
 	GetRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
@@ -48,8 +48,8 @@ type QuayClient struct {
 	AuthToken  string
 }
 
-func NewQuayClient(c *http.Client, authToken, url string) QuayClient {
-	return QuayClient{
+func NewQuayClient(c *http.Client, authToken, url string) *QuayClient {
+	return &QuayClient{
 		httpClient: c,
 		AuthToken:  authToken,
 		url:        url,
@@ -57,10 +57,10 @@ func NewQuayClient(c *http.Client, authToken, url string) QuayClient {
 }
 
 // CreateRepository creates a new Quay.io image repository.
-func (c *QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) {
+func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Repository, error) {
 	url := fmt.Sprintf("%s/%s", c.url, "repository")
 
-	b, err := json.Marshal(r)
+	b, err := json.Marshal(repositoryRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal repository request data: %w", err)
 	}
@@ -89,7 +89,7 @@ func (c *QuayClient) CreateRepository(r RepositoryRequest) (*Repository, error) 
 	}
 
 	if res.StatusCode == 400 && data.ErrorMessage == "Repository already exists" {
-		data.Name = r.Repository
+		data.Name = repositoryRequest.Repository
 	} else if data.ErrorMessage != "" {
 		return data, errors.New(data.ErrorMessage)
 	}

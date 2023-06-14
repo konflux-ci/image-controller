@@ -114,7 +114,7 @@ func main() {
 	if err = (&controllers.ComponentReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
-		QuayClient:       &quayClient,
+		QuayClient:       quayClient,
 		QuayOrganization: strings.TrimSpace(string(orgContent)),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Controller")

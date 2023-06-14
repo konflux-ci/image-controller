@@ -46,10 +46,19 @@ const (
 	ImageRepositoryFinalizer = "image-controller.appstudio.openshift.io/image-repository"
 )
 
-// RepositoryInfo defines the structure of the Repository information being exposed to external systems.
-type RepositoryInfo struct {
-	Image  string `json:"image"`
-	Secret string `json:"secret"`
+// GenerateRepositoryOpts defines patameters for image repository to be generated.
+// The opts are read from "image.redhat.com/generate" annotation.
+type GenerateRepositoryOpts struct {
+	Visibility string `json:"visibility,omitempty"`
+}
+
+// ImageRepositoryStatus defines the structure of the Repository information being exposed to external systems.
+type ImageRepositoryStatus struct {
+	Image      string `json:"image,omitempty"`
+	Visibility string `json:"visibility,omitempty"`
+	Secret     string `json:"secret,omitempty"`
+
+	Message string `json:"message,omitempty"`
 }
 
 // ComponentReconciler reconciles a Controller object
@@ -57,7 +66,7 @@ type ComponentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	QuayClient       *quay.QuayClient
+	QuayClient       quay.QuayService
 	QuayOrganization string
 }
 
@@ -129,7 +138,10 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 		return ctrl.Result{}, nil
 	}
-	if !shouldGenerateImage(component.Annotations) {
+
+	generateRepositoryOptsStr, exists := component.Annotations[GenerateImageAnnotationName]
+	if !exists {
+		// Nothing to do
 		return ctrl.Result{}, nil
 	}
 
@@ -143,25 +155,37 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, nil
 	}
 
-	repo, robotAccount, err := r.generateImageRepository(ctx, component)
-	if err != nil {
-		if err := r.reportError(ctx, component); err != nil {
-			log.Error(err, fmt.Sprintf("fail to report error on %s", component.GetName()))
+	// Read repository options from the annotations
+	generateRepositoryOpts := &GenerateRepositoryOpts{}
+	if err := json.Unmarshal([]byte(generateRepositoryOptsStr), generateRepositoryOpts); err != nil {
+		// Check "true" value for backward compatibility
+		if generateRepositoryOptsStr == "true" {
+			generateRepositoryOpts.Visibility = "public"
+		} else {
+			message := fmt.Sprintf("invalid JSON in %s annotation", GenerateImageAnnotationName)
+			return ctrl.Result{}, r.reportError(ctx, component, message)
 		}
-		log.Error(err, "Error in the repository generation process")
-		return ctrl.Result{}, nil
+	}
+
+	// Validate image repository creation options
+	if !(generateRepositoryOpts.Visibility == "public" || generateRepositoryOpts.Visibility == "private") {
+		message := fmt.Sprintf("invalid value: %s in visibility field in %s annotation", generateRepositoryOpts.Visibility, GenerateImageAnnotationName)
+		return ctrl.Result{}, r.reportError(ctx, component, message)
+	}
+
+	repo, robotAccount, err := r.generateImageRepository(ctx, component, generateRepositoryOpts)
+	if err != nil {
+		log.Error(err, "Error in the repository generation process", l.Audit, "true")
+		return ctrl.Result{}, r.reportError(ctx, component, "failed to generete image repository")
 	}
 	if repo == nil || robotAccount == nil {
-		if err := r.reportError(ctx, component); err != nil {
-			log.Error(err, fmt.Sprintf("fail to report error on %s", component.GetName()))
-		}
-		log.Error(err, "Unknown error in the repository generation process")
-		return ctrl.Result{}, nil
+		log.Error(nil, "Unknown error in the repository generation process", l.Audit, "true")
+		return ctrl.Result{}, r.reportError(ctx, component, "failed to generete image repository: unknown error")
 	}
 
 	// Create secret with the repository credentials
 	imageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, repo.Name)
-	robotAccountSecret := generateSecret(*component, *robotAccount, imageURL)
+	robotAccountSecret := generateSecret(component, robotAccount, imageURL)
 
 	robotAccountSecretKey := types.NamespacedName{Namespace: robotAccountSecret.Namespace, Name: robotAccountSecret.Name}
 	existingRobotAccountSecret := &corev1.Secret{}
@@ -184,9 +208,10 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	log.Info(fmt.Sprintf("Created image registry secret %s for Component", robotAccountSecretKey.Name), l.Action, l.ActionAdd)
 
 	// Prepare data to update the component with
-	generatedRepository := RepositoryInfo{
-		Image:  imageURL,
-		Secret: robotAccountSecret.Name,
+	generatedRepository := ImageRepositoryStatus{
+		Image:      imageURL,
+		Visibility: generateRepositoryOpts.Visibility,
+		Secret:     robotAccountSecret.Name,
 	}
 	generatedRepositoryBytes, _ := json.Marshal(generatedRepository)
 
@@ -197,7 +222,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	if component.ObjectMeta.DeletionTimestamp.IsZero() {
 		component.Annotations[ImageAnnotationName] = string(generatedRepositoryBytes)
-		component.Annotations[GenerateImageAnnotationName] = "false"
+		delete(component.Annotations, GenerateImageAnnotationName)
 
 		if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
 			controllerutil.AddFinalizer(component, ImageRepositoryFinalizer)
@@ -242,12 +267,14 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return ctrl.Result{}, nil
 }
 
-func (r *ComponentReconciler) reportError(ctx context.Context, component *appstudioredhatcomv1alpha1.Component) error {
+func (r *ComponentReconciler) reportError(ctx context.Context, component *appstudioredhatcomv1alpha1.Component, messsage string) error {
 	lookUpKey := types.NamespacedName{Name: component.Name, Namespace: component.Namespace}
 	if err := r.Client.Get(ctx, lookUpKey, component); err != nil {
 		return err
 	}
-	component.Annotations[GenerateImageAnnotationName] = "failed"
+	messageBytes, _ := json.Marshal(&ImageRepositoryStatus{Message: messsage})
+	component.Annotations[ImageAnnotationName] = string(messageBytes)
+	delete(component.Annotations, GenerateImageAnnotationName)
 	return r.Client.Update(ctx, component)
 }
 
@@ -260,13 +287,13 @@ func generateRepositoryName(component *appstudioredhatcomv1alpha1.Component) str
 	return component.Namespace + "/" + component.Spec.Application + "/" + component.Name
 }
 
-func (r *ComponentReconciler) generateImageRepository(ctx context.Context, component *appstudioredhatcomv1alpha1.Component) (*quay.Repository, *quay.RobotAccount, error) {
+func (r *ComponentReconciler) generateImageRepository(ctx context.Context, component *appstudioredhatcomv1alpha1.Component, opts *GenerateRepositoryOpts) (*quay.Repository, *quay.RobotAccount, error) {
 	log := ctrllog.FromContext(ctx)
 
 	imageRepositoryName := generateRepositoryName(component)
 	repo, err := r.QuayClient.CreateRepository(quay.RepositoryRequest{
 		Namespace:   r.QuayOrganization,
-		Visibility:  "public",
+		Visibility:  opts.Visibility,
 		Description: "AppStudio repository for the user",
 		Repository:  imageRepositoryName,
 	})
@@ -291,15 +318,8 @@ func (r *ComponentReconciler) generateImageRepository(ctx context.Context, compo
 	return repo, robotAccount, nil
 }
 
-func shouldGenerateImage(annotations map[string]string) bool {
-	if generate, present := annotations[GenerateImageAnnotationName]; present && generate == "true" {
-		return true
-	}
-	return false
-}
-
 // generateSecret dumps the robot account token into a Secret for future consumption.
-func generateSecret(c appstudioredhatcomv1alpha1.Component, r quay.RobotAccount, quayImageURL string) corev1.Secret {
+func generateSecret(c *appstudioredhatcomv1alpha1.Component, r *quay.RobotAccount, quayImageURL string) corev1.Secret {
 	secret := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      c.Name,
