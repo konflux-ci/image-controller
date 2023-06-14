@@ -80,6 +80,20 @@ func TestDeleteRepository(t *testing.T) {
 	}
 }
 
+func TestChangeRepositoryVisibility(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+	visibility := "public"
+
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+
+	err := quayClient.ChangeRepositoryVisibility(quayOrgName, quayImageRepoName, visibility)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCreateRobotAccount(t *testing.T) {
 	if quayToken == "" {
 		return

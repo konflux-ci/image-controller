@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -156,11 +157,11 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Read repository options from the annotations
-	generateRepositoryOpts := &GenerateRepositoryOpts{}
-	if err := json.Unmarshal([]byte(generateRepositoryOptsStr), generateRepositoryOpts); err != nil {
+	requestRepositoryOpts := &GenerateRepositoryOpts{}
+	if err := json.Unmarshal([]byte(generateRepositoryOptsStr), requestRepositoryOpts); err != nil {
 		// Check "true" value for backward compatibility
 		if generateRepositoryOptsStr == "true" {
-			generateRepositoryOpts.Visibility = "public"
+			requestRepositoryOpts.Visibility = "public"
 		} else {
 			message := fmt.Sprintf("invalid JSON in %s annotation", GenerateImageAnnotationName)
 			return ctrl.Result{}, r.reportError(ctx, component, message)
@@ -168,52 +169,84 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Validate image repository creation options
-	if !(generateRepositoryOpts.Visibility == "public" || generateRepositoryOpts.Visibility == "private") {
-		message := fmt.Sprintf("invalid value: %s in visibility field in %s annotation", generateRepositoryOpts.Visibility, GenerateImageAnnotationName)
+	if !(requestRepositoryOpts.Visibility == "public" || requestRepositoryOpts.Visibility == "private") {
+		message := fmt.Sprintf("invalid value: %s in visibility field in %s annotation", requestRepositoryOpts.Visibility, GenerateImageAnnotationName)
 		return ctrl.Result{}, r.reportError(ctx, component, message)
 	}
 
-	repo, robotAccount, err := r.generateImageRepository(ctx, component, generateRepositoryOpts)
-	if err != nil {
-		log.Error(err, "Error in the repository generation process", l.Audit, "true")
-		return ctrl.Result{}, r.reportError(ctx, component, "failed to generete image repository")
-	}
-	if repo == nil || robotAccount == nil {
-		log.Error(nil, "Unknown error in the repository generation process", l.Audit, "true")
-		return ctrl.Result{}, r.reportError(ctx, component, "failed to generete image repository: unknown error")
-	}
-
-	// Create secret with the repository credentials
-	imageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, repo.Name)
-	robotAccountSecret := generateSecret(component, robotAccount, imageURL)
-
-	robotAccountSecretKey := types.NamespacedName{Namespace: robotAccountSecret.Namespace, Name: robotAccountSecret.Name}
-	existingRobotAccountSecret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, robotAccountSecretKey, existingRobotAccountSecret); err == nil {
-		if err := r.Client.Delete(ctx, existingRobotAccountSecret); err != nil {
-			log.Error(err, fmt.Sprintf("failed to delete robot account secret %v", robotAccountSecretKey), l.Action, l.ActionDelete)
-			return ctrl.Result{}, err
+	repositoryInfo := ImageRepositoryStatus{}
+	if imageRepoInfo, imageRepoExist := component.Annotations[ImageAnnotationName]; imageRepoExist {
+		// Image repository exists
+		if err := json.Unmarshal([]byte(imageRepoInfo), &repositoryInfo); err == nil {
+			if repositoryInfo.Visibility != requestRepositoryOpts.Visibility {
+				// quay.io/org/reposito/ryName
+				imageUrlParts := strings.SplitN(repositoryInfo.Image, "/", 3)
+				if len(imageUrlParts) > 2 {
+					repositoryName := imageUrlParts[2]
+					if err := r.QuayClient.ChangeRepositoryVisibility(r.QuayOrganization, repositoryName, requestRepositoryOpts.Visibility); err == nil {
+						repositoryInfo.Visibility = requestRepositoryOpts.Visibility
+					} else {
+						if err.Error() == "payment required" {
+							repositoryInfo.Message = "Quay organization plan doesn't allow private image repositories"
+						} else {
+							log.Error(err, "failed to change image repository visibility")
+							return ctrl.Result{}, err
+						}
+					}
+				} else {
+					// Invalid image url
+					repositoryInfo.Message = "Invalid image url"
+				}
+			}
 		} else {
-			log.Info(fmt.Sprintf("Deleted old robot account secret %v", robotAccountSecretKey), l.Action, l.ActionDelete)
+			// Image repository info annotation contains invalid JSON.
+			// This means that the annotation was edited manually.
+			repositoryInfo.Message = "Invalid image status annotation"
 		}
-	} else if !errors.IsNotFound(err) {
-		log.Error(err, fmt.Sprintf("failed to read robot account secret %v", robotAccountSecretKey), l.Action, l.ActionView)
-		return ctrl.Result{}, err
-	}
+	} else {
+		// Image repository doesn't exist, create it.
+		repo, robotAccount, err := r.generateImageRepository(ctx, component, requestRepositoryOpts)
+		if err != nil {
+			log.Error(err, "Error in the repository generation process", l.Audit, "true")
+			return ctrl.Result{}, r.reportError(ctx, component, "failed to generete image repository")
+		}
+		if repo == nil || robotAccount == nil {
+			log.Error(nil, "Unknown error in the repository generation process", l.Audit, "true")
+			return ctrl.Result{}, r.reportError(ctx, component, "failed to generete image repository: unknown error")
+		}
 
-	if err := r.Client.Create(ctx, &robotAccountSecret); err != nil {
-		log.Error(err, fmt.Sprintf("error writing robot account token into Secret: %v", robotAccountSecretKey), l.Action, l.ActionAdd)
-		return ctrl.Result{}, err
-	}
-	log.Info(fmt.Sprintf("Created image registry secret %s for Component", robotAccountSecretKey.Name), l.Action, l.ActionAdd)
+		// Create secret with the repository credentials
+		imageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, repo.Name)
+		robotAccountSecret := generateSecret(component, robotAccount, imageURL)
 
-	// Prepare data to update the component with
-	generatedRepository := ImageRepositoryStatus{
-		Image:      imageURL,
-		Visibility: generateRepositoryOpts.Visibility,
-		Secret:     robotAccountSecret.Name,
+		robotAccountSecretKey := types.NamespacedName{Namespace: robotAccountSecret.Namespace, Name: robotAccountSecret.Name}
+		existingRobotAccountSecret := &corev1.Secret{}
+		if err := r.Client.Get(ctx, robotAccountSecretKey, existingRobotAccountSecret); err == nil {
+			if err := r.Client.Delete(ctx, existingRobotAccountSecret); err != nil {
+				log.Error(err, fmt.Sprintf("failed to delete robot account secret %v", robotAccountSecretKey), l.Action, l.ActionDelete)
+				return ctrl.Result{}, err
+			} else {
+				log.Info(fmt.Sprintf("Deleted old robot account secret %v", robotAccountSecretKey), l.Action, l.ActionDelete)
+			}
+		} else if !errors.IsNotFound(err) {
+			log.Error(err, fmt.Sprintf("failed to read robot account secret %v", robotAccountSecretKey), l.Action, l.ActionView)
+			return ctrl.Result{}, err
+		}
+
+		if err := r.Client.Create(ctx, &robotAccountSecret); err != nil {
+			log.Error(err, fmt.Sprintf("error writing robot account token into Secret: %v", robotAccountSecretKey), l.Action, l.ActionAdd)
+			return ctrl.Result{}, err
+		}
+		log.Info(fmt.Sprintf("Created image registry secret %s for Component", robotAccountSecretKey.Name), l.Action, l.ActionAdd)
+
+		// Prepare data to update the component with
+		repositoryInfo = ImageRepositoryStatus{
+			Image:      imageURL,
+			Visibility: requestRepositoryOpts.Visibility,
+			Secret:     robotAccountSecret.Name,
+		}
 	}
-	generatedRepositoryBytes, _ := json.Marshal(generatedRepository)
+	repositoryInfoBytes, _ := json.Marshal(repositoryInfo)
 
 	// Update component with the generated data and add finalizer
 	err = r.Client.Get(ctx, req.NamespacedName, component)
@@ -221,12 +254,12 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("error updating the Component's annotations: %w", err)
 	}
 	if component.ObjectMeta.DeletionTimestamp.IsZero() {
-		component.Annotations[ImageAnnotationName] = string(generatedRepositoryBytes)
+		component.Annotations[ImageAnnotationName] = string(repositoryInfoBytes)
 		delete(component.Annotations, GenerateImageAnnotationName)
 
 		if !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
 			controllerutil.AddFinalizer(component, ImageRepositoryFinalizer)
-			log.Info("Image repository finalizer added to the Component", l.Action, l.ActionUpdate)
+			log.Info("Image repository finalizer added to the Component update", l.Action, l.ActionUpdate)
 		}
 
 		if err := r.Client.Update(ctx, component); err != nil {

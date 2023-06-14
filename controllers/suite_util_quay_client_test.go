@@ -32,6 +32,7 @@ var (
 
 	CreateRepositoryFunc                  func(repository quay.RepositoryRequest) (*quay.Repository, error)
 	DeleteRepositoryFunc                  func(organization, imageRepository string) (bool, error)
+	ChangeRepositoryVisibilityFunc        func(organization, imageRepository string, visibility string) error
 	GetRobotAccountFunc                   func(organization string, robotName string) (*quay.RobotAccount, error)
 	CreateRobotAccountFunc                func(organization string, robotName string) (*quay.RobotAccount, error)
 	DeleteRobotAccountFunc                func(organization string, robotName string) (bool, error)
@@ -41,6 +42,7 @@ var (
 func ResetTestQuayClient() {
 	CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) { return &quay.Repository{}, nil }
 	DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) { return true, nil }
+	ChangeRepositoryVisibilityFunc = func(organization, imageRepository string, visibility string) error { return nil }
 	GetRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) { return &quay.RobotAccount{}, nil }
 	CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) { return &quay.RobotAccount{}, nil }
 	DeleteRobotAccountFunc = func(organization, robotName string) (bool, error) { return true, nil }
@@ -52,6 +54,9 @@ func (c *TestQuayClient) CreateRepository(repositoryRequest quay.RepositoryReque
 }
 func (c *TestQuayClient) DeleteRepository(organization, imageRepository string) (bool, error) {
 	return DeleteRepositoryFunc(organization, imageRepository)
+}
+func (*TestQuayClient) ChangeRepositoryVisibility(organization, imageRepository string, visibility string) error {
+	return ChangeRepositoryVisibilityFunc(organization, imageRepository, visibility)
 }
 func (c *TestQuayClient) GetRobotAccount(organization string, robotName string) (*quay.RobotAccount, error) {
 	return GetRobotAccountFunc(organization, robotName)

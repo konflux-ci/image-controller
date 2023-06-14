@@ -30,6 +30,7 @@ import (
 type QuayService interface {
 	CreateRepository(repositoryRequest RepositoryRequest) (*Repository, error)
 	DeleteRepository(organization, imageRepository string) (bool, error)
+	ChangeRepositoryVisibility(organization, imageRepository, visibility string) error
 	GetRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
@@ -171,6 +172,54 @@ func (c *QuayClient) DeleteRepository(organization, imageRepository string) (boo
 		return false, errors.New(data.Error)
 	}
 	return false, errors.New(data.ErrorMessage)
+}
+
+// ChangeRepositoryVisibility makes existing repository public or private.
+func (c *QuayClient) ChangeRepositoryVisibility(organization, imageRepositoryName, visibility string) error {
+	if !(visibility == "public" || visibility == "private") {
+		return fmt.Errorf("invalid repository visibility: %s", visibility)
+	}
+
+	// https://quay.io/api/v1/repository/user-org/repo-name/changevisibility
+	url := fmt.Sprintf("%s/repository/%s/%s/changevisibility", c.url, organization, imageRepositoryName)
+
+	requestData := fmt.Sprintf(`{"visibility": "%s"}`, visibility)
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte(requestData)))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to Do request: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != 200 {
+		if res.StatusCode == 402 {
+			// Current plan doesn't allow private image repositories
+			return errors.New("payment required")
+		}
+
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read response body: %w", err)
+		}
+		data := &QuayError{}
+		err = json.Unmarshal(body, data)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal response body: %w", err)
+		}
+		if data.ErrorMessage != "" {
+			return errors.New(data.ErrorMessage)
+		}
+		return errors.New(res.Status)
+	}
+
+	return nil
 }
 
 func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*RobotAccount, error) {

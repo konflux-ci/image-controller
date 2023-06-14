@@ -34,16 +34,14 @@ var _ = Describe("Component image controller", func() {
 
 	var (
 		resourceKey = types.NamespacedName{Name: defaultComponentName, Namespace: defaultComponentNamespace}
+
+		token                    string
+		expectedRobotAccountName string
+		expectedRepoName         string
+		expectedImage            string
 	)
 
 	Context("Image repository provision flow", func() {
-
-		var (
-			token                    string
-			expectedRobotAccountName string
-			expectedRepoName         string
-			expectedImage            string
-		)
 
 		It("should prepare environment", func() {
 			ResetTestQuayClient()
@@ -56,7 +54,6 @@ var _ = Describe("Component image controller", func() {
 		})
 
 		It("should do image repository provision", func() {
-
 			isCreateRepositoryInvoked := false
 			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				isCreateRepositoryInvoked = true
@@ -121,7 +118,34 @@ var _ = Describe("Component image controller", func() {
 		})
 
 		It("should be able to switch image visibility", func() {
-			// TODO
+			isChangeRepositoryVisibilityInvoked := false
+			ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
+				isChangeRepositoryVisibilityInvoked = true
+				Expect(organization).To(Equal(testQuayOrg))
+				Expect(imageRepository).To(Equal(expectedRepoName))
+				Expect(visibility).To(Equal("public"))
+				return nil
+			}
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Should not invoke repository creation on clean up")
+				return nil, nil
+			}
+
+			setComponentAnnotationValue(resourceKey, GenerateImageAnnotationName, `{"visibility": "public"}`)
+
+			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
+
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
+
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(BeEmpty())
+			Expect(repoImageInfo.Image).To(Equal(expectedImage))
+			Expect(repoImageInfo.Visibility).To(Equal("public"))
+			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
 		})
 
 		It("should delete robot account and image repository on component deletion", func() {
@@ -169,6 +193,10 @@ var _ = Describe("Component image controller", func() {
 			createNamespace(defaultComponentNamespace)
 
 			ResetTestQuayClient()
+
+			expectedRobotAccountName = fmt.Sprintf("%s%s%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedRepoName)
 		})
 
 		_ = AfterEach(func() {
@@ -203,6 +231,7 @@ var _ = Describe("Component image controller", func() {
 				},
 			})
 
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
 			waitComponentAnnotation(resourceKey, ImageAnnotationName)
 
 			repoImageInfo := &ImageRepositoryStatus{}
@@ -232,6 +261,88 @@ var _ = Describe("Component image controller", func() {
 			component := getComponent(resourceKey)
 			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
 			Expect(repoImageInfo.Message).To(ContainSubstring("invalid value: none in visibility field"))
+		})
+
+		It("should do nothing if the same as current visibility requested", func() {
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Image repository creation should not be invoked")
+				return nil, nil
+			}
+			ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
+				defer GinkgoRecover()
+				Fail("Image repository visibility changing should not be invoked")
+				return nil
+			}
+
+			repositoryInfo := ImageRepositoryStatus{
+				Image:      expectedImage,
+				Visibility: "public",
+				Secret:     resourceKey.Name,
+			}
+			repositoryInfoJsonBytes, _ := json.Marshal(repositoryInfo)
+			createComponent(componentConfig{
+				ComponentKey: resourceKey,
+				Annotations: map[string]string{
+					GenerateImageAnnotationName: "{\"visibility\": \"public\"}",
+					ImageAnnotationName:         string(repositoryInfoJsonBytes),
+				},
+			})
+
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
+
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(BeEmpty())
+			Expect(repoImageInfo.Image).To(Equal(expectedImage))
+			Expect(repoImageInfo.Visibility).To(Equal("public"))
+			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
+		})
+
+		It("should stop if it's not possible to switch image repository visibility", func() {
+			isChangeRepositoryVisibilityInvoked := false
+			ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
+				if isChangeRepositoryVisibilityInvoked {
+					defer GinkgoRecover()
+					Fail("Image repository visibility change should not be invoked second time")
+				}
+				isChangeRepositoryVisibilityInvoked = true
+				return fmt.Errorf("payment required")
+			}
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Should not invoke repository creation")
+				return nil, nil
+			}
+
+			repositoryInfo := ImageRepositoryStatus{
+				Image:      expectedImage,
+				Visibility: "public",
+				Secret:     resourceKey.Name,
+			}
+			repositoryInfoJsonBytes, _ := json.Marshal(repositoryInfo)
+			createComponent(componentConfig{
+				ComponentKey: resourceKey,
+				Annotations: map[string]string{
+					GenerateImageAnnotationName: "{\"visibility\": \"private\"}",
+					ImageAnnotationName:         string(repositoryInfoJsonBytes),
+				},
+			})
+
+			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
+
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
+
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).ToNot(BeEmpty())
+			Expect(repoImageInfo.Image).To(Equal(expectedImage))
+			Expect(repoImageInfo.Visibility).To(Equal("public"))
+			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
 		})
 
 		It("should accept deprecated true value for repository options", func() {
