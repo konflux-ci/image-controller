@@ -1,12 +1,12 @@
 [![codecov](https://codecov.io/gh/redhat-appstudio/image-controller/branch/main/graph/badge.svg)](https://codecov.io/gh/redhat-appstudio/image-controller)
 # The Image Controller for AppStudio
-The Image Controller for AppStudio helps set up container image repositories for AppStudio `Components`. 
+The Image Controller for AppStudio helps set up container image repositories for AppStudio `Components`.
 
 ## Try it!
 
 ### Installation
 
-1. Install the project on your cluster by running `make deploy`. 
+1. Install the project on your cluster by running `make deploy`.
 2. Set up the Quay.io token that would be used by the controller to setup image repositories under the `quay.io/redhat-user-workloads` organization.
 
 ```
@@ -24,7 +24,7 @@ type: Opaque
 
 ### Create a Component
 
-To request the controller to setup an image repository, annotate the `Component` with `image.redhat.com/generate: 'true'`.
+To request the controller to setup an image repository, annotate the `Component` with `image.redhat.com/generate: '{"visibility": "public"}'` or `image.redhat.com/generate: '{"visibility": "private"}'` depending on desired repository visibility.
 
 
 ```
@@ -32,7 +32,7 @@ apiVersion: appstudio.redhat.com/v1alpha1
 kind: Component
 metadata:
   annotations:
-    image.redhat.com/generate: 'true'
+    image.redhat.com/generate: '{"visibility": "public"}'
   name: billing
   namespace: image-controller-system
 spec:
@@ -40,18 +40,32 @@ spec:
   componentName: billing
 ```
 
+The `image.redhat.com/generate` annotation will be deleted after processing. The visibility status will be shown in `visibility` field of `image.redhat.com/image` annotation.
+
+Also, it's possible to change the `visibility` of the repository after it's creation by setting the annotation again.
+
+---
+**NOTE**
+
+If your quay.io organization has free plan that does not allow setting repositories as private, then the error will be shown in `message` field of `image.redhat.com/image` annotation and the repository will remain public.
+In such case, the only way to have private repository is to create it with `private` visibility parameter. It would be possible to change it to `public` later, but not vice versa.
+
+---
+
 If `Component`'s auto-generated image repository should be deleted after component deletion, add `image.redhat.com/delete-image-repo` annotation to the `Component`.
 
-### Verify 
+### Verify
 
-The `Image controller` would create the necessary resources on Quay.io and write out the details of the same into the `Component` resource as an annotation, namely: 
+The `Image controller` would create the necessary resources on Quay.io and write out the details of the same into the `Component` resource as an annotation, namely:
 
 * The image repository URL.
+* The image repository visibility.
 * The name of the Kubernets `Secret` in which the robot account token was written out to.
 
 ```
 {
    "image":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing",
+   "visibility":"public",
    "secret":"billing",
 }
 ```
@@ -63,8 +77,7 @@ metadata:
   annotations:
     image.redhat.com/generate: 'false'
     image.redhat.com/image: >-
-      {"image":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing","secret":"billing"
-      }
+      {"image":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing","visibility":"public","secret":"billing"}
   name: billing
   namespace: image-controller-system
   resourceVersion: '86424'
