@@ -1,0 +1,8 @@
+resources:
+- cronjob.yaml
+
+configMapGenerator:
+- name: image-pruner-configmap
+  files:
+  - image_pruner/prune_images.py
+  - image_pruner/requirements.txt

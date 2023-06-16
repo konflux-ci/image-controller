@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: image-pruner-cronjob
+spec:
+  schedule: "0 0 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: image-pruner
+            image: registry.redhat.io/rhel8/python-39:1-120.1684740828
+            env:
+              - name: QUAY_TOKEN
+                valueFrom:
+                  secretKeyRef:
+                    name: quaytoken
+                    key: quaytoken
+              - name: NAMESPACE
+                valueFrom:
+                  secretKeyRef:
+                    name: quaytoken
+                    key: organization
+            imagePullPolicy: IfNotPresent
+            command:
+              - /bin/bash
+              - '-c'
+              - >-
+                pip install -r /image-pruner/requirements.txt && python
+                /image-pruner/prune_images.py --namespace $(NAMESPACE)
+            volumeMounts:
+              - name: image-pruner-volume
+                mountPath: /image-pruner
+          restartPolicy: OnFailure
+          volumes:
+            - name: image-pruner-volume
+              configMap:
+                name: image-pruner-configmap
+            - name: quaytoken
+              secret:
+                secretName: quaytoken
