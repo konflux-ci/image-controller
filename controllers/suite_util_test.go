@@ -229,6 +229,22 @@ func createNamespace(name string) {
 	}
 }
 
+func deleteNamespace(name string) {
+	namespace := corev1.Namespace{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Namespace",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+
+	if err := k8sClient.Delete(ctx, &namespace); err != nil && !k8sErrors.IsNotFound(err) {
+		Fail(err.Error())
+	}
+}
+
 func waitSecretExist(secretKey types.NamespacedName) *corev1.Secret {
 	secret := &corev1.Secret{}
 	Eventually(func() bool {

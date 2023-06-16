@@ -47,8 +47,8 @@ Also, it's possible to change the `visibility` of the repository after it's crea
 ---
 **NOTE**
 
-If your quay.io organization has free plan that does not allow setting repositories as private, then the error will be shown in `message` field of `image.redhat.com/image` annotation and the repository will remain public.
-In such case, the only way to have private repository is to create it with `private` visibility parameter. It would be possible to change it to `public` later, but not vice versa.
+Your quay.io organization plan should allow creation of private repositories.
+If your quay.io organization has free plan that does not allow setting repositories as private, then the error will be shown in `message` field of `image.redhat.com/image` annotation and the repository will not be created or will remain public.
 
 ---
 

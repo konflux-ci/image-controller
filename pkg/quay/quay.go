@@ -82,18 +82,22 @@ func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Rep
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
-
 	data := &Repository{}
-	err = json.Unmarshal(body, data)
-	if err != nil {
+	if err := json.Unmarshal(body, data); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 
-	if res.StatusCode == 400 && data.ErrorMessage == "Repository already exists" {
-		data.Name = repositoryRequest.Repository
-	} else if data.ErrorMessage != "" {
-		return data, errors.New(data.ErrorMessage)
+	if res.StatusCode != 200 {
+		if res.StatusCode == 402 {
+			// Current plan doesn't allow private image repositories
+			return nil, errors.New("payment required")
+		} else if res.StatusCode == 400 && data.ErrorMessage == "Repository already exists" {
+			data.Name = repositoryRequest.Repository
+		} else if data.ErrorMessage != "" {
+			return data, errors.New(data.ErrorMessage)
+		}
 	}
+
 	return data, nil
 }
 
