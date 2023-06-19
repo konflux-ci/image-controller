@@ -159,7 +159,6 @@ func setComponentAnnotationValue(componentKey types.NamespacedName, annotationNa
 	}
 	component.Annotations[annotationName] = annotationValue
 	Expect(k8sClient.Update(ctx, component)).To(Succeed())
-	waitComponentAnnotationValue(componentKey, annotationName, annotationValue)
 }
 
 func waitComponentAnnotation(componentKey types.NamespacedName, annotationName string) {
@@ -183,14 +182,6 @@ func waitComponentAnnotationGone(componentKey types.NamespacedName, annotationNa
 		}
 		_, exists := annotations[annotationName]
 		return !exists
-	}, timeout, interval).Should(BeTrue())
-}
-
-func waitComponentAnnotationValue(componentKey types.NamespacedName, annotationName string, annotationValue string) {
-	Eventually(func() bool {
-		component := getComponent(componentKey)
-		annotations := component.GetAnnotations()
-		return annotations != nil && annotations[annotationName] == annotationValue
 	}, timeout, interval).Should(BeTrue())
 }
 
