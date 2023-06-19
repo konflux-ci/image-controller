@@ -13,205 +13,412 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package controllers_test
+package controllers
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/h2non/gock"
-	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	"github.com/redhat-appstudio/image-controller/controllers"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/redhat-appstudio/image-controller/pkg/quay"
 )
 
 var _ = Describe("Component image controller", func() {
 
-	Context("Upon creation of Component", func() {
-		It("Should be annotated and Secret should be created", func() {
-			appComponent := &appstudioredhatcomv1alpha1.Component{
-				TypeMeta: v1.TypeMeta{
-					APIVersion: "appstudio.redhat.com/v1alpha1",
-					Kind:       "Component",
-				},
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "foo",
-					Namespace: "default",
-					Annotations: map[string]string{
-						"foo":                                   "bar",
-						controllers.GenerateImageAnnotationName: "true",
-						controllers.DeleteImageRepositoryAnnotationName: "true",
-					},
-				},
-				Spec: appstudioredhatcomv1alpha1.ComponentSpec{
-					ComponentName: "foo",
-					Application:   "bar",
-					Source: appstudioredhatcomv1alpha1.ComponentSource{
-						ComponentSourceUnion: appstudioredhatcomv1alpha1.ComponentSourceUnion{
-							GitSource: &appstudioredhatcomv1alpha1.GitSource{
-								URL: "github.com/foo/bar",
-							},
-						},
-					},
-				},
+	var (
+		resourceKey = types.NamespacedName{Name: defaultComponentName, Namespace: defaultComponentNamespace}
+
+		token                    string
+		expectedRobotAccountName string
+		expectedRepoName         string
+		expectedImage            string
+	)
+
+	Context("Image repository provision flow", func() {
+
+		It("should prepare environment", func() {
+			deleteNamespace(defaultComponentNamespace)
+			createNamespace(defaultComponentNamespace)
+
+			ResetTestQuayClient()
+
+			token = "token1234"
+			expectedRobotAccountName = fmt.Sprintf("%s%s%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedRepoName)
+		})
+
+		It("should do image repository provision", func() {
+			isCreateRepositoryInvoked := false
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				isCreateRepositoryInvoked = true
+				Expect(repository.Repository).To(Equal(expectedRepoName))
+				Expect(repository.Namespace).To(Equal(testQuayOrg))
+				Expect(repository.Visibility).To(Equal("private"))
+				Expect(repository.Description).ToNot(BeEmpty())
+				return &quay.Repository{Name: expectedRepoName}, nil
+			}
+			isCreateRobotAccountInvoked := false
+			CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+				isCreateRobotAccountInvoked = true
+				Expect(robotName).To(Equal(expectedRobotAccountName))
+				Expect(organization).To(Equal(testQuayOrg))
+				return &quay.RobotAccount{
+					Name:  expectedRobotAccountName,
+					Token: token,
+				}, nil
+			}
+			isAddWritePermissionsToRobotAccountInvoked := false
+			AddWritePermissionsToRobotAccountFunc = func(organization, imageRepository, robotAccountName string) error {
+				isAddWritePermissionsToRobotAccountInvoked = true
+				Expect(organization).To(Equal(testQuayOrg))
+				Expect(imageRepository).To(Equal(expectedRepoName))
+				Expect(robotAccountName).To(Equal(expectedRobotAccountName))
+				return nil
 			}
 
-			secretLookupKey := types.NamespacedName{Name: appComponent.Name, Namespace: appComponent.Namespace}
-
-			defer gock.Off()
-			defer gock.Observe(gock.DumpRequest)
-			gock.InterceptClient(httpClient)
-
-			// response from Repository API
-			quayOrganization := "redhat-user-workloads"
-			expectedRepoName := fmt.Sprintf("%s/%s/%s", appComponent.Namespace, appComponent.Spec.Application, appComponent.Name)
-
-			// request & response from Robot API
-			userProvidedRobotAccountName := appComponent.Namespace + appComponent.Spec.Application + appComponent.Name
-			returnedRobotAccountName := quayOrganization + "+" + userProvidedRobotAccountName
-			expectedToken := "token"
-
-			gock.New("https://quay.io").
-				Post("/api/v1/repository").
-				Reply(200).JSON(map[string]string{
-				"description": "description",
-				"namespace":   quayOrganization,
-				"name":        expectedRepoName,
+			createComponent(componentConfig{
+				ComponentKey: resourceKey,
+				Annotations: map[string]string{
+					GenerateImageAnnotationName:         "{\"visibility\": \"private\"}",
+					DeleteImageRepositoryAnnotationName: "true",
+				},
 			})
 
-			gock.New("https://quay.io").
-				Put(fmt.Sprintf("/api/v1/organization/%s/robots/%s", quayOrganization, userProvidedRobotAccountName)).
-				Reply(200).JSON(map[string]string{
-				"name":  returnedRobotAccountName,
-				"token": expectedToken,
-			})
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isCreateRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isAddWritePermissionsToRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 
-			gock.New("https://quay.io").
-				Put(fmt.Sprintf("/api/v1/repository/redhat-user-workloads/default/bar/foo/permissions/user/%s", returnedRobotAccountName)).
-				Reply(200).JSON(map[string]string{})
+			waitImageRepositoryFinalizerOnComponent(resourceKey)
 
-			Expect(k8sClient.Create(ctx, appComponent)).Should(BeNil())
-			hasCompLookupKey := types.NamespacedName{Name: appComponent.Name, Namespace: appComponent.Namespace}
-			createdHasComp := &appstudioredhatcomv1alpha1.Component{}
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
 
-			Eventually(func() bool {
-				Expect(k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)).Should(Succeed())
-				return createdHasComp.ResourceVersion != ""
-			}).Should(BeTrue())
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(BeEmpty())
+			Expect(repoImageInfo.Image).To(Equal(expectedImage))
+			Expect(repoImageInfo.Visibility).To(Equal("private"))
+			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
 
-			createdHasComp.Status.Devfile = "devfile"
-			Expect(k8sClient.Status().Update(context.Background(), createdHasComp)).Should(BeNil())
-			Eventually(func() bool {
-				Expect(k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)).Should(Succeed())
-				return createdHasComp.Status.Devfile == "devfile"
-			}).Should(BeTrue())
+			waitSecretExist(resourceKey)
+			secret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, resourceKey, secret)).To(Succeed())
+			dockerconfigJson := string(secret.Data[corev1.DockerConfigJsonKey])
+			var authDataJson interface{}
+			Expect(json.Unmarshal([]byte(dockerconfigJson), &authDataJson)).To(Succeed())
+			Expect(dockerconfigJson).To(ContainSubstring(expectedImage))
+			Expect(dockerconfigJson).To(ContainSubstring(base64.StdEncoding.EncodeToString([]byte(token))))
+		})
 
-			Eventually(func() controllers.RepositoryInfo {
-				Expect(k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)).Should(Succeed())
-				annotations := createdHasComp.Annotations
-				imageRepo := annotations[controllers.ImageAnnotationName]
+		It("should be able to switch image visibility", func() {
+			isChangeRepositoryVisibilityInvoked := false
+			ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
+				isChangeRepositoryVisibilityInvoked = true
+				Expect(organization).To(Equal(testQuayOrg))
+				Expect(imageRepository).To(Equal(expectedRepoName))
+				Expect(visibility).To(Equal("public"))
+				return nil
+			}
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Should not invoke repository creation on clean up")
+				return nil, nil
+			}
 
-				if imageRepo == "" {
-					// The controller may not finish the work to set the annotation yet.
-					// Return empty object for continuing wait
-					return controllers.RepositoryInfo{}
+			setComponentAnnotationValue(resourceKey, GenerateImageAnnotationName, `{"visibility": "public"}`)
+
+			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
+
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
+
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(BeEmpty())
+			Expect(repoImageInfo.Image).To(Equal(expectedImage))
+			Expect(repoImageInfo.Visibility).To(Equal("public"))
+			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
+		})
+
+		It("should do nothing if the same as current visibility requested", func() {
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Image repository creation should not be invoked")
+				return nil, nil
+			}
+			ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
+				defer GinkgoRecover()
+				Fail("Image repository visibility changing should not be invoked")
+				return nil
+			}
+
+			setComponentAnnotationValue(resourceKey, GenerateImageAnnotationName, `{"visibility": "public"}`)
+
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
+
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(BeEmpty())
+			Expect(repoImageInfo.Image).To(Equal(expectedImage))
+			Expect(repoImageInfo.Visibility).To(Equal("public"))
+			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
+		})
+
+		It("should delete robot account and image repository on component deletion", func() {
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Should not invoke repository creation on clean up")
+				return nil, nil
+			}
+			CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+				defer GinkgoRecover()
+				Fail("Should not invoke robot account creation on clean up")
+				return nil, nil
+			}
+			AddWritePermissionsToRobotAccountFunc = func(organization, imageRepository, robotAccountName string) error {
+				defer GinkgoRecover()
+				Fail("Should not invoke permission adding on clean up")
+				return nil
+			}
+
+			isDeleteRobotAccountInvoked := false
+			DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+				isDeleteRobotAccountInvoked = true
+				Expect(organization).To(Equal(testQuayOrg))
+				Expect(robotAccountName).To(Equal(expectedRobotAccountName))
+				return true, nil
+			}
+			isDeleteRepositoryInvoked := false
+			DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				isDeleteRepositoryInvoked = true
+				Expect(organization).To(Equal(testQuayOrg))
+				Expect(imageRepository).To(Equal(expectedRepoName))
+				return true, nil
+			}
+
+			deleteComponent(resourceKey)
+
+			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
+		})
+	})
+
+	Context("Image repository provision error cases", func() {
+
+		It("should prepare environment", func() {
+			createNamespace(defaultComponentNamespace)
+
+			ResetTestQuayClient()
+
+			deleteComponent(resourceKey)
+
+			token = "token1234"
+			expectedRobotAccountName = fmt.Sprintf("%s%s%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedRepoName)
+		})
+
+		It("should do nothing if generate annotation is not set", func() {
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Image repository creation should not be invoked")
+				return nil, nil
+			}
+
+			createComponent(componentConfig{ComponentKey: resourceKey})
+
+			time.Sleep(ensureTimeout)
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotationGone(resourceKey, ImageAnnotationName)
+		})
+
+		It("should do nothing and set error if generate annotation is invalid JSON", func() {
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Image repository creation should not be invoked")
+				return nil, nil
+			}
+
+			setComponentAnnotationValue(resourceKey, GenerateImageAnnotationName, `{"visibility": "public"`)
+
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
+
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(ContainSubstring("invalid JSON"))
+			Expect(repoImageInfo.Image).To(BeEmpty())
+			Expect(repoImageInfo.Visibility).To(BeEmpty())
+			Expect(repoImageInfo.Secret).To(BeEmpty())
+
+			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer)).To(BeFalse())
+		})
+
+		It("should do nothing and set error if generate annotation has invalid visibility value", func() {
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Image repository creation should not be invoked")
+				return nil, nil
+			}
+
+			setComponentAnnotationValue(resourceKey, GenerateImageAnnotationName, `{"visibility": "none"}`)
+
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
+
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(ContainSubstring("invalid value: none in visibility field"))
+			Expect(repoImageInfo.Image).To(BeEmpty())
+			Expect(repoImageInfo.Visibility).To(BeEmpty())
+			Expect(repoImageInfo.Secret).To(BeEmpty())
+
+			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer)).To(BeFalse())
+		})
+
+		It("should set error if quay organization plan doesn't allow private repositories", func() {
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				Expect(repository.Visibility).To(Equal("private"))
+				return nil, fmt.Errorf("payment required")
+			}
+			ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
+				defer GinkgoRecover()
+				Fail("Image repository visibility change should not be invoked")
+				return nil
+			}
+
+			setComponentAnnotationValue(resourceKey, GenerateImageAnnotationName, `{"visibility": "private"}`)
+
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
+
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(ContainSubstring("organization plan doesn't allow private image repositories"))
+			Expect(repoImageInfo.Image).To(BeEmpty())
+			Expect(repoImageInfo.Visibility).To(BeEmpty())
+			Expect(repoImageInfo.Secret).To(BeEmpty())
+
+			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer)).To(BeFalse())
+		})
+
+		It("should add message and stop if it's not possible to switch image repository visibility", func() {
+			isChangeRepositoryVisibilityInvoked := false
+			ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
+				if isChangeRepositoryVisibilityInvoked {
+					defer GinkgoRecover()
+					Fail("Image repository visibility change should not be invoked second time")
 				}
+				isChangeRepositoryVisibilityInvoked = true
+				return fmt.Errorf("payment required")
+			}
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Should not invoke repository creation")
+				return nil, nil
+			}
 
-				imageRepoObj := controllers.RepositoryInfo{}
-				Expect(json.Unmarshal([]byte(imageRepo), &imageRepoObj)).Should(Succeed())
+			repositoryInfo := ImageRepositoryStatus{
+				Image:      expectedImage,
+				Visibility: "public",
+				Secret:     resourceKey.Name,
+			}
+			repositoryInfoJsonBytes, _ := json.Marshal(repositoryInfo)
+			setComponentAnnotationValue(resourceKey, ImageAnnotationName, string(repositoryInfoJsonBytes))
+			setComponentAnnotationValue(resourceKey, GenerateImageAnnotationName, `{"visibility": "private"}`)
 
-				return imageRepoObj
-			}).Should(Equal(controllers.RepositoryInfo{
-				Image:  "quay.io/redhat-user-workloads/default/bar/foo",
-				Secret: "foo",
-			}))
+			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
 
-			Eventually(func() string {
-				Expect(k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)).Should(BeNil())
-				annotations := createdHasComp.Annotations
-				return annotations["image.redhat.com/generate"]
-			}).Should(Equal("false"))
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
 
-			Eventually(func() string {
-				createdSecret := corev1.Secret{}
-				Expect(k8sClient.Get(context.Background(), secretLookupKey, &createdSecret)).Should(BeNil())
-				return string(createdSecret.Data[corev1.DockerConfigJsonKey][:])
-			}).Should(Equal(fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`,
-				"quay.io/redhat-user-workloads/default/bar/foo",
-				base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", returnedRobotAccountName, expectedToken))))))
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(ContainSubstring("organization plan doesn't allow private image repositories"))
+			Expect(repoImageInfo.Image).To(Equal(expectedImage))
+			Expect(repoImageInfo.Visibility).To(Equal("public"))
+			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
+		})
 
-			// Now that everything is verified, we shall try to regenerate the images.
+		It("should not block component deletion if clean up fails", func() {
+			waitImageRepositoryFinalizerOnComponent(resourceKey)
 
-			gock.Clean()
+			setComponentAnnotationValue(resourceKey, DeleteImageRepositoryAnnotationName, "true")
 
-			// API Call to the Repository API should return a message that the Repository already exists
-			gock.New("https://quay.io").
-				Post("/api/v1/repository").
-				Reply(400).JSON(map[string]string{
-				"error_message": "Repository already exists",
+			DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				return false, fmt.Errorf("failed to delete repository")
+			}
+			DeleteRobotAccountFunc = func(organization, robotName string) (bool, error) {
+				return false, fmt.Errorf("failed to delete robot account")
+			}
+
+			deleteComponent(resourceKey)
+		})
+	})
+
+	Context("Image repository provision other cases", func() {
+
+		_ = BeforeEach(func() {
+			createNamespace(defaultComponentNamespace)
+
+			ResetTestQuayClient()
+
+			expectedRobotAccountName = fmt.Sprintf("%s%s%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedRepoName)
+		})
+
+		_ = AfterEach(func() {
+			deleteComponent(resourceKey)
+
+			deleteSecret(resourceKey)
+		})
+
+		It("should accept deprecated true value for repository options", func() {
+			isCreateRepositoryInvoked := false
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				isCreateRepositoryInvoked = true
+				return &quay.Repository{Name: "repo-name"}, nil
+			}
+
+			createComponent(componentConfig{
+				ComponentKey: resourceKey,
+				Annotations: map[string]string{
+					GenerateImageAnnotationName: "true",
+				},
 			})
 
-			// API Call to the Robot account API should return a message that the Robot account already exists
-			gock.New("https://quay.io").
-				Put(fmt.Sprintf("/api/v1/organization/%s/robots/%s", quayOrganization, userProvidedRobotAccountName)).
-				Reply(400).JSON(map[string]string{
-				"message": "Existing robot with name",
-			})
-			// Should return existing Robot account
-			gock.New("https://quay.io").
-				Get(fmt.Sprintf("/api/v1/organization/%s/robots/%s", quayOrganization, userProvidedRobotAccountName)).
-				Reply(200).JSON(map[string]string{
-				"name":  returnedRobotAccountName,
-				"token": expectedToken,
-			})
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
-			// API Call to the Permissions API remains business as usual.
-			gock.New("https://quay.io").
-				Put(fmt.Sprintf("/api/v1/repository/redhat-user-workloads/default/bar/foo/permissions/user/%s", returnedRobotAccountName)).
-				Reply(200).JSON(map[string]string{})
+			waitImageRepositoryFinalizerOnComponent(resourceKey)
 
-			// trigger reconcile again.
-			createdHasComp.Annotations["image.redhat.com/generate"] = "true"
-			Expect(k8sClient.Update(ctx, createdHasComp)).Should(BeNil())
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
 
-			Eventually(func() controllers.RepositoryInfo {
-				Expect(k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)).Should(Succeed())
-				annotations := createdHasComp.Annotations
-				imageRepo := annotations[controllers.ImageAnnotationName]
-
-				imageRepoObj := controllers.RepositoryInfo{}
-				Expect(json.Unmarshal([]byte(imageRepo), &imageRepoObj)).Should(Succeed())
-
-				return imageRepoObj
-			}).Should(Equal(controllers.RepositoryInfo{
-				Image:  "quay.io/redhat-user-workloads/default/bar/foo",
-				Secret: "foo",
-			}))
-
-			// Check robot account deletion on Component deletion
-
-			gock.New("https://quay.io").
-				Delete(fmt.Sprintf("/api/v1/organization/%s/robots/%s", quayOrganization, userProvidedRobotAccountName)).
-				Reply(204).JSON(map[string]string{})
-
-			gock.New("https://quay.io").
-				Delete(fmt.Sprintf("/api/v1/repository/%s/%s", quayOrganization, expectedRepoName)).
-				Reply(204).JSON(map[string]string{})
-
-			Expect(k8sClient.Delete(ctx, appComponent)).To(Succeed())
-			Eventually(func() bool {
-				err := k8sClient.Get(context.Background(), hasCompLookupKey, createdHasComp)
-				return errors.IsNotFound(err)
-			}).Should(BeTrue())
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(BeEmpty())
+			Expect(repoImageInfo.Image).ToNot(BeEmpty())
+			Expect(repoImageInfo.Visibility).To(Equal("public"))
+			Expect(repoImageInfo.Secret).ToNot(BeEmpty())
 		})
 	})
 })
