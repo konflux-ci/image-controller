@@ -40,9 +40,8 @@ import (
 )
 
 const (
-	ImageAnnotationName                 = "image.redhat.com/image"
-	GenerateImageAnnotationName         = "image.redhat.com/generate"
-	DeleteImageRepositoryAnnotationName = "image.redhat.com/delete-image-repo"
+	ImageAnnotationName         = "image.redhat.com/image"
+	GenerateImageAnnotationName = "image.redhat.com/generate"
 
 	ImageRepositoryFinalizer = "image-controller.appstudio.openshift.io/image-repository"
 )
@@ -104,25 +103,23 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if !component.ObjectMeta.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
 			robotAccountName := generateRobotAccountName(component)
-			isDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, robotAccountName)
+			isRobotAccountDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, robotAccountName)
 			if err != nil {
 				log.Error(err, "failed to delete robot account", l.Action, l.ActionDelete, l.Audit, "true")
 				// Do not block Component deletion if failed to delete robot account
 			}
-			if isDeleted {
+			if isRobotAccountDeleted {
 				log.Info(fmt.Sprintf("Deleted robot account %s", robotAccountName), l.Action, l.ActionDelete)
 			}
 
-			if val, exists := component.Annotations[DeleteImageRepositoryAnnotationName]; exists && val == "true" {
-				imageRepo := generateRepositoryName(component)
-				isRepoDeleted, err := r.QuayClient.DeleteRepository(r.QuayOrganization, imageRepo)
-				if err != nil {
-					log.Error(err, "failed to delete image repository", l.Action, l.ActionDelete, l.Audit, "true")
-					// Do not block Component deletion if failed to delete image repository
-				}
-				if isRepoDeleted {
-					log.Info(fmt.Sprintf("Deleted image repository %s", imageRepo), l.Action, l.ActionDelete)
-				}
+			imageRepo := generateRepositoryName(component)
+			isRepoDeleted, err := r.QuayClient.DeleteRepository(r.QuayOrganization, imageRepo)
+			if err != nil {
+				log.Error(err, "failed to delete image repository", l.Action, l.ActionDelete, l.Audit, "true")
+				// Do not block Component deletion if failed to delete image repository
+			}
+			if isRepoDeleted {
+				log.Info(fmt.Sprintf("Deleted image repository %s", imageRepo), l.Action, l.ActionDelete)
 			}
 
 			if err := r.Client.Get(ctx, req.NamespacedName, component); err != nil {
