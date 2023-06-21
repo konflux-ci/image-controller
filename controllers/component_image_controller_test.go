@@ -88,8 +88,7 @@ var _ = Describe("Component image controller", func() {
 			createComponent(componentConfig{
 				ComponentKey: resourceKey,
 				Annotations: map[string]string{
-					GenerateImageAnnotationName:         "{\"visibility\": \"private\"}",
-					DeleteImageRepositoryAnnotationName: "true",
+					GenerateImageAnnotationName: "{\"visibility\": \"private\"}",
 				},
 			})
 
@@ -359,8 +358,6 @@ var _ = Describe("Component image controller", func() {
 
 		It("should not block component deletion if clean up fails", func() {
 			waitImageRepositoryFinalizerOnComponent(resourceKey)
-
-			setComponentAnnotationValue(resourceKey, DeleteImageRepositoryAnnotationName, "true")
 
 			DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
 				return false, fmt.Errorf("failed to delete repository")
