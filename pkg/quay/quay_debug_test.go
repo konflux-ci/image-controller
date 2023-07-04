@@ -36,7 +36,7 @@ func TestCreateRepository(t *testing.T) {
 	if quayToken == "" {
 		return
 	}
-	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, func() string { return quayToken }, quayApiUrl)
 
 	repositoryRequest := RepositoryRequest{
 		Namespace:   quayOrgName,
@@ -57,7 +57,7 @@ func TestDoesRepositoryExist(t *testing.T) {
 	if quayToken == "" {
 		return
 	}
-	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, func() string { return quayToken }, quayApiUrl)
 	exists, err := quayClient.DoesRepositoryExist(quayOrgName, quayImageRepoName)
 	if exists == true && err == nil {
 		t.Log("Repository exists")
@@ -72,7 +72,7 @@ func TestDeleteRepository(t *testing.T) {
 	if quayToken == "" {
 		return
 	}
-	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, func() string { return quayToken }, quayApiUrl)
 
 	_, err := quayClient.DeleteRepository(quayOrgName, quayImageRepoName)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestChangeRepositoryVisibility(t *testing.T) {
 	}
 	visibility := "public"
 
-	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, func() string { return quayToken }, quayApiUrl)
 
 	err := quayClient.ChangeRepositoryVisibility(quayOrgName, quayImageRepoName, visibility)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestCreateRobotAccount(t *testing.T) {
 	if quayToken == "" {
 		return
 	}
-	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, func() string { return quayToken }, quayApiUrl)
 
 	robotAccount, err := quayClient.CreateRobotAccount(quayOrgName, quayRobotAccountName)
 	if err != nil {
@@ -113,7 +113,7 @@ func TestGetRobotAccount(t *testing.T) {
 	if quayToken == "" {
 		return
 	}
-	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, func() string { return quayToken }, quayApiUrl)
 
 	robotAccount, err := quayClient.GetRobotAccount(quayOrgName, quayRobotAccountName)
 	if err != nil {
@@ -133,7 +133,7 @@ func TestDeleteRobotAccount(t *testing.T) {
 	if quayToken == "" {
 		return
 	}
-	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, func() string { return quayToken }, quayApiUrl)
 
 	_, err := quayClient.DeleteRobotAccount(quayOrgName, quayRobotAccountName)
 	if err != nil {
@@ -145,7 +145,7 @@ func TestAddPermissionsToRobotAccount(t *testing.T) {
 	if quayToken == "" {
 		return
 	}
-	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, func() string { return quayToken }, quayApiUrl)
 
 	err := quayClient.AddPermissionsForRepositoryToRobotAccount(quayOrgName, quayImageRepoName, quayRobotAccountName, true)
 	if err != nil {

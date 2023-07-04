@@ -42,7 +42,7 @@ func TestQuayClient_CreateRepository(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
 
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+	quayClient := NewQuayClient(client, func() string { return "authtoken" }, "https://quay.io/api/v1")
 
 	r, err := quayClient.CreateRepository(RepositoryRequest{
 		Namespace:   "redhat-appstudio-user",
@@ -74,7 +74,7 @@ func TestQuayClient_CreateRobotAccount(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
 
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+	quayClient := NewQuayClient(client, func() string { return "authtoken" }, "https://quay.io/api/v1")
 
 	r, err := quayClient.CreateRobotAccount("org", "robot")
 
@@ -101,7 +101,7 @@ func TestQuayClient_CreateRobotAccountErrorHandling(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
 
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+	quayClient := NewQuayClient(client, func() string { return "authtoken" }, "https://quay.io/api/v1")
 
 	_, err := quayClient.CreateRobotAccount("org", "robot")
 
@@ -122,7 +122,7 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
 
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+	quayClient := NewQuayClient(client, func() string { return "authtoken" }, "https://quay.io/api/v1")
 
 	err := quayClient.AddPermissionsForRepositoryToRobotAccount("org", "repository", "robot", true)
 
@@ -151,7 +151,7 @@ func TestQuayClient_GetAllRepositories(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
 
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+	quayClient := NewQuayClient(client, func() string { return "authtoken" }, "https://quay.io/api/v1")
 
 	// Second page
 	response.Repositories = []Repository{{Name: "test2"}}
@@ -199,7 +199,7 @@ func TestQuayClient_GetAllRobotAccounts(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
 
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+	quayClient := NewQuayClient(client, func() string { return "authtoken" }, "https://quay.io/api/v1")
 
 	_, err := quayClient.GetAllRobotAccounts("test_org")
 
@@ -320,7 +320,7 @@ func TestQuayClient_GetTagsFromPage(t *testing.T) {
 		client := &http.Client{Transport: &http.Transport{}}
 		gock.InterceptClient(client)
 
-		quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+		quayClient := NewQuayClient(client, func() string { return "authtoken" }, "https://quay.io/api/v1")
 
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -407,7 +407,7 @@ func TestQuayClient_DeleteTag(t *testing.T) {
 			client := &http.Client{Transport: &http.Transport{}}
 			gock.InterceptClient(client)
 
-			quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+			quayClient := NewQuayClient(client, func() string { return "authtoken" }, "https://quay.io/api/v1")
 			gock.New("https://quay.io/api/v1").
 				MatchHeader("Authorization", "Bearer authtoken").
 				MatchHeader("Content-Type", "application/json").

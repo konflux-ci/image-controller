@@ -18,6 +18,8 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
@@ -41,6 +43,11 @@ import (
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	//+kubebuilder:scaffold:imports
+)
+
+const (
+	tokenPath string = "/workspace/quaytoken"
+	orgPath   string = "/workspace/organization"
 )
 
 var (
@@ -101,22 +108,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	tokenPath := "/workspace/quaytoken"
-	tokenContent, err := os.ReadFile(tokenPath)
-	if err != nil {
-		setupLog.Error(err, "unable to read quay token")
+	getReadConfigFunc := func(path string) func() string {
+		return func() string {
+			tokenContent, err := ioutil.ReadFile(path)
+			if err != nil {
+				setupLog.Error(err, fmt.Sprintf("unable to read %s", path))
+			}
+			return strings.TrimSpace(string(tokenContent))
+		}
 	}
-	orgPath := "/workspace/organization"
-	orgContent, err := os.ReadFile(orgPath)
-	if err != nil {
-		setupLog.Error(err, "unable to read quay organization")
-	}
-	quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, strings.TrimSpace(string(tokenContent)), "https://quay.io/api/v1")
+
+	quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, getReadConfigFunc(tokenPath), "https://quay.io/api/v1")
 	if err = (&controllers.ComponentReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
 		QuayClient:       quayClient,
-		QuayOrganization: strings.TrimSpace(string(orgContent)),
+		QuayOrganization: getReadConfigFunc(orgPath),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Controller")
 		os.Exit(1)

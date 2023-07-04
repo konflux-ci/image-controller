@@ -53,11 +53,11 @@ func TestGenerateRemoteImage(t *testing.T) {
 		return
 	}
 
-	quayClient := quay.NewQuayClient(client, quayToken, "https://quay.io/api/v1")
+	quayClient := quay.NewQuayClient(client, func() string { return quayToken }, "https://quay.io/api/v1")
 
 	r := ComponentReconciler{
 		QuayClient:       quayClient,
-		QuayOrganization: "redhat-user-workloads",
+		QuayOrganization: func() string { return "redhat-user-workloads" },
 	}
 	createdRepository, pushRobotAccount, pullRobotAccount, err := r.generateImageRepository(context.TODO(), &testComponent, &GenerateRepositoryOpts{Visibility: "public"})
 
