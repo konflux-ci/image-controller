@@ -124,7 +124,7 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 
 	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
 
-	err := quayClient.AddWritePermissionsToRobotAccount("org", "repository", "robot")
+	err := quayClient.AddPermissionsForRepositoryToRobotAccount("org", "repository", "robot", true)
 
 	if err != nil {
 		t.Errorf("Error creating repository, Expected nil, got %v", err)

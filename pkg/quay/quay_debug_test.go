@@ -147,7 +147,7 @@ func TestAddPermissionsToRobotAccount(t *testing.T) {
 	}
 	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
 
-	err := quayClient.AddWritePermissionsToRobotAccount(quayOrgName, quayImageRepoName, quayRobotAccountName)
+	err := quayClient.AddPermissionsForRepositoryToRobotAccount(quayOrgName, quayImageRepoName, quayRobotAccountName, true)
 	if err != nil {
 		t.Fatal(err)
 	}

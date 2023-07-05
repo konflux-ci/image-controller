@@ -30,13 +30,13 @@ var _ quay.QuayService = (*TestQuayClient)(nil)
 var (
 	testQuayClient = &TestQuayClient{}
 
-	CreateRepositoryFunc                  func(repository quay.RepositoryRequest) (*quay.Repository, error)
-	DeleteRepositoryFunc                  func(organization, imageRepository string) (bool, error)
-	ChangeRepositoryVisibilityFunc        func(organization, imageRepository string, visibility string) error
-	GetRobotAccountFunc                   func(organization string, robotName string) (*quay.RobotAccount, error)
-	CreateRobotAccountFunc                func(organization string, robotName string) (*quay.RobotAccount, error)
-	DeleteRobotAccountFunc                func(organization string, robotName string) (bool, error)
-	AddWritePermissionsToRobotAccountFunc func(organization, imageRepository, robotAccountName string) error
+	CreateRepositoryFunc                          func(repository quay.RepositoryRequest) (*quay.Repository, error)
+	DeleteRepositoryFunc                          func(organization, imageRepository string) (bool, error)
+	ChangeRepositoryVisibilityFunc                func(organization, imageRepository string, visibility string) error
+	GetRobotAccountFunc                           func(organization string, robotName string) (*quay.RobotAccount, error)
+	CreateRobotAccountFunc                        func(organization string, robotName string) (*quay.RobotAccount, error)
+	DeleteRobotAccountFunc                        func(organization string, robotName string) (bool, error)
+	AddPermissionsForRepositoryToRobotAccountFunc func(organization, imageRepository, robotAccountName string, isWrite bool) error
 )
 
 func ResetTestQuayClient() {
@@ -46,7 +46,7 @@ func ResetTestQuayClient() {
 	GetRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) { return &quay.RobotAccount{}, nil }
 	CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) { return &quay.RobotAccount{}, nil }
 	DeleteRobotAccountFunc = func(organization, robotName string) (bool, error) { return true, nil }
-	AddWritePermissionsToRobotAccountFunc = func(organization, imageRepository, robotAccountName string) error { return nil }
+	AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error { return nil }
 }
 
 func (c *TestQuayClient) CreateRepository(repositoryRequest quay.RepositoryRequest) (*quay.Repository, error) {
@@ -67,8 +67,8 @@ func (c *TestQuayClient) CreateRobotAccount(organization string, robotName strin
 func (c *TestQuayClient) DeleteRobotAccount(organization string, robotName string) (bool, error) {
 	return DeleteRobotAccountFunc(organization, robotName)
 }
-func (c *TestQuayClient) AddWritePermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error {
-	return AddWritePermissionsToRobotAccountFunc(organization, imageRepository, robotAccountName)
+func (c *TestQuayClient) AddPermissionsForRepositoryToRobotAccount(organization, imageRepository, robotAccountName string, isWrite bool) error {
+	return AddPermissionsForRepositoryToRobotAccountFunc(organization, imageRepository, robotAccountName, isWrite)
 }
 func (c *TestQuayClient) GetAllRepositories(organization string) ([]quay.Repository, error) {
 	return nil, nil
