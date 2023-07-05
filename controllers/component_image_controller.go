@@ -103,7 +103,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	if !component.ObjectMeta.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
-			pushRobotAccountName, pullRobotAccountName := generateRobotAccountName(component)
+			pushRobotAccountName, pullRobotAccountName := generateRobotAccountsNames(component)
 
 			isPushRobotAccountDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, pushRobotAccountName)
 			if err != nil {
@@ -245,7 +245,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				if err := r.EnsureRobotAccountSecret(ctx, component, pushRobotAccount, pushSecretName, imageURL); err != nil {
 					return ctrl.Result{}, err
 				} else {
-					log.Info(fmt.Sprintf("Updated image registry pysh secret %s for Component", pushRobotAccount.Name), l.Action, l.ActionUpdate)
+					log.Info(fmt.Sprintf("Updated image registry push secret %s for Component", pushRobotAccount.Name), l.Action, l.ActionUpdate)
 				}
 
 				pullSecretName := pushSecretName + "-pull"
@@ -357,8 +357,8 @@ func (r *ComponentReconciler) EnsureRobotAccountSecret(ctx context.Context, comp
 	return nil
 }
 
-// generateRobotAccountName returns push and pull robot account names for the given Component
-func generateRobotAccountName(component *appstudioredhatcomv1alpha1.Component) (string, string) {
+// generateRobotAccountsNames returns push and pull robot account names for the given Component
+func generateRobotAccountsNames(component *appstudioredhatcomv1alpha1.Component) (string, string) {
 	pushRobotAccountName := component.Namespace + component.Spec.Application + component.Name
 	pullRobotAccountName := pushRobotAccountName + "_pull"
 	return pushRobotAccountName, pullRobotAccountName
@@ -383,7 +383,7 @@ func (r *ComponentReconciler) generateImageRepository(ctx context.Context, compo
 		return nil, nil, nil, err
 	}
 
-	pushRobotAccountName, pullRobotAccountName := generateRobotAccountName(component)
+	pushRobotAccountName, pullRobotAccountName := generateRobotAccountsNames(component)
 
 	pushRobotAccount, err := r.QuayClient.CreateRobotAccount(r.QuayOrganization, pushRobotAccountName)
 	if err != nil {
