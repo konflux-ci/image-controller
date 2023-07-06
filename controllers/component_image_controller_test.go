@@ -56,7 +56,7 @@ var _ = Describe("Component image controller", func() {
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
 			expectedPushRobotAccountName = fmt.Sprintf("%s%s%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
-			expectedPullRobotAccountName = expectedPushRobotAccountName + "_pull"
+			expectedPullRobotAccountName = expectedPushRobotAccountName + "-pull"
 			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedRepoName)
 		})
@@ -443,7 +443,7 @@ var _ = Describe("Component image controller", func() {
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
 			expectedPushRobotAccountName = fmt.Sprintf("%s%s%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
-			expectedPullRobotAccountName = expectedPushRobotAccountName + "_pull"
+			expectedPullRobotAccountName = expectedPushRobotAccountName + "-pull"
 			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedRepoName)
 		})

@@ -70,7 +70,7 @@ func TestGenerateRemoteImage(t *testing.T) {
 	if pushRobotAccount.Name != returnedRobotAccountName {
 		t.Errorf("Error creating robot account, Expected %s, got %v", returnedRobotAccountName, pushRobotAccount.Name)
 	}
-	if pullRobotAccount.Name != returnedRobotAccountName+"_pull" {
-		t.Errorf("Error creating robot account, Expected %s, got %v", returnedRobotAccountName+"_pull", pullRobotAccount.Name)
+	if pullRobotAccount.Name != returnedRobotAccountName+"-pull" {
+		t.Errorf("Error creating robot account, Expected %s, got %v", returnedRobotAccountName+"-pull", pullRobotAccount.Name)
 	}
 }

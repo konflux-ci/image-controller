@@ -360,7 +360,7 @@ func (r *ComponentReconciler) EnsureRobotAccountSecret(ctx context.Context, comp
 // generateRobotAccountsNames returns push and pull robot account names for the given Component
 func generateRobotAccountsNames(component *appstudioredhatcomv1alpha1.Component) (string, string) {
 	pushRobotAccountName := component.Namespace + component.Spec.Application + component.Name
-	pullRobotAccountName := pushRobotAccountName + "_pull"
+	pullRobotAccountName := pushRobotAccountName + "-pull"
 	return pushRobotAccountName, pullRobotAccountName
 }
 
