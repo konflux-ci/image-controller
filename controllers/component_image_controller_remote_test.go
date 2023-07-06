@@ -59,7 +59,7 @@ func TestGenerateRemoteImage(t *testing.T) {
 		QuayClient:       quayClient,
 		QuayOrganization: "redhat-user-workloads",
 	}
-	createdRepository, createdRobotAccount, err := r.generateImageRepository(context.TODO(), &testComponent, &GenerateRepositoryOpts{Visibility: "public"})
+	createdRepository, pushRobotAccount, pullRobotAccount, err := r.generateImageRepository(context.TODO(), &testComponent, &GenerateRepositoryOpts{Visibility: "public"})
 
 	if err != nil {
 		t.Errorf("Error generating repository and setting up robot account, Expected nil, got %v", err)
@@ -67,7 +67,10 @@ func TestGenerateRemoteImage(t *testing.T) {
 	if createdRepository.Name != expectedRepoName {
 		t.Errorf("Error creating repository, Expected %s, got %v", expectedRepoName, createdRepository.Name)
 	}
-	if createdRobotAccount.Name != returnedRobotAccountName {
-		t.Errorf("Error creating robot account, Expected %s, got %v", returnedRobotAccountName, createdRobotAccount.Name)
+	if pushRobotAccount.Name != returnedRobotAccountName {
+		t.Errorf("Error creating robot account, Expected %s, got %v", returnedRobotAccountName, pushRobotAccount.Name)
+	}
+	if pullRobotAccount.Name != returnedRobotAccountName+"-pull" {
+		t.Errorf("Error creating robot account, Expected %s, got %v", returnedRobotAccountName+"-pull", pullRobotAccount.Name)
 	}
 }

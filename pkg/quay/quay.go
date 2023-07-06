@@ -34,7 +34,7 @@ type QuayService interface {
 	GetRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
-	AddWritePermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error
+	AddPermissionsForRepositoryToRobotAccount(organization, imageRepository, robotAccountName string, isWrite bool) error
 	GetAllRepositories(organization string) ([]Repository, error)
 	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
 	GetTagsFromPage(organization, repository string, page int) ([]Tag, bool, error)
@@ -362,8 +362,9 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 	return false, errors.New(data.ErrorMessage)
 }
 
-// AddWritePermissionsToRobotAccount enables "robotAccountName" to "write" to "repository"
-func (c *QuayClient) AddWritePermissionsToRobotAccount(organization, imageRepository, robotAccountName string) error {
+// AddPermissionsForRepositoryToRobotAccount allows given robot account to access to the given repository.
+// If isWrite is true, then pull and push permissions are added, otherwise - pull access only.
+func (c *QuayClient) AddPermissionsForRepositoryToRobotAccount(organization, imageRepository, robotAccountName string, isWrite bool) error {
 	var robotAccountFullName string
 	if robotName, err := handleRobotName(robotAccountName); err == nil {
 		robotAccountFullName = organization + "+" + robotName
@@ -374,7 +375,11 @@ func (c *QuayClient) AddWritePermissionsToRobotAccount(organization, imageReposi
 	// url := "https://quay.io/api/v1/repository/redhat-appstudio/test-repo-using-api/permissions/user/redhat-appstudio+createdbysbose"
 	url := fmt.Sprintf("%s/repository/%s/%s/permissions/user/%s", c.url, organization, imageRepository, robotAccountFullName)
 
-	payload := strings.NewReader(`{"role": "write"}`)
+	role := "read"
+	if isWrite {
+		role = "write"
+	}
+	payload := strings.NewReader(fmt.Sprintf(`{"role": "%s"}`, role))
 
 	req, err := http.NewRequest(http.MethodPut, url, payload)
 	if err != nil {
@@ -401,7 +406,7 @@ func (c *QuayClient) AddWritePermissionsToRobotAccount(organization, imageReposi
 				}
 			}
 		}
-		return fmt.Errorf("failed to add write permissions to the robot account. Status code: %d, message: %s", res.StatusCode, message)
+		return fmt.Errorf("failed to add permissions to the robot account. Status code: %d, message: %s", res.StatusCode, message)
 	}
 	return nil
 }
