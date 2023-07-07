@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	appstudioapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 )
 
 const (
@@ -262,4 +263,13 @@ func deleteSecret(resourceKey types.NamespacedName) {
 	Eventually(func() bool {
 		return k8sErrors.IsNotFound(k8sClient.Get(ctx, resourceKey, secret))
 	}, timeout, interval).Should(BeTrue())
+}
+
+func waitRemoteSecretExist(remoteSecretKey types.NamespacedName) *remotesecretv1beta1.RemoteSecret {
+	remoteSecret := &remotesecretv1beta1.RemoteSecret{}
+	Eventually(func() bool {
+		err := k8sClient.Get(ctx, remoteSecretKey, remoteSecret)
+		return err == nil && remoteSecret.ResourceVersion != ""
+	}, timeout, interval).Should(BeTrue())
+	return remoteSecret
 }

@@ -37,6 +37,7 @@ import (
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	l "github.com/redhat-appstudio/image-controller/pkg/logs"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
+	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 )
 
 const (
@@ -44,6 +45,11 @@ const (
 	GenerateImageAnnotationName = "image.redhat.com/generate"
 
 	ImageRepositoryFinalizer = "image-controller.appstudio.openshift.io/image-repository"
+
+	ApplicationNameLabelName = "appstudio.openshift.io/application"
+	ComponentNameLabelName   = "appstudio.openshift.io/component"
+
+	BuildPipelineServiceAccountName = "appstudio-pipeline"
 )
 
 // GenerateRepositoryOpts defines patameters for image repository to be generated.
@@ -79,7 +85,8 @@ func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;delete
+//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=remotesecrets,verbs=get;list;watch;create;update;patch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -236,24 +243,33 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 					log.Error(nil, "Unknown error in the repository generation process", l.Audit, "true")
 					return ctrl.Result{}, r.reportError(ctx, component, "failed to generete image repository: unknown error")
 				}
-				log.Info(fmt.Sprintf("Created image repository %s for Component", repo.Name), l.Action, l.ActionAdd)
+				log.Info(fmt.Sprintf("Prepared image repository %s for Component", repo.Name), l.Action, l.ActionAdd)
 
 				imageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, repo.Name)
 
 				// Create secrets with the repository credentials
 				pushSecretName := component.Name
-				if err := r.EnsureRobotAccountSecret(ctx, component, pushRobotAccount, pushSecretName, imageURL); err != nil {
+				_, err := r.EnsureRobotAccountSecret(ctx, component, pushRobotAccount, pushSecretName, imageURL)
+				if err != nil {
 					return ctrl.Result{}, err
-				} else {
-					log.Info(fmt.Sprintf("Updated image registry push secret %s for Component", pushRobotAccount.Name), l.Action, l.ActionUpdate)
 				}
+				log.Info(fmt.Sprintf("Prepared image registry push secret %s for Component", pushRobotAccount.Name), l.Action, l.ActionUpdate)
 
 				pullSecretName := pushSecretName + "-pull"
-				if err := r.EnsureRobotAccountSecret(ctx, component, pullRobotAccount, pullSecretName, imageURL); err != nil {
+				pullSecretData, err := r.EnsureRobotAccountSecret(ctx, component, pullRobotAccount, pullSecretName, imageURL)
+				if err != nil {
 					return ctrl.Result{}, err
-				} else {
-					log.Info(fmt.Sprintf("Updated image registry pull secret %s for Component", pullRobotAccount.Name), l.Action, l.ActionUpdate)
 				}
+				log.Info(fmt.Sprintf("Prepared image registry pull secret %s for Component", pullRobotAccount.Name), l.Action, l.ActionUpdate)
+
+				// Propagate the pull secret into all environments
+				if err := r.EnsureComponentPullSecretRemoteSecret(ctx, component, pullSecretName); err != nil {
+					return ctrl.Result{}, err
+				}
+				if err := r.CreateRemoteSecretUploadSecret(ctx, component.Namespace, pullSecretName, pullSecretData); err != nil {
+					return ctrl.Result{}, err
+				}
+				log.Info(fmt.Sprintf("Prepared remote secret %s for Component", pullSecretName), l.Action, l.ActionUpdate)
 
 				// Prepare data to update the component with
 				repositoryInfo = ImageRepositoryStatus{
@@ -331,27 +347,109 @@ func (r *ComponentReconciler) reportError(ctx context.Context, component *appstu
 }
 
 // EnsureRobotAccountSecret creates or updates robot account secret.
-func (r *ComponentReconciler) EnsureRobotAccountSecret(ctx context.Context, component *appstudioredhatcomv1alpha1.Component, robotAccount *quay.RobotAccount, secretName, imageURL string) error {
+// Returns secret string data.
+func (r *ComponentReconciler) EnsureRobotAccountSecret(ctx context.Context, component *appstudioredhatcomv1alpha1.Component, robotAccount *quay.RobotAccount, secretName, imageURL string) (map[string]string, error) {
 	log := ctrllog.FromContext(ctx)
 
 	robotAccountSecret := generateSecret(component, robotAccount, secretName, imageURL)
+	secretData := robotAccountSecret.StringData
+
 	robotAccountSecretKey := types.NamespacedName{Namespace: robotAccountSecret.Namespace, Name: robotAccountSecret.Name}
 	existingRobotAccountSecret := &corev1.Secret{}
 	if err := r.Client.Get(ctx, robotAccountSecretKey, existingRobotAccountSecret); err == nil {
-		existingRobotAccountSecret.StringData = robotAccountSecret.StringData
+		existingRobotAccountSecret.StringData = secretData
 		if err := r.Client.Update(ctx, existingRobotAccountSecret); err != nil {
 			log.Error(err, fmt.Sprintf("failed to update robot account secret %v", robotAccountSecretKey), l.Action, l.ActionUpdate)
-			return err
+			return nil, err
 		}
 	} else {
 		if !errors.IsNotFound(err) {
 			log.Error(err, fmt.Sprintf("failed to read robot account secret %v", robotAccountSecretKey), l.Action, l.ActionView)
-			return err
+			return nil, err
 		}
-		if err := r.Client.Create(ctx, &robotAccountSecret); err != nil {
+		if err := r.Client.Create(ctx, robotAccountSecret); err != nil {
 			log.Error(err, fmt.Sprintf("error writing robot account token into Secret: %v", robotAccountSecretKey), l.Action, l.ActionAdd)
+			return nil, err
+		}
+	}
+
+	return secretData, nil
+}
+
+// EnsureComponentPullSecretRemoteSecret creates remote secret for component image repository pull token.
+func (r *ComponentReconciler) EnsureComponentPullSecretRemoteSecret(ctx context.Context, component *appstudioredhatcomv1alpha1.Component, remoteSecretName string) error {
+	log := ctrllog.FromContext(ctx)
+
+	remoteSecret := &remotesecretv1beta1.RemoteSecret{}
+	remoteSecretKey := types.NamespacedName{Namespace: component.Namespace, Name: remoteSecretName}
+	if err := r.Client.Get(ctx, remoteSecretKey, remoteSecret); err != nil {
+		if !errors.IsNotFound(err) {
+			log.Error(err, fmt.Sprintf("failed to get remote secret: %v", remoteSecretKey), l.Action, l.ActionAdd)
 			return err
 		}
+
+		remoteSecret := &remotesecretv1beta1.RemoteSecret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      remoteSecretName,
+				Namespace: component.Namespace,
+				Labels: map[string]string{
+					ApplicationNameLabelName: component.Spec.Application,
+					ComponentNameLabelName:   component.Name,
+				},
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						Name:       component.Name,
+						APIVersion: component.APIVersion,
+						Kind:       component.Kind,
+						UID:        component.UID,
+					},
+				},
+			},
+			Spec: remotesecretv1beta1.RemoteSecretSpec{
+				Secret: remotesecretv1beta1.LinkableSecretSpec{
+					Name: remoteSecretName,
+					Type: corev1.SecretTypeDockerConfigJson,
+					LinkedTo: []remotesecretv1beta1.SecretLink{
+						{
+							ServiceAccount: remotesecretv1beta1.ServiceAccountLink{
+								Reference: corev1.LocalObjectReference{
+									Name: BuildPipelineServiceAccountName,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		if err := r.Client.Create(ctx, remoteSecret); err != nil {
+			log.Error(err, fmt.Sprintf("failed to create remote secret: %v", remoteSecretKey), l.Action, l.ActionAdd, l.Audit, "true")
+			return err
+		}
+	}
+
+	return nil
+}
+
+// CreateRemoteSecretUploadSecret creates short lived secret to upload data into specified remote secret.
+func (r *ComponentReconciler) CreateRemoteSecretUploadSecret(ctx context.Context, namespace, remoteSecretName string, secretData map[string]string) error {
+	log := ctrllog.FromContext(ctx)
+
+	uploadSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "upload-secret-" + remoteSecretName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"appstudio.redhat.com/upload-secret": "remotesecret",
+			},
+			Annotations: map[string]string{
+				"appstudio.redhat.com/remotesecret-name": remoteSecretName,
+			},
+		},
+		StringData: secretData,
+	}
+	if err := r.Client.Create(ctx, uploadSecret); err != nil {
+		log.Error(err, fmt.Sprintf("failed to create remote secret: %v", uploadSecret.Name), l.Action, l.ActionAdd, l.Audit, "true")
+		return err
 	}
 
 	return nil
@@ -411,8 +509,8 @@ func (r *ComponentReconciler) generateImageRepository(ctx context.Context, compo
 }
 
 // generateSecret dumps the robot account token into a Secret for future consumption.
-func generateSecret(c *appstudioredhatcomv1alpha1.Component, r *quay.RobotAccount, secretName, quayImageURL string) corev1.Secret {
-	secret := corev1.Secret{
+func generateSecret(c *appstudioredhatcomv1alpha1.Component, r *quay.RobotAccount, secretName, quayImageURL string) *corev1.Secret {
+	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
 			Namespace: c.Namespace,
