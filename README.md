@@ -42,7 +42,7 @@ spec:
 
 The `image.redhat.com/generate` annotation will be deleted after processing. The visibility status will be shown in `visibility` field of `image.redhat.com/image` annotation.
 
-Also, it's possible to change the `visibility` of the repository after it's creation by setting the annotation again.
+Subsequently, the visiblity of the image repository could be changed by toggling the value of "visibilty".
 
 ---
 **NOTE**
