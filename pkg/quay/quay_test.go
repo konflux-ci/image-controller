@@ -26,6 +26,12 @@ import (
 	"github.com/h2non/gock"
 )
 
+const (
+	org       = "test_org"
+	repo      = "test_repo"
+	robotName = "robot_name"
+)
+
 func TestQuayClient_CreateRepository(t *testing.T) {
 	defer gock.Off()
 
@@ -293,9 +299,6 @@ func TestQuayClient_handleRobotName(t *testing.T) {
 func TestQuayClient_GetTagsFromPage(t *testing.T) {
 	defer gock.Off()
 
-	org := "test_org"
-	repo := "test_repo"
-
 	testCases := []struct {
 		name          string
 		pages         int
@@ -360,9 +363,6 @@ func TestQuayClient_GetTagsFromPage(t *testing.T) {
 func TestQuayClient_DeleteTag(t *testing.T) {
 	defer gock.Off()
 
-	org := "test_org"
-	repo := "test_repo"
-
 	testCases := []struct {
 		name       string
 		tag        string
@@ -423,5 +423,182 @@ func TestQuayClient_DeleteTag(t *testing.T) {
 				t.Errorf("expected error to be `%v`, got `%v`", tc.err, err)
 			}
 		})
+	}
+}
+
+func TestQuayClient_DoesRepositoryExist(t *testing.T) {
+	defer gock.Off()
+
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+
+	// Repository exists
+	gock.New("https://quay.io/api/v1").
+		MatchHeader("Content-Type", "application/json").
+		MatchHeader("Authorization", "Bearer authtoken").
+		Get(fmt.Sprintf("repository/%s/%s", org, repo)).
+		Reply(200).
+		JSON(map[string]string{})
+
+	if exists, _ := quayClient.DoesRepositoryExist(org, repo); !exists {
+		t.Error("expected repository to exist")
+	}
+
+	// Repository does not exist
+	gock.New("https://quay.io/api/v1").
+		MatchHeader("Content-Type", "application/json").
+		MatchHeader("Authorization", "Bearer authtoken").
+		Get(fmt.Sprintf("repository/%s/%s", org, repo)).
+		Reply(404).
+		JSON(map[string]string{})
+
+	if exists, _ := quayClient.DoesRepositoryExist(org, repo); exists {
+		t.Error("expected repository to not exist")
+	}
+}
+
+func TestQuayClient_DeleteRepository(t *testing.T) {
+	defer gock.Off()
+
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+
+	// Delete existing repository
+	gock.New("https://quay.io/api/v1").
+		MatchHeader("Content-Type", "application/json").
+		MatchHeader("Authorization", "Bearer authtoken").
+		Delete(fmt.Sprintf("repository/%s/%s", org, repo)).
+		Reply(204).
+		JSON(map[string]string{})
+
+	if exists, _ := quayClient.DeleteRepository(org, repo); !exists {
+		t.Error("expected existing repository to be deleted")
+	}
+
+	// Try to delete non-existing repository
+	gock.New("https://quay.io/api/v1").
+		MatchHeader("Content-Type", "application/json").
+		MatchHeader("Authorization", "Bearer authtoken").
+		Delete(fmt.Sprintf("repository/%s/%s", org, repo)).
+		Reply(404).
+		JSON(map[string]string{})
+
+	if exists, _ := quayClient.DeleteRepository(org, repo); exists {
+		t.Error("expected repository to not be deleted since it does not exist")
+	}
+}
+
+func TestQuayClient_ChangeRepositoryVisibility(t *testing.T) {
+	defer gock.Off()
+
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+
+	// Change visibility to public
+	gock.New("https://quay.io/api/v1").
+		MatchHeader("Content-Type", "application/json").
+		MatchHeader("Authorization", "Bearer authtoken").
+		BodyString(`{"visibility": "public"}`).
+		Post(fmt.Sprintf("repository/%s/%s/changevisibility", org, repo)).
+		Reply(200).
+		JSON(map[string]string{})
+
+	if err := quayClient.ChangeRepositoryVisibility(org, repo, "public"); err != nil {
+		t.Error("expected change to be successful, err:", err)
+	}
+
+	// Try to change visibility to private without payment
+	gock.New("https://quay.io/api/v1").
+		MatchHeader("Content-Type", "application/json").
+		MatchHeader("Authorization", "Bearer authtoken").
+		BodyString(`{"visibility": "private"}`).
+		Post(fmt.Sprintf("repository/%s/%s/changevisibility", org, repo)).
+		Reply(402).
+		JSON(map[string]string{})
+
+	if err := quayClient.ChangeRepositoryVisibility(org, repo, "private"); err == nil {
+		t.Error("error should have occured")
+	}
+}
+
+func TestQuayClient_GetRobotAccount(t *testing.T) {
+	defer gock.Off()
+
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+
+	robot := RobotAccount{
+		Description:  "robot description",
+		Created:      "robot creation",
+		LastAccessed: "robot last access",
+		Token:        "robot token",
+		Name:         "Foo",
+		Message:      "",
+	}
+
+	// Get existing robot account
+	gock.New("https://quay.io/api/v1").
+		MatchHeader("Content-Type", "application/json").
+		MatchHeader("Authorization", "Bearer authtoken").
+		Get(fmt.Sprintf("organization/%s/robots/%s", org, robotName)).
+		Reply(200).
+		JSON(robot)
+
+	if received_robot, err := quayClient.GetRobotAccount(org, robotName); err != nil {
+		t.Error("encountered error when getting robot:", err)
+	} else if *received_robot != robot {
+		t.Error("received robot is not the same as original")
+	}
+
+	// Try to get non-existing robot account
+	gock.New("https://quay.io/api/v1").
+		MatchHeader("Content-Type", "application/json").
+		MatchHeader("Authorization", "Bearer authtoken").
+		Get(fmt.Sprintf("organization/%s/robots/%s", org, robotName)).
+		Reply(404)
+
+	if received_robot, _ := quayClient.GetRobotAccount(org, robotName); received_robot != nil {
+		t.Error("expected to not receive robot")
+	}
+}
+
+func TestQuayClient_DeleteRobotAccount(t *testing.T) {
+	defer gock.Off()
+
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+
+	// Delete existing robot account
+	gock.New("https://quay.io/api/v1").
+		MatchHeader("Content-Type", "application/json").
+		MatchHeader("Authorization", "Bearer authtoken").
+		Delete(fmt.Sprintf("organization/%s/robots/%s", org, robotName)).
+		Reply(204).
+		JSON(map[string]string{})
+
+	if exists, _ := quayClient.DeleteRobotAccount(org, robotName); !exists {
+		t.Error("expected existing robot account to be deleted")
+	}
+
+	// Try to delete non-existing robot account
+	gock.New("https://quay.io/api/v1").
+		MatchHeader("Content-Type", "application/json").
+		MatchHeader("Authorization", "Bearer authtoken").
+		Delete(fmt.Sprintf("organization/%s/robots/%s", org, robotName)).
+		Reply(404).
+		JSON(map[string]string{})
+
+	if exists, _ := quayClient.DeleteRobotAccount(org, robotName); exists {
+		t.Error("expected robot account to not be deleted since it does not exist")
 	}
 }
