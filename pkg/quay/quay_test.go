@@ -523,7 +523,7 @@ func TestQuayClient_ChangeRepositoryVisibility(t *testing.T) {
 		JSON(map[string]string{})
 
 	if err := quayClient.ChangeRepositoryVisibility(org, repo, "private"); err == nil {
-		t.Error("error should have occured")
+		t.Error("error should have occured when changing visibility to private without payment")
 	}
 }
 
@@ -566,7 +566,7 @@ func TestQuayClient_GetRobotAccount(t *testing.T) {
 		Reply(404)
 
 	if received_robot, _ := quayClient.GetRobotAccount(org, robotName); received_robot != nil {
-		t.Error("expected to not receive robot")
+		t.Error("expected to not receive robot since it does not exist")
 	}
 }
 
