@@ -21,6 +21,12 @@ data:
 type: Opaque
 ```
 
+To generate organization-wide token:
+
+1. Create your own organization on [Quay.io](https://quay.io)
+2. Go to the organization and select applications, then create a new one.
+3. Select the application and choose generate token.
+4. Select `Administer organizations`, `Adminster repositories`, `Create Repositories` permissions.
 
 ### Create a Component
 
