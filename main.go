@@ -18,7 +18,6 @@ package main
 
 import (
 	"flag"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
@@ -40,6 +39,7 @@ import (
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/controllers"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
+	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -51,6 +51,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(appstudioredhatcomv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(remotesecretv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -101,12 +102,12 @@ func main() {
 	}
 
 	tokenPath := "/workspace/quaytoken"
-	tokenContent, err := ioutil.ReadFile(tokenPath)
+	tokenContent, err := os.ReadFile(tokenPath)
 	if err != nil {
 		setupLog.Error(err, "unable to read quay token")
 	}
 	orgPath := "/workspace/organization"
-	orgContent, err := ioutil.ReadFile(orgPath)
+	orgContent, err := os.ReadFile(orgPath)
 	if err != nil {
 		setupLog.Error(err, "unable to read quay organization")
 	}

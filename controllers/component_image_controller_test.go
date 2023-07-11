@@ -26,7 +26,9 @@ import (
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
@@ -35,12 +37,16 @@ import (
 var _ = Describe("Component image controller", func() {
 
 	var (
-		resourceKey = types.NamespacedName{Name: defaultComponentName, Namespace: defaultComponentNamespace}
+		authRegexp = regexp.MustCompile(`.*{"auth":"([A-Za-z0-9+/=]*)"}.*`)
+
+		resourceKey     = types.NamespacedName{Name: defaultComponentName, Namespace: defaultComponentNamespace}
+		uploadSecretKey = types.NamespacedName{Name: "upload-secret-" + defaultComponentName + "-pull", Namespace: defaultComponentNamespace}
 
 		pushToken                    string
 		pullToken                    string
 		expectedPushRobotAccountName string
 		expectedPullRobotAccountName string
+		expectedRemoteSecretName     string
 		expectedRepoName             string
 		expectedImage                string
 	)
@@ -57,6 +63,7 @@ var _ = Describe("Component image controller", func() {
 			pullToken = "pull-token1234"
 			expectedPushRobotAccountName = fmt.Sprintf("%s%s%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
 			expectedPullRobotAccountName = expectedPushRobotAccountName + "-pull"
+			expectedRemoteSecretName = resourceKey.Name + "-pull"
 			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedRepoName)
 		})
@@ -134,11 +141,9 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Image).To(Equal(expectedImage))
 			Expect(repoImageInfo.Visibility).To(Equal("private"))
 			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
-			Expect(repoImageInfo.PullSecret).To(Equal(resourceKey.Name + "-pull"))
 
 			secret := &corev1.Secret{}
 			var authDataJson interface{}
-			authRegexp := regexp.MustCompile(`.*{"auth":"([A-Za-z0-9+/=]*)"}.*`)
 
 			pushSecretKey := resourceKey
 			waitSecretExist(pushSecretKey)
@@ -149,16 +154,40 @@ var _ = Describe("Component image controller", func() {
 			pushAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pushDockerconfigJson)[1])
 			Expect(err).To(Succeed())
 			Expect(string(pushAuthString)).To(Equal(fmt.Sprintf("%s:%s", expectedPushRobotAccountName, pushToken)))
+		})
 
-			pullSecretKey := types.NamespacedName{Namespace: resourceKey.Namespace, Name: pushSecretKey.Name + "-pull"}
-			waitSecretExist(pullSecretKey)
-			Expect(k8sClient.Get(ctx, pullSecretKey, secret)).To(Succeed())
-			pullDockerconfigJson := string(secret.Data[corev1.DockerConfigJsonKey])
-			Expect(json.Unmarshal([]byte(pullDockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(pullDockerconfigJson).To(ContainSubstring(expectedImage))
-			pullAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pullDockerconfigJson)[1])
+		It("should propagate pull secret to environments", func() {
+			component := getComponent(resourceKey)
+
+			remoteSecretKey := types.NamespacedName{Name: expectedRemoteSecretName, Namespace: defaultComponentNamespace}
+			remoteSecret := waitRemoteSecretExist(remoteSecretKey)
+			Expect(remoteSecret.Labels[ApplicationNameLabelName]).To(Equal(component.Spec.Application))
+			Expect(remoteSecret.Labels[ComponentNameLabelName]).To(Equal(component.Spec.ComponentName))
+			Expect(remoteSecret.OwnerReferences).To(HaveLen(1))
+			Expect(remoteSecret.OwnerReferences[0].Name).To(Equal(component.Name))
+			Expect(remoteSecret.OwnerReferences[0].Kind).To(Equal("Component"))
+
+			Expect(remoteSecret.Spec.Secret.Name).To(Equal(remoteSecretKey.Name))
+			Expect(remoteSecret.Spec.Secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			Expect(remoteSecret.Spec.Secret.LinkedTo).To(HaveLen(1))
+			Expect(remoteSecret.Spec.Secret.LinkedTo[0].ServiceAccount.Reference.Name).To(Equal(defaultServiceAccountName))
+
+			waitSecretExist(uploadSecretKey)
+			uploadSecret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, uploadSecretKey, uploadSecret)).To(Succeed())
+
+			Expect(uploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
+			Expect(uploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(remoteSecretKey.Name))
+
+			uploadSecretDockerconfigJson := string(uploadSecret.Data[corev1.DockerConfigJsonKey])
+			var authDataJson interface{}
+			Expect(json.Unmarshal([]byte(uploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
+			Expect(uploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
+			uploadSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(uploadSecretDockerconfigJson)[1])
 			Expect(err).To(Succeed())
-			Expect(string(pullAuthString)).To(Equal(fmt.Sprintf("%s:%s", expectedPullRobotAccountName, pullToken)))
+			Expect(string(uploadSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", expectedPullRobotAccountName, pullToken)))
+
+			deleteSecret(uploadSecretKey)
 		})
 
 		It("should be able to switch image visibility", func() {
@@ -190,7 +219,6 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Image).To(Equal(expectedImage))
 			Expect(repoImageInfo.Visibility).To(Equal("public"))
 			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
-			Expect(repoImageInfo.PullSecret).ToNot(BeEmpty())
 		})
 
 		It("should do nothing if the same as current visibility requested", func() {
@@ -217,7 +245,6 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Image).To(Equal(expectedImage))
 			Expect(repoImageInfo.Visibility).To(Equal("public"))
 			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
-			Expect(repoImageInfo.PullSecret).ToNot(BeEmpty())
 		})
 
 		It("should delete robot account and image repository on component deletion", func() {
@@ -314,7 +341,6 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Image).To(BeEmpty())
 			Expect(repoImageInfo.Visibility).To(BeEmpty())
 			Expect(repoImageInfo.Secret).To(BeEmpty())
-			Expect(repoImageInfo.PullSecret).To(BeEmpty())
 
 			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer)).To(BeFalse())
 		})
@@ -338,7 +364,6 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Image).To(BeEmpty())
 			Expect(repoImageInfo.Visibility).To(BeEmpty())
 			Expect(repoImageInfo.Secret).To(BeEmpty())
-			Expect(repoImageInfo.PullSecret).To(BeEmpty())
 
 			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer)).To(BeFalse())
 		})
@@ -366,7 +391,6 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Image).To(BeEmpty())
 			Expect(repoImageInfo.Visibility).To(BeEmpty())
 			Expect(repoImageInfo.Secret).To(BeEmpty())
-			Expect(repoImageInfo.PullSecret).To(BeEmpty())
 
 			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer)).To(BeFalse())
 		})
@@ -391,7 +415,6 @@ var _ = Describe("Component image controller", func() {
 				Image:      expectedImage,
 				Visibility: "public",
 				Secret:     resourceKey.Name,
-				PullSecret: resourceKey.Name + "-pull",
 			}
 			repositoryInfoJsonBytes, _ := json.Marshal(repositoryInfo)
 			setComponentAnnotationValue(resourceKey, ImageAnnotationName, string(repositoryInfoJsonBytes))
@@ -409,7 +432,6 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Image).To(Equal(expectedImage))
 			Expect(repoImageInfo.Visibility).To(Equal("public"))
 			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
-			Expect(repoImageInfo.PullSecret).ToNot(BeEmpty())
 		})
 
 		It("should not block component deletion if clean up fails", func() {
@@ -439,6 +461,7 @@ var _ = Describe("Component image controller", func() {
 			ResetTestQuayClient()
 
 			deleteComponent(resourceKey)
+			deleteSecret(uploadSecretKey)
 
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
@@ -482,12 +505,13 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Image).ToNot(BeEmpty())
 			Expect(repoImageInfo.Visibility).To(Equal("public"))
 			Expect(repoImageInfo.Secret).ToNot(BeEmpty())
-			Expect(repoImageInfo.PullSecret).ToNot(BeEmpty())
 		})
 
-		It("[migration] should create pull robot account for existing image repositories with only push robot account", func() {
-			pullSecretName := resourceKey.Name + "-pull"
-			deleteSecret(types.NamespacedName{Namespace: resourceKey.Namespace, Name: pullSecretName})
+		It("should create pull robot account for existing image repositories with only push robot account and propagate it via remote secret", func() {
+			deleteSecret(types.NamespacedName{Name: expectedRemoteSecretName, Namespace: resourceKey.Namespace})
+
+			remoteSecretKey := types.NamespacedName{Name: expectedRemoteSecretName, Namespace: defaultComponentNamespace}
+			Expect(k8sErrors.IsNotFound(k8sClient.Get(ctx, remoteSecretKey, &remotesecretv1beta1.RemoteSecret{})))
 
 			isCreateRepositoryInvoked := false
 			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
@@ -542,19 +566,7 @@ var _ = Describe("Component image controller", func() {
 			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
 			waitComponentAnnotation(resourceKey, ImageAnnotationName)
 			waitImageRepositoryFinalizerOnComponent(resourceKey)
-
-			component := getComponent(resourceKey)
-			repoImageInfo := &ImageRepositoryStatus{}
-			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
-			Expect(repoImageInfo.Message).To(BeEmpty())
-			repoImageInfo.PullSecret = ""
-			repositoryInfoJsonBytes, _ := json.Marshal(repoImageInfo)
-			setComponentAnnotationValue(resourceKey, ImageAnnotationName, string(repositoryInfoJsonBytes))
-			Eventually(func() bool {
-				component := getComponent(resourceKey)
-				Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
-				return repoImageInfo.PullSecret == ""
-			})
+			deleteSecret(uploadSecretKey)
 
 			setComponentAnnotationValue(resourceKey, GenerateImageAnnotationName, `{"visibility": "public"}`)
 
@@ -567,13 +579,25 @@ var _ = Describe("Component image controller", func() {
 			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
 			waitComponentAnnotation(resourceKey, ImageAnnotationName)
 
-			component = getComponent(resourceKey)
+			component := getComponent(resourceKey)
+			repoImageInfo := &ImageRepositoryStatus{}
 			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
 			Expect(repoImageInfo.Message).To(BeEmpty())
 			Expect(repoImageInfo.Image).To(Equal(expectedImage))
 			Expect(repoImageInfo.Visibility).To(Equal("public"))
 			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
-			Expect(repoImageInfo.PullSecret).To(Equal(pullSecretName))
+
+			remoteSecret := waitRemoteSecretExist(remoteSecretKey)
+			Expect(remoteSecret.Labels[ApplicationNameLabelName]).To(Equal(component.Spec.Application))
+			Expect(remoteSecret.Labels[ComponentNameLabelName]).To(Equal(component.Spec.ComponentName))
+			Expect(remoteSecret.OwnerReferences).To(HaveLen(1))
+			Expect(remoteSecret.OwnerReferences[0].Name).To(Equal(component.Name))
+			Expect(remoteSecret.OwnerReferences[0].Kind).To(Equal("Component"))
+
+			Expect(remoteSecret.Spec.Secret.Name).To(Equal(remoteSecretKey.Name))
+			Expect(remoteSecret.Spec.Secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			Expect(remoteSecret.Spec.Secret.LinkedTo).To(HaveLen(1))
+			Expect(remoteSecret.Spec.Secret.LinkedTo[0].ServiceAccount.Reference.Name).To(Equal(defaultServiceAccountName))
 		})
 	})
 

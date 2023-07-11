@@ -37,6 +37,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -67,10 +68,12 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 
 	applicationApiDepVersion := "v0.0.0-20221220162402-c1e887791dac"
+	remoteSecretApiDepVersion := "v0.0.0-20230711070755-b39d2b5f892e"
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "redhat-appstudio", "application-api@"+applicationApiDepVersion, "config", "crd", "bases"),
+			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "redhat-appstudio", "remote-secret@"+remoteSecretApiDepVersion, "config", "crd", "bases"),
 		},
 		ErrorIfCRDPathMissing: true,
 	}
@@ -84,6 +87,9 @@ var _ = BeforeSuite(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	err = appstudioredhatcomv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = remotesecretv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme

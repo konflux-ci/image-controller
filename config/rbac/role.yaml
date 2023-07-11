@@ -14,6 +14,8 @@ rules:
   - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - appstudio.redhat.com
@@ -24,4 +26,13 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - appstudio.redhat.com
+  resources:
+  - remotesecrets
+  verbs:
+  - create
+  - get
+  - list
   - watch
