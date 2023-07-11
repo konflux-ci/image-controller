@@ -18,7 +18,6 @@ package main
 
 import (
 	"flag"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
@@ -103,12 +102,12 @@ func main() {
 	}
 
 	tokenPath := "/workspace/quaytoken"
-	tokenContent, err := ioutil.ReadFile(tokenPath)
+	tokenContent, err := os.ReadFile(tokenPath)
 	if err != nil {
 		setupLog.Error(err, "unable to read quay token")
 	}
 	orgPath := "/workspace/organization"
-	orgContent, err := ioutil.ReadFile(orgPath)
+	orgContent, err := os.ReadFile(orgPath)
 	if err != nil {
 		setupLog.Error(err, "unable to read quay organization")
 	}

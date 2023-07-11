@@ -134,8 +134,8 @@ github.com/prometheus/procfs v0.9.0 h1:wzCHvIvM5SxWqYvwgVL7yJY8Lz3PKn49KQtpgMYJf
 github.com/prometheus/procfs v0.9.0/go.mod h1:+pB4zwohETzFnmlpe6yd2lSc+0/46IYZRB/chUwxUZY=
 github.com/redhat-appstudio/application-api v0.0.0-20221220162402-c1e887791dac h1:KU7oYezxX2cLsg77naV3b5Upt/YEV+GGcglm7qgj4Ug=
 github.com/redhat-appstudio/application-api v0.0.0-20221220162402-c1e887791dac/go.mod h1:LpcTNLCDMf1CUNTw2bgTiz8M49sUsN2F9T7bOSKcJEo=
-github.com/redhat-appstudio/remote-secret v0.0.0-20230705071822-009ba0d9efb0 h1:inl0PLwSzumWQgMqyO1XciJKLWU71voueigyhFnOzTw=
-github.com/redhat-appstudio/remote-secret v0.0.0-20230705071822-009ba0d9efb0/go.mod h1:QlcxNg0q63QFGr9ceI3dH7a7vO6gGh+2TJrbTiMf9DE=
+github.com/redhat-appstudio/remote-secret v0.0.0-20230711070755-b39d2b5f892e h1:nlikw2jc/+B733fJJjrI1GNPgO7OAsaeC1AvtSNkmsg=
+github.com/redhat-appstudio/remote-secret v0.0.0-20230711070755-b39d2b5f892e/go.mod h1:QlcxNg0q63QFGr9ceI3dH7a7vO6gGh+2TJrbTiMf9DE=
 github.com/rogpeppe/go-internal v1.11.0 h1:cWPaGQEPrBb5/AsnsZesgZZ9yb1OQ+GOISoDNXVBh4M=
 github.com/rogpeppe/go-internal v1.11.0/go.mod h1:ddIwULY96R17DhadqLgMfk9H9tvdUzkipdSkR5nkCZA=
 github.com/spf13/pflag v1.0.5 h1:iy+VFUOCP1a+8yFto/drg2CJ5u0yRoB7fZw3DKv/JXA=

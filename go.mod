@@ -1,6 +1,6 @@
 module github.com/redhat-appstudio/image-controller
 
-go 1.18
+go 1.19
 
 require (
 	github.com/go-logr/logr v1.2.4
@@ -8,7 +8,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.9.2
 	github.com/onsi/gomega v1.27.6
 	github.com/redhat-appstudio/application-api v0.0.0-20221220162402-c1e887791dac
-	github.com/redhat-appstudio/remote-secret v0.0.0-20230705071822-009ba0d9efb0
+	github.com/redhat-appstudio/remote-secret v0.0.0-20230711070755-b39d2b5f892e
 	go.uber.org/zap v1.24.0
 	k8s.io/api v0.26.1
 	k8s.io/apimachinery v0.27.3
