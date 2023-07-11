@@ -46,8 +46,8 @@ const (
 
 	ImageRepositoryFinalizer = "image-controller.appstudio.openshift.io/image-repository"
 
-	ApplicationNameLabelName = "appstudio.openshift.io/application"
-	ComponentNameLabelName   = "appstudio.openshift.io/component"
+	ApplicationNameLabelName = "appstudio.redhat.com/application"
+	ComponentNameLabelName   = "appstudio.redhat.com/component"
 
 	defaultServiceAccountName = "default"
 )
@@ -84,7 +84,7 @@ func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=remotesecrets,verbs=create
+//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=remotesecrets,verbs=get;list;watch;create
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
