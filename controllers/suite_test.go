@@ -37,6 +37,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
@@ -104,10 +105,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&ComponentReconciler{
-		Client:           k8sManager.GetClient(),
-		Scheme:           k8sManager.GetScheme(),
-		QuayClient:       testQuayClient,
-		QuayOrganization: func() string { return testQuayOrg },
+		Client:               k8sManager.GetClient(),
+		Scheme:               k8sManager.GetScheme(),
+		BuildQuayClient:      func() quay.QuayService { return testQuayClient },
+		ReadQuayOrganization: func() string { return testQuayOrg },
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

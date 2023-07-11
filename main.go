@@ -108,22 +108,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	getReadConfigFunc := func(path string) func() string {
-		return func() string {
-			tokenContent, err := ioutil.ReadFile(path)
-			if err != nil {
-				setupLog.Error(err, fmt.Sprintf("unable to read %s", path))
-			}
-			return strings.TrimSpace(string(tokenContent))
+	readConfig := func(path string) string {
+		tokenContent, err := ioutil.ReadFile(path)
+		if err != nil {
+			setupLog.Error(err, fmt.Sprintf("unable to read %s", path))
 		}
+		return strings.TrimSpace(string(tokenContent))
+	}
+	readQuayOrganizationFunc := func() string {
+		return readConfig(orgPath)
+	}
+	buildQuayClientFunc := func() quay.QuayService {
+		token := readConfig(tokenPath)
+		quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, token, "https://quay.io/api/v1")
+		return quayClient
 	}
 
-	quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, getReadConfigFunc(tokenPath), "https://quay.io/api/v1")
 	if err = (&controllers.ComponentReconciler{
-		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		QuayClient:       quayClient,
-		QuayOrganization: getReadConfigFunc(orgPath),
+		Client:               mgr.GetClient(),
+		Scheme:               mgr.GetScheme(),
+		BuildQuayClient:      buildQuayClientFunc,
+		ReadQuayOrganization: readQuayOrganizationFunc,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Controller")
 		os.Exit(1)

@@ -46,10 +46,10 @@ var _ QuayService = (*QuayClient)(nil)
 type QuayClient struct {
 	url        string
 	httpClient *http.Client
-	AuthToken  func() string
+	AuthToken  string
 }
 
-func NewQuayClient(c *http.Client, authToken func() string, url string) *QuayClient {
+func NewQuayClient(c *http.Client, authToken, url string) *QuayClient {
 	return &QuayClient{
 		httpClient: c,
 		AuthToken:  authToken,
@@ -69,7 +69,7 @@ func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Rep
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
@@ -109,7 +109,7 @@ func (c *QuayClient) DoesRepositoryExist(organization, imageRepository string) (
 	if err != nil {
 		return false, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
@@ -147,7 +147,7 @@ func (c *QuayClient) DeleteRepository(organization, imageRepository string) (boo
 	if err != nil {
 		return false, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
@@ -193,7 +193,7 @@ func (c *QuayClient) ChangeRepositoryVisibility(organization, imageRepositoryNam
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
@@ -233,7 +233,7 @@ func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*Ro
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
@@ -273,7 +273,7 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
@@ -331,7 +331,7 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 	if err != nil {
 		return false, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
@@ -385,7 +385,7 @@ func (c *QuayClient) AddPermissionsForRepositoryToRobotAccount(organization, ima
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
@@ -425,7 +425,7 @@ func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, erro
 	}
 
 	req.URL.RawQuery = values.Encode()
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	type Response struct {
@@ -476,7 +476,7 @@ func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, e
 		return nil, fmt.Errorf("failed to create new request: %w", err)
 	}
 
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
@@ -534,7 +534,7 @@ func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) 
 		return nil, false, fmt.Errorf("failed to create new request: %w", err)
 	}
 
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
@@ -571,7 +571,7 @@ func (c *QuayClient) DeleteTag(organization, repository, tag string) (bool, erro
 		return false, err
 	}
 
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
