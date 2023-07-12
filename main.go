@@ -46,8 +46,8 @@ import (
 )
 
 const (
-	tokenPath string = "/workspace/quaytoken"
-	orgPath   string = "/workspace/organization"
+	quayTokenPath string = "/workspace/quaytoken"
+	quayOrgPath   string = "/workspace/organization"
 )
 
 var (
@@ -115,20 +115,18 @@ func main() {
 		}
 		return strings.TrimSpace(string(tokenContent))
 	}
-	readQuayOrganizationFunc := func() string {
-		return readConfig(orgPath)
-	}
+	quayOrganization := readConfig(quayOrgPath)
 	buildQuayClientFunc := func() quay.QuayService {
-		token := readConfig(tokenPath)
+		token := readConfig(quayTokenPath)
 		quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, token, "https://quay.io/api/v1")
 		return quayClient
 	}
 
 	if err = (&controllers.ComponentReconciler{
-		Client:               mgr.GetClient(),
-		Scheme:               mgr.GetScheme(),
-		BuildQuayClient:      buildQuayClientFunc,
-		ReadQuayOrganization: readQuayOrganizationFunc,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		BuildQuayClient:  buildQuayClientFunc,
+		QuayOrganization: quayOrganization,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Controller")
 		os.Exit(1)

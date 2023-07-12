@@ -105,10 +105,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&ComponentReconciler{
-		Client:               k8sManager.GetClient(),
-		Scheme:               k8sManager.GetScheme(),
-		BuildQuayClient:      func() quay.QuayService { return testQuayClient },
-		ReadQuayOrganization: func() string { return testQuayOrg },
+		Client:           k8sManager.GetClient(),
+		Scheme:           k8sManager.GetScheme(),
+		BuildQuayClient:  func() quay.QuayService { return testQuayClient },
+		QuayOrganization: testQuayOrg,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
