@@ -76,25 +76,6 @@ type ComponentReconciler struct {
 	QuayOrganization string
 }
 
-type LazyQuayClient struct {
-	buildQuayClient func() quay.QuayService
-	quayClient      quay.QuayService
-}
-
-func NewLazyQuayClient(buildQuayClient func() quay.QuayService) *LazyQuayClient {
-	return &LazyQuayClient{
-		buildQuayClient: buildQuayClient,
-		quayClient:      nil,
-	}
-}
-
-func (l *LazyQuayClient) QuayClient() quay.QuayService {
-	if l.quayClient == nil {
-		l.quayClient = l.buildQuayClient()
-	}
-	return l.quayClient
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -224,7 +205,6 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// Do something only if no error has been detected before
 	if repositoryInfo.Message == "" {
-		lazyQuayClient := NewLazyQuayClient(r.BuildQuayClient)
 		if imageRepositoryExists {
 			// Check if need to change image repository  visibility
 			if repositoryInfo.Visibility != requestRepositoryOpts.Visibility {
@@ -232,7 +212,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				imageUrlParts := strings.SplitN(repositoryInfo.Image, "/", 3)
 				if len(imageUrlParts) > 2 {
 					repositoryName := imageUrlParts[2]
-					quayClient := lazyQuayClient.QuayClient()
+					quayClient := r.BuildQuayClient()
 					if err := quayClient.ChangeRepositoryVisibility(r.QuayOrganization, repositoryName, requestRepositoryOpts.Visibility); err == nil {
 						repositoryInfo.Visibility = requestRepositoryOpts.Visibility
 					} else {
@@ -250,7 +230,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 		} else {
 			// Image repository doesn't exist, create it.
-			quayClient := lazyQuayClient.QuayClient()
+			quayClient := r.BuildQuayClient()
 			repo, pushRobotAccount, pullRobotAccount, err := r.generateImageRepository(ctx, quayClient, component, requestRepositoryOpts)
 			if err != nil {
 				if err.Error() == "payment required" {
