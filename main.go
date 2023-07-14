@@ -47,6 +47,7 @@ import (
 )
 
 const (
+	/* #nosec it's the path to the token, not the token itself */
 	quayTokenPath string = "/workspace/quaytoken"
 	quayOrgPath   string = "/workspace/organization"
 )
@@ -110,6 +111,7 @@ func main() {
 	}
 
 	readConfig := func(l logr.Logger, path string) string {
+		/* #nosec we are sure the input path is clean */
 		tokenContent, err := ioutil.ReadFile(path)
 		if err != nil {
 			l.Error(err, fmt.Sprintf("unable to read %s", path))
