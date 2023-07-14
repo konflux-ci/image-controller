@@ -19,7 +19,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
@@ -112,7 +111,7 @@ func main() {
 
 	readConfig := func(l logr.Logger, path string) string {
 		/* #nosec we are sure the input path is clean */
-		tokenContent, err := ioutil.ReadFile(path)
+		tokenContent, err := os.ReadFile(path)
 		if err != nil {
 			l.Error(err, fmt.Sprintf("unable to read %s", path))
 		}
