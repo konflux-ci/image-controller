@@ -35,6 +35,7 @@ type QuayService interface {
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
 	AddPermissionsForRepositoryToRobotAccount(organization, imageRepository, robotAccountName string, isWrite bool) error
+	RegenerateRobotAccountToken(organization string, robotName string) (*RobotAccount, error)
 	GetAllRepositories(organization string) ([]Repository, error)
 	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
 	GetTagsFromPage(organization, repository string, page int) ([]Tag, bool, error)
@@ -394,7 +395,45 @@ func (c *QuayClient) AddPermissionsForRepositoryToRobotAccount(organization, ima
 	return nil
 }
 
+func (c *QuayClient) RegenerateRobotAccountToken(organization string, robotName string) (*RobotAccount, error) {
+	url := fmt.Sprintf("%s/organization/%s/robots/%s/regenerate", c.url, organization, robotName)
+
+	req, err := http.NewRequest(http.MethodPost, url, nil)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+
+	data := &RobotAccount{}
+	err = json.Unmarshal(body, data)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+
+	if data.Message != "" {
+		return data, errors.New(data.Message)
+	}
+	return data, nil
+}
+
 // GetAllRepositories returns all repositories of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
+// Returns all repositories of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
 func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, error) {
 	url, _ := neturl.Parse(fmt.Sprintf("%s/repository", c.url))
 	values := neturl.Values{}

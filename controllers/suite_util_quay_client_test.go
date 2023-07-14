@@ -16,7 +16,11 @@ limitations under the License.
 
 package controllers
 
-import "github.com/redhat-appstudio/image-controller/pkg/quay"
+import (
+	. "github.com/onsi/ginkgo/v2"
+
+	"github.com/redhat-appstudio/image-controller/pkg/quay"
+)
 
 const (
 	testQuayOrg = "user-workloads"
@@ -37,6 +41,7 @@ var (
 	CreateRobotAccountFunc                        func(organization string, robotName string) (*quay.RobotAccount, error)
 	DeleteRobotAccountFunc                        func(organization string, robotName string) (bool, error)
 	AddPermissionsForRepositoryToRobotAccountFunc func(organization, imageRepository, robotAccountName string, isWrite bool) error
+	RegenerateRobotAccountTokenFunc               func(organization string, robotName string) (*quay.RobotAccount, error)
 )
 
 func ResetTestQuayClient() {
@@ -47,6 +52,42 @@ func ResetTestQuayClient() {
 	CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) { return &quay.RobotAccount{}, nil }
 	DeleteRobotAccountFunc = func(organization, robotName string) (bool, error) { return true, nil }
 	AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error { return nil }
+	RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*quay.RobotAccount, error) { return &quay.RobotAccount{}, nil }
+}
+
+func ResetTestQuayClientToFails() {
+	CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+		Fail("CreateRepositoryFunc invoked")
+		return nil, nil
+	}
+	DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+		Fail("DeleteRepository invoked")
+		return true, nil
+	}
+	ChangeRepositoryVisibilityFunc = func(organization, imageRepository string, visibility string) error {
+		Fail("ChangeRepositoryVisibility invoked")
+		return nil
+	}
+	GetRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+		Fail("GetRobotAccount invoked")
+		return nil, nil
+	}
+	CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+		Fail("CreateRobotAccount invoked")
+		return nil, nil
+	}
+	DeleteRobotAccountFunc = func(organization, robotName string) (bool, error) {
+		Fail("DeleteRobotAccount invoked")
+		return true, nil
+	}
+	AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error {
+		Fail("AddPermissionsForRepositoryToRobotAccount invoked")
+		return nil
+	}
+	RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+		Fail("RegenerateRobotAccountToken invoked")
+		return nil, nil
+	}
 }
 
 func (c *TestQuayClient) CreateRepository(repositoryRequest quay.RepositoryRequest) (*quay.Repository, error) {
@@ -69,6 +110,9 @@ func (c *TestQuayClient) DeleteRobotAccount(organization string, robotName strin
 }
 func (c *TestQuayClient) AddPermissionsForRepositoryToRobotAccount(organization, imageRepository, robotAccountName string, isWrite bool) error {
 	return AddPermissionsForRepositoryToRobotAccountFunc(organization, imageRepository, robotAccountName, isWrite)
+}
+func (c *TestQuayClient) RegenerateRobotAccountToken(organization string, robotName string) (*quay.RobotAccount, error) {
+	return RegenerateRobotAccountTokenFunc(organization, robotName)
 }
 func (c *TestQuayClient) GetAllRepositories(organization string) ([]quay.Repository, error) {
 	return nil, nil

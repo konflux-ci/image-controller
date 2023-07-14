@@ -167,3 +167,22 @@ func TestAddPermissionsToRobotAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRegenerateRobotAccountToken(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+
+	robotAccount, err := quayClient.RegenerateRobotAccountToken(quayOrgName, quayRobotAccountName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if robotAccount == nil {
+		t.Fatal("Updated robot account should not be nil")
+	}
+	if robotAccount.Token == "" {
+		t.Fatal("Token must be updated")
+	}
+}

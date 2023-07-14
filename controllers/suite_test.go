@@ -37,6 +37,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	imagerepositoryv1beta1 "github.com/redhat-appstudio/image-controller/api/v1beta1"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	//+kubebuilder:scaffold:imports
@@ -73,6 +74,7 @@ var _ = BeforeSuite(func() {
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
+			filepath.Join("..", "config", "crd", "bases"),
 			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "redhat-appstudio", "application-api@"+applicationApiDepVersion, "config", "crd", "bases"),
 			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "redhat-appstudio", "remote-secret@"+remoteSecretApiDepVersion, "config", "crd", "bases"),
 		},
@@ -93,6 +95,9 @@ var _ = BeforeSuite(func() {
 	err = remotesecretv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = imagerepositoryv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	//+kubebuilder:scaffold:scheme
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
@@ -102,6 +107,14 @@ var _ = BeforeSuite(func() {
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 	})
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&ImageRepositoryReconciler{
+		Client:           k8sManager.GetClient(),
+		Scheme:           k8sManager.GetScheme(),
+		BuildQuayClient:  func(l logr.Logger) quay.QuayService { return testQuayClient },
+		QuayOrganization: testQuayOrg,
+	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&ComponentReconciler{

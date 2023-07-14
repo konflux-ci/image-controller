@@ -24,11 +24,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	appstudioapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	imagerepositoryv1beta1 "github.com/redhat-appstudio/image-controller/api/v1beta1"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 )
 
@@ -43,10 +45,78 @@ const (
 )
 
 const (
+	defaultNamespace = "test-namespace"
+
+	defaultImageRepositoryName = "image-repository"
+
 	defaultComponentName        = "test-component"
-	defaultComponentNamespace   = "test-namespace"
 	defaultComponentApplication = "test-application"
 )
+
+type imageRepositoryConfig struct {
+	ResourceKey *types.NamespacedName
+	ImageName   string
+	IsPrivate   bool
+	Labels      map[string]string
+}
+
+func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1beta1.ImageRepository {
+	name := defaultImageRepositoryName
+	namespace := defaultNamespace
+	if config.ResourceKey != nil {
+		name = config.ResourceKey.Name
+		namespace = config.ResourceKey.Namespace
+	}
+	imageName := defaultImageRepositoryName
+	if config.ImageName != "" {
+		imageName = config.ImageName
+	}
+	visibility := "public"
+	if config.IsPrivate {
+		visibility = "private"
+	}
+	return &imagerepositoryv1beta1.ImageRepository{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    config.Labels,
+		},
+		Spec: imagerepositoryv1beta1.ImageRepositorySpec{
+			Image: imagerepositoryv1beta1.ImageParameters{
+				Name:       imageName,
+				Visibility: imagerepositoryv1beta1.ImageVisibility(visibility),
+			},
+		},
+	}
+}
+
+func createImageRepository(config imageRepositoryConfig) {
+	imageRepository := getImageRepositoryConfig(config)
+	Expect(k8sClient.Create(ctx, imageRepository)).To(Succeed())
+}
+
+func getImageRepository(imageRepositoryKey types.NamespacedName) *imagerepositoryv1beta1.ImageRepository {
+	imageRepository := &imagerepositoryv1beta1.ImageRepository{}
+	Eventually(func() bool {
+		Expect(k8sClient.Get(ctx, imageRepositoryKey, imageRepository)).Should(Succeed())
+		return imageRepository.ResourceVersion != ""
+	}, timeout, interval).Should(BeTrue())
+	return imageRepository
+}
+
+func deleteImageRepository(imageRepositoryKey types.NamespacedName) {
+	imageRepository := &imagerepositoryv1beta1.ImageRepository{}
+	if err := k8sClient.Get(ctx, imageRepositoryKey, imageRepository); err != nil {
+		if errors.IsNotFound(err) {
+			return
+		}
+		Fail("Failed to get image repository")
+	}
+	Expect(k8sClient.Delete(ctx, imageRepository)).To(Succeed())
+	Eventually(func() bool {
+		return errors.IsNotFound(k8sClient.Get(ctx, imageRepositoryKey, imageRepository))
+	}, timeout, interval).Should(BeTrue())
+}
 
 type componentConfig struct {
 	ComponentKey         types.NamespacedName
@@ -61,7 +131,7 @@ func getSampleComponentData(config componentConfig) *appstudioapiv1alpha1.Compon
 	}
 	namespace := config.ComponentKey.Namespace
 	if namespace == "" {
-		namespace = defaultComponentNamespace
+		namespace = defaultNamespace
 	}
 	application := config.ComponentApplication
 	if application == "" {
@@ -235,7 +305,17 @@ func waitFinalizerOnComponent(componentKey types.NamespacedName, finalizerName s
 }
 
 func waitImageRepositoryFinalizerOnComponent(componentKey types.NamespacedName) {
-	waitFinalizerOnComponent(componentKey, ImageRepositoryFinalizer, true)
+	waitFinalizerOnComponent(componentKey, ImageRepositoryComponentFinalizer, true)
+}
+
+func waitImageRepositoryFinalizerOnImageRepository(imageRepositoryKey types.NamespacedName) {
+	imageRepository := &imagerepositoryv1beta1.ImageRepository{}
+	Eventually(func() bool {
+		if err := k8sClient.Get(ctx, imageRepositoryKey, imageRepository); err != nil {
+			return false
+		}
+		return controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer)
+	}, timeout, interval).Should(BeTrue())
 }
 
 func createNamespace(name string) {

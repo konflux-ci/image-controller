@@ -39,9 +39,11 @@ import (
 
 	"github.com/go-logr/logr"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
+
+	imagerepositoryv1beta1 "github.com/redhat-appstudio/image-controller/api/v1beta1"
 	"github.com/redhat-appstudio/image-controller/controllers"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
-	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -60,6 +62,7 @@ func init() {
 
 	utilruntime.Must(appstudioredhatcomv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(remotesecretv1beta1.AddToScheme(scheme))
+	utilruntime.Must(imagerepositoryv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -131,6 +134,16 @@ func main() {
 		QuayOrganization: quayOrganization,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Controller")
+		os.Exit(1)
+	}
+
+	if err = (&controllers.ImageRepositoryReconciler{
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		BuildQuayClient:  buildQuayClientFunc,
+		QuayOrganization: quayOrganization,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ImageRepository")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

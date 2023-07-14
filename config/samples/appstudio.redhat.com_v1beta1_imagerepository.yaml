@@ -1,0 +1,6 @@
+apiVersion: appstudio.redhat.com.appstudio.redhat.com/v1beta1
+kind: ImageRepository
+metadata:
+  name: imagerepository-sample
+spec:
+  # TODO(user): Add fields here

@@ -39,8 +39,8 @@ var _ = Describe("Component image controller", func() {
 	var (
 		authRegexp = regexp.MustCompile(`.*{"auth":"([A-Za-z0-9+/=]*)"}.*`)
 
-		resourceKey     = types.NamespacedName{Name: defaultComponentName, Namespace: defaultComponentNamespace}
-		uploadSecretKey = types.NamespacedName{Name: "upload-secret-" + defaultComponentName + "-pull", Namespace: defaultComponentNamespace}
+		resourceKey     = types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespace}
+		uploadSecretKey = types.NamespacedName{Name: "upload-secret-" + defaultComponentName + "-pull", Namespace: defaultNamespace}
 
 		pushToken                    string
 		pullToken                    string
@@ -54,17 +54,17 @@ var _ = Describe("Component image controller", func() {
 	Context("Image repository provision flow", func() {
 
 		It("should prepare environment", func() {
-			deleteNamespace(defaultComponentNamespace)
-			createNamespace(defaultComponentNamespace)
+			deleteNamespace(defaultNamespace)
+			createNamespace(defaultNamespace)
 
 			ResetTestQuayClient()
 
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
-			expectedPushRobotAccountName = fmt.Sprintf("%s%s%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedPushRobotAccountName = fmt.Sprintf("%s%s%s", defaultNamespace, defaultComponentApplication, defaultComponentName)
 			expectedPullRobotAccountName = expectedPushRobotAccountName + "-pull"
 			expectedRemoteSecretName = resourceKey.Name + "-pull"
-			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultNamespace, defaultComponentApplication, defaultComponentName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedRepoName)
 		})
 
@@ -159,7 +159,7 @@ var _ = Describe("Component image controller", func() {
 		It("should propagate pull secret to environments", func() {
 			component := getComponent(resourceKey)
 
-			remoteSecretKey := types.NamespacedName{Name: expectedRemoteSecretName, Namespace: defaultComponentNamespace}
+			remoteSecretKey := types.NamespacedName{Name: expectedRemoteSecretName, Namespace: defaultNamespace}
 			remoteSecret := waitRemoteSecretExist(remoteSecretKey)
 			Expect(remoteSecret.Labels[ApplicationNameLabelName]).To(Equal(component.Spec.Application))
 			Expect(remoteSecret.Labels[ComponentNameLabelName]).To(Equal(component.Spec.ComponentName))
@@ -300,7 +300,7 @@ var _ = Describe("Component image controller", func() {
 	Context("Image repository provision error cases", func() {
 
 		It("should prepare environment", func() {
-			createNamespace(defaultComponentNamespace)
+			createNamespace(defaultNamespace)
 
 			ResetTestQuayClient()
 
@@ -343,7 +343,7 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Visibility).To(BeEmpty())
 			Expect(repoImageInfo.Secret).To(BeEmpty())
 
-			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer)).To(BeFalse())
+			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer)).To(BeFalse())
 		})
 
 		It("should do nothing and set error if generate annotation has invalid visibility value", func() {
@@ -366,7 +366,7 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Visibility).To(BeEmpty())
 			Expect(repoImageInfo.Secret).To(BeEmpty())
 
-			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer)).To(BeFalse())
+			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer)).To(BeFalse())
 		})
 
 		It("should set error if quay organization plan doesn't allow private repositories", func() {
@@ -393,7 +393,7 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Visibility).To(BeEmpty())
 			Expect(repoImageInfo.Secret).To(BeEmpty())
 
-			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer)).To(BeFalse())
+			Expect(controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer)).To(BeFalse())
 		})
 
 		It("should add message and stop if it's not possible to switch image repository visibility", func() {
@@ -549,7 +549,7 @@ var _ = Describe("Component image controller", func() {
 	Context("Image repository provision other cases", func() {
 
 		_ = BeforeEach(func() {
-			createNamespace(defaultComponentNamespace)
+			createNamespace(defaultNamespace)
 
 			ResetTestQuayClient()
 
@@ -558,9 +558,9 @@ var _ = Describe("Component image controller", func() {
 
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
-			expectedPushRobotAccountName = fmt.Sprintf("%s%s%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedPushRobotAccountName = fmt.Sprintf("%s%s%s", defaultNamespace, defaultComponentApplication, defaultComponentName)
 			expectedPullRobotAccountName = expectedPushRobotAccountName + "-pull"
-			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultComponentNamespace, defaultComponentApplication, defaultComponentName)
+			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultNamespace, defaultComponentApplication, defaultComponentName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedRepoName)
 		})
 
@@ -603,7 +603,7 @@ var _ = Describe("Component image controller", func() {
 		It("should create pull robot account for existing image repositories with only push robot account and propagate it via remote secret", func() {
 			deleteSecret(types.NamespacedName{Name: expectedRemoteSecretName, Namespace: resourceKey.Namespace})
 
-			remoteSecretKey := types.NamespacedName{Name: expectedRemoteSecretName, Namespace: defaultComponentNamespace}
+			remoteSecretKey := types.NamespacedName{Name: expectedRemoteSecretName, Namespace: defaultNamespace}
 			Expect(k8sErrors.IsNotFound(k8sClient.Get(ctx, remoteSecretKey, &remotesecretv1beta1.RemoteSecret{})))
 
 			isCreateRepositoryInvoked := false

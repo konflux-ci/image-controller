@@ -8,12 +8,12 @@ projectName: image-controller
 repo: github.com/redhat-appstudio/image-controller
 resources:
 - api:
-    crdVersion: v1
+    crdVersion: v1beta1
     namespaced: true
   controller: true
   domain: appstudio.redhat.com
   group: appstudio.redhat.com
-  kind: Controller
-  path: github.com/redhat-appstudio/image-controller/api/v1alpha1
-  version: v1alpha1
+  kind: ImageRepository
+  path: github.com/redhat-appstudio/image-controller/api/v1beta1
+  version: v1beta1
 version: "3"
