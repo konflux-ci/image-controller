@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"github.com/go-logr/logr"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/controllers"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
@@ -108,16 +109,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	readConfig := func(path string) string {
+	readConfig := func(l logr.Logger, path string) string {
 		tokenContent, err := ioutil.ReadFile(path)
 		if err != nil {
-			setupLog.Error(err, fmt.Sprintf("unable to read %s", path))
+			l.Error(err, fmt.Sprintf("unable to read %s", path))
 		}
 		return strings.TrimSpace(string(tokenContent))
 	}
-	quayOrganization := readConfig(quayOrgPath)
-	buildQuayClientFunc := func() quay.QuayService {
-		token := readConfig(quayTokenPath)
+	quayOrganization := readConfig(setupLog, quayOrgPath)
+	buildQuayClientFunc := func(l logr.Logger) quay.QuayService {
+		token := readConfig(l, quayTokenPath)
 		quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, token, "https://quay.io/api/v1")
 		return quayClient
 	}

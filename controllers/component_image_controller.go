@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/go-logr/logr"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	l "github.com/redhat-appstudio/image-controller/pkg/logs"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
@@ -72,7 +73,7 @@ type ComponentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	BuildQuayClient  func() quay.QuayService
+	BuildQuayClient  func(logr.Logger) quay.QuayService
 	QuayOrganization string
 }
 
@@ -111,7 +112,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
 			pushRobotAccountName, pullRobotAccountName := generateRobotAccountsNames(component)
 
-			quayClient := r.BuildQuayClient()
+			quayClient := r.BuildQuayClient(log)
 			isPushRobotAccountDeleted, err := quayClient.DeleteRobotAccount(r.QuayOrganization, pushRobotAccountName)
 			if err != nil {
 				log.Error(err, "failed to delete push robot account", l.Action, l.ActionDelete, l.Audit, "true")
@@ -212,7 +213,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				imageUrlParts := strings.SplitN(repositoryInfo.Image, "/", 3)
 				if len(imageUrlParts) > 2 {
 					repositoryName := imageUrlParts[2]
-					quayClient := r.BuildQuayClient()
+					quayClient := r.BuildQuayClient(log)
 					if err := quayClient.ChangeRepositoryVisibility(r.QuayOrganization, repositoryName, requestRepositoryOpts.Visibility); err == nil {
 						repositoryInfo.Visibility = requestRepositoryOpts.Visibility
 					} else {
@@ -230,7 +231,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 		} else {
 			// Image repository doesn't exist, create it.
-			quayClient := r.BuildQuayClient()
+			quayClient := r.BuildQuayClient(log)
 			repo, pushRobotAccount, pullRobotAccount, err := r.generateImageRepository(ctx, quayClient, component, requestRepositoryOpts)
 			if err != nil {
 				if err.Error() == "payment required" {

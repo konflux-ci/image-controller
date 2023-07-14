@@ -21,6 +21,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/h2non/gock"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
@@ -56,7 +57,7 @@ func TestGenerateRemoteImage(t *testing.T) {
 	quayClient := quay.NewQuayClient(client, quayToken, "https://quay.io/api/v1")
 
 	r := ComponentReconciler{
-		BuildQuayClient:  func() quay.QuayService { return quayClient },
+		BuildQuayClient:  func(logr.Logger) quay.QuayService { return quayClient },
 		QuayOrganization: "redhat-user-workloads",
 	}
 	createdRepository, pushRobotAccount, pullRobotAccount, err := r.generateImageRepository(context.TODO(), quayClient, &testComponent, &GenerateRepositoryOpts{Visibility: "public"})
