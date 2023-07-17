@@ -253,9 +253,10 @@ func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*Ro
 		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
 	}
 
-	if data.Message != "" {
-		return data, errors.New(data.Message)
+	if res.StatusCode != http.StatusOK {
+		return nil, errors.New(data.Message)
 	}
+
 	return data, nil
 }
 
