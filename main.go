@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -36,11 +37,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"github.com/go-logr/logr"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/controllers"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	//+kubebuilder:scaffold:imports
+)
+
+const (
+	/* #nosec it's the path to the token, not the token itself */
+	quayTokenPath string = "/workspace/quaytoken"
+	quayOrgPath   string = "/workspace/organization"
 )
 
 var (
@@ -101,22 +109,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	tokenPath := "/workspace/quaytoken"
-	tokenContent, err := os.ReadFile(tokenPath)
-	if err != nil {
-		setupLog.Error(err, "unable to read quay token")
+	readConfig := func(l logr.Logger, path string) string {
+		/* #nosec we are sure the input path is clean */
+		tokenContent, err := os.ReadFile(path)
+		if err != nil {
+			l.Error(err, fmt.Sprintf("unable to read %s", path))
+		}
+		return strings.TrimSpace(string(tokenContent))
 	}
-	orgPath := "/workspace/organization"
-	orgContent, err := os.ReadFile(orgPath)
-	if err != nil {
-		setupLog.Error(err, "unable to read quay organization")
+	quayOrganization := readConfig(setupLog, quayOrgPath)
+	buildQuayClientFunc := func(l logr.Logger) quay.QuayService {
+		token := readConfig(l, quayTokenPath)
+		quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, token, "https://quay.io/api/v1")
+		return quayClient
 	}
-	quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, strings.TrimSpace(string(tokenContent)), "https://quay.io/api/v1")
+
 	if err = (&controllers.ComponentReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
-		QuayClient:       quayClient,
-		QuayOrganization: strings.TrimSpace(string(orgContent)),
+		BuildQuayClient:  buildQuayClientFunc,
+		QuayOrganization: quayOrganization,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Controller")
 		os.Exit(1)

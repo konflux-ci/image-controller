@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/go-logr/logr"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	l "github.com/redhat-appstudio/image-controller/pkg/logs"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
@@ -72,7 +73,7 @@ type ComponentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	QuayClient       quay.QuayService
+	BuildQuayClient  func(logr.Logger) quay.QuayService
 	QuayOrganization string
 }
 
@@ -111,7 +112,8 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
 			pushRobotAccountName, pullRobotAccountName := generateRobotAccountsNames(component)
 
-			isPushRobotAccountDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, pushRobotAccountName)
+			quayClient := r.BuildQuayClient(log)
+			isPushRobotAccountDeleted, err := quayClient.DeleteRobotAccount(r.QuayOrganization, pushRobotAccountName)
 			if err != nil {
 				log.Error(err, "failed to delete push robot account", l.Action, l.ActionDelete, l.Audit, "true")
 				// Do not block Component deletion if failed to delete robot account
@@ -120,7 +122,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				log.Info(fmt.Sprintf("Deleted push robot account %s", pushRobotAccountName), l.Action, l.ActionDelete)
 			}
 
-			isPullRobotAccountDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, pullRobotAccountName)
+			isPullRobotAccountDeleted, err := quayClient.DeleteRobotAccount(r.QuayOrganization, pullRobotAccountName)
 			if err != nil {
 				log.Error(err, "failed to delete pull robot account", l.Action, l.ActionDelete, l.Audit, "true")
 				// Do not block Component deletion if failed to delete robot account
@@ -130,7 +132,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 
 			imageRepo := generateRepositoryName(component)
-			isRepoDeleted, err := r.QuayClient.DeleteRepository(r.QuayOrganization, imageRepo)
+			isRepoDeleted, err := quayClient.DeleteRepository(r.QuayOrganization, imageRepo)
 			if err != nil {
 				log.Error(err, "failed to delete image repository", l.Action, l.ActionDelete, l.Audit, "true")
 				// Do not block Component deletion if failed to delete image repository
@@ -211,7 +213,8 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				imageUrlParts := strings.SplitN(repositoryInfo.Image, "/", 3)
 				if len(imageUrlParts) > 2 {
 					repositoryName := imageUrlParts[2]
-					if err := r.QuayClient.ChangeRepositoryVisibility(r.QuayOrganization, repositoryName, requestRepositoryOpts.Visibility); err == nil {
+					quayClient := r.BuildQuayClient(log)
+					if err := quayClient.ChangeRepositoryVisibility(r.QuayOrganization, repositoryName, requestRepositoryOpts.Visibility); err == nil {
 						repositoryInfo.Visibility = requestRepositoryOpts.Visibility
 					} else {
 						if err.Error() == "payment required" {
@@ -228,7 +231,8 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 		} else {
 			// Image repository doesn't exist, create it.
-			repo, pushRobotAccount, pullRobotAccount, err := r.generateImageRepository(ctx, component, requestRepositoryOpts)
+			quayClient := r.BuildQuayClient(log)
+			repo, pushRobotAccount, pullRobotAccount, err := r.generateImageRepository(ctx, quayClient, component, requestRepositoryOpts)
 			if err != nil {
 				if err.Error() == "payment required" {
 					log.Info("failed to create private image repository due to quay plan limit", l.Audit, "true")
@@ -458,11 +462,21 @@ func generateRepositoryName(component *appstudioredhatcomv1alpha1.Component) str
 	return component.Namespace + "/" + component.Spec.Application + "/" + component.Name
 }
 
-func (r *ComponentReconciler) generateImageRepository(ctx context.Context, component *appstudioredhatcomv1alpha1.Component, opts *GenerateRepositoryOpts) (*quay.Repository, *quay.RobotAccount, *quay.RobotAccount, error) {
+func (r *ComponentReconciler) generateImageRepository(
+	ctx context.Context,
+	quayClient quay.QuayService,
+	component *appstudioredhatcomv1alpha1.Component,
+	opts *GenerateRepositoryOpts,
+) (
+	*quay.Repository,
+	*quay.RobotAccount,
+	*quay.RobotAccount,
+	error,
+) {
 	log := ctrllog.FromContext(ctx)
 
 	imageRepositoryName := generateRepositoryName(component)
-	repo, err := r.QuayClient.CreateRepository(quay.RepositoryRequest{
+	repo, err := quayClient.CreateRepository(quay.RepositoryRequest{
 		Namespace:   r.QuayOrganization,
 		Visibility:  opts.Visibility,
 		Description: "AppStudio repository for the user",
@@ -475,23 +489,23 @@ func (r *ComponentReconciler) generateImageRepository(ctx context.Context, compo
 
 	pushRobotAccountName, pullRobotAccountName := generateRobotAccountsNames(component)
 
-	pushRobotAccount, err := r.QuayClient.CreateRobotAccount(r.QuayOrganization, pushRobotAccountName)
+	pushRobotAccount, err := quayClient.CreateRobotAccount(r.QuayOrganization, pushRobotAccountName)
 	if err != nil {
 		log.Error(err, fmt.Sprintf("failed to create robot account %s", pushRobotAccountName), l.Action, l.ActionAdd, l.Audit, "true")
 		return nil, nil, nil, err
 	}
-	err = r.QuayClient.AddPermissionsForRepositoryToRobotAccount(r.QuayOrganization, repo.Name, pushRobotAccount.Name, true)
+	err = quayClient.AddPermissionsForRepositoryToRobotAccount(r.QuayOrganization, repo.Name, pushRobotAccount.Name, true)
 	if err != nil {
 		log.Error(err, fmt.Sprintf("failed to add permissions to robot account %s", pushRobotAccount.Name), l.Action, l.ActionUpdate, l.Audit, "true")
 		return nil, nil, nil, err
 	}
 
-	pullRobotAccount, err := r.QuayClient.CreateRobotAccount(r.QuayOrganization, pullRobotAccountName)
+	pullRobotAccount, err := quayClient.CreateRobotAccount(r.QuayOrganization, pullRobotAccountName)
 	if err != nil {
 		log.Error(err, fmt.Sprintf("failed to create robot account %s", pullRobotAccountName), l.Action, l.ActionAdd, l.Audit, "true")
 		return nil, nil, nil, err
 	}
-	err = r.QuayClient.AddPermissionsForRepositoryToRobotAccount(r.QuayOrganization, repo.Name, pullRobotAccount.Name, false)
+	err = quayClient.AddPermissionsForRepositoryToRobotAccount(r.QuayOrganization, repo.Name, pullRobotAccount.Name, false)
 	if err != nil {
 		log.Error(err, fmt.Sprintf("failed to add permissions to robot account %s", pullRobotAccount.Name), l.Action, l.ActionUpdate, l.Audit, "true")
 		return nil, nil, nil, err
