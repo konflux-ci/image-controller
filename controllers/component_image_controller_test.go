@@ -178,6 +178,7 @@ var _ = Describe("Component image controller", func() {
 
 			Expect(uploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
 			Expect(uploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(remoteSecretKey.Name))
+			Expect(uploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 
 			uploadSecretDockerconfigJson := string(uploadSecret.Data[corev1.DockerConfigJsonKey])
 			var authDataJson interface{}

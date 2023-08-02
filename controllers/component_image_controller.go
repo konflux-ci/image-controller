@@ -441,6 +441,7 @@ func (r *ComponentReconciler) createRemoteSecretUploadSecret(ctx context.Context
 				remotesecretv1beta1.RemoteSecretNameAnnotation: remoteSecretName,
 			},
 		},
+		Type:       corev1.SecretTypeDockerConfigJson,
 		StringData: generateDockerconfigSecretData(imageURL, robotAccount),
 	}
 	if err := r.Client.Create(ctx, uploadSecret); err != nil {
