@@ -84,7 +84,7 @@ func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Rep
 	}
 	data := &Repository{}
 	if err := json.Unmarshal(body, data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal response, got response code %d and body %s with error: %w", res.StatusCode, string(body), err)
 	}
 
 	if res.StatusCode != 200 {
@@ -170,7 +170,7 @@ func (c *QuayClient) DeleteRepository(organization, imageRepository string) (boo
 	data := &QuayError{}
 	err = json.Unmarshal(body, data)
 	if err != nil {
-		return false, fmt.Errorf("failed to unmarshal response body: %w", err)
+		return false, fmt.Errorf("failed to unmarshal response, got response code %d and body %s with error: %w", res.StatusCode, string(body), err)
 	}
 	if data.Error != "" {
 		return false, errors.New(data.Error)
