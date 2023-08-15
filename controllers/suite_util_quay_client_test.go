@@ -57,34 +57,42 @@ func ResetTestQuayClient() {
 
 func ResetTestQuayClientToFails() {
 	CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+		defer GinkgoRecover()
 		Fail("CreateRepositoryFunc invoked")
 		return nil, nil
 	}
 	DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+		defer GinkgoRecover()
 		Fail("DeleteRepository invoked")
 		return true, nil
 	}
 	ChangeRepositoryVisibilityFunc = func(organization, imageRepository string, visibility string) error {
+		defer GinkgoRecover()
 		Fail("ChangeRepositoryVisibility invoked")
 		return nil
 	}
 	GetRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+		defer GinkgoRecover()
 		Fail("GetRobotAccount invoked")
 		return nil, nil
 	}
 	CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+		defer GinkgoRecover()
 		Fail("CreateRobotAccount invoked")
 		return nil, nil
 	}
 	DeleteRobotAccountFunc = func(organization, robotName string) (bool, error) {
+		defer GinkgoRecover()
 		Fail("DeleteRobotAccount invoked")
 		return true, nil
 	}
 	AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error {
+		defer GinkgoRecover()
 		Fail("AddPermissionsForRepositoryToRobotAccount invoked")
 		return nil
 	}
 	RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+		defer GinkgoRecover()
 		Fail("RegenerateRobotAccountToken invoked")
 		return nil, nil
 	}

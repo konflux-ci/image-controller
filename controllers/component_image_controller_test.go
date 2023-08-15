@@ -54,7 +54,6 @@ var _ = Describe("Component image controller", func() {
 	Context("Image repository provision flow", func() {
 
 		It("should prepare environment", func() {
-			deleteNamespace(defaultNamespace)
 			createNamespace(defaultNamespace)
 
 			ResetTestQuayClient()

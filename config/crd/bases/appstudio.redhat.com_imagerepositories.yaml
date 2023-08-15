@@ -5,9 +5,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.9.2
   creationTimestamp: null
-  name: imagerepositories.appstudio.redhat.com.appstudio.redhat.com
+  name: imagerepositories.appstudio.redhat.com
 spec:
-  group: appstudio.redhat.com.appstudio.redhat.com
+  group: appstudio.redhat.com
   names:
     kind: ImageRepository
     listKind: ImageRepositoryList
@@ -58,7 +58,7 @@ spec:
                     description: Name of the image within configured Quay organization.
                       If ommited, then defaults to "cr-namespace/cr-name". This field
                       cannot be changed after the resource creation.
-                    pattern: '[a-z0-9][.a-z0-9_-]*(/[a-z0-9][.a-z0-9_-]*)*'
+                    pattern: ^[a-z0-9][.a-z0-9_-]*(/[a-z0-9][.a-z0-9_-]*)*$
                     type: string
                   visibility:
                     description: Visibility defines whether the image is publicly
@@ -113,11 +113,15 @@ spec:
                       / pull from.
                     type: string
                   visibility:
+                    allOf:
+                    - enum:
+                      - public
+                      - private
+                    - enum:
+                      - public
+                      - private
                     description: Visibility shows actual generated image repository
                       visibility.
-                    enum:
-                    - public
-                    - private
                     type: string
                 type: object
               message:

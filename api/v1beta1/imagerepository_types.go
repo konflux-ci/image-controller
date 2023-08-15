@@ -37,7 +37,7 @@ type ImageParameters struct {
 	// If ommited, then defaults to "cr-namespace/cr-name".
 	// This field cannot be changed after the resource creation.
 	// +optional
-	// +kubebuilder:validation:Pattern="[a-z0-9][.a-z0-9_-]*(/[a-z0-9][.a-z0-9_-]*)*"
+	// +kubebuilder:validation:Pattern="^[a-z0-9][.a-z0-9_-]*(/[a-z0-9][.a-z0-9_-]*)*$"
 	Name string `json:"name,omitempty"`
 
 	// Visibility defines whether the image is publicly visible.
@@ -94,6 +94,7 @@ type ImageStatus struct {
 	URL string `json:"url,omitempty"`
 
 	// Visibility shows actual generated image repository visibility.
+	// +kubebuilder:validation:Enum=public;private
 	Visibility ImageVisibility `json:"visibility,omitempty"`
 }
 

@@ -24,7 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -107,14 +106,14 @@ func getImageRepository(imageRepositoryKey types.NamespacedName) *imagerepositor
 func deleteImageRepository(imageRepositoryKey types.NamespacedName) {
 	imageRepository := &imagerepositoryv1beta1.ImageRepository{}
 	if err := k8sClient.Get(ctx, imageRepositoryKey, imageRepository); err != nil {
-		if errors.IsNotFound(err) {
+		if k8sErrors.IsNotFound(err) {
 			return
 		}
 		Fail("Failed to get image repository")
 	}
 	Expect(k8sClient.Delete(ctx, imageRepository)).To(Succeed())
 	Eventually(func() bool {
-		return errors.IsNotFound(k8sClient.Get(ctx, imageRepositoryKey, imageRepository))
+		return k8sErrors.IsNotFound(k8sClient.Get(ctx, imageRepositoryKey, imageRepository))
 	}, timeout, interval).Should(BeTrue())
 }
 
@@ -330,22 +329,6 @@ func createNamespace(name string) {
 	}
 
 	if err := k8sClient.Create(ctx, &namespace); err != nil && !k8sErrors.IsAlreadyExists(err) {
-		Fail(err.Error())
-	}
-}
-
-func deleteNamespace(name string) {
-	namespace := corev1.Namespace{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Namespace",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-	}
-
-	if err := k8sClient.Delete(ctx, &namespace); err != nil && !k8sErrors.IsNotFound(err) {
 		Fail(err.Error())
 	}
 }

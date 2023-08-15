@@ -29,11 +29,13 @@ import (
 
 	uberzap "go.uber.org/zap"
 	uberzapcore "go.uber.org/zap/zapcore"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -93,6 +95,7 @@ func main() {
 		MetricsBindAddress:     metricsAddr,
 		Port:                   9443,
 		HealthProbeBindAddress: probeAddr,
+		ClientDisableCacheFor:  getCacheExcludedObjectsTypes(),
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "ed4c18c3.appstudio.redhat.com",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
@@ -161,5 +164,13 @@ func main() {
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
+	}
+}
+
+func getCacheExcludedObjectsTypes() []client.Object {
+	return []client.Object{
+		&imagerepositoryv1beta1.ImageRepository{},
+		&corev1.Secret{},
+		&corev1.ConfigMap{},
 	}
 }

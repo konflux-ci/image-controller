@@ -3,7 +3,7 @@
 # It should be run by config/default
 #resources:
 #- bases/appstudio.redhat.com_components.yaml
-- bases/appstudio.redhat.com.appstudio.redhat.com_imagerepositories.yaml
+- bases/appstudio.redhat.com_imagerepositories.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 #patchesStrategicMerge:
