@@ -10,6 +10,7 @@ require (
 	github.com/redhat-appstudio/application-api v0.0.0-20221220162402-c1e887791dac
 	github.com/redhat-appstudio/remote-secret v0.0.0-20230711070755-b39d2b5f892e
 	go.uber.org/zap v1.24.0
+	gotest.tools/v3 v3.0.3
 	k8s.io/api v0.26.1
 	k8s.io/apimachinery v0.27.3
 	k8s.io/client-go v0.26.1
