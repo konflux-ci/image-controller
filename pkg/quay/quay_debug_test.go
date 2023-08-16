@@ -80,6 +80,21 @@ func TestDeleteRepository(t *testing.T) {
 	}
 }
 
+func TestIsRepositoryPublic(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+	isPublic, err := quayClient.IsRepositoryPublic(quayOrgName, quayImageRepoName)
+	if isPublic && err == nil {
+		t.Log("Repository is public")
+	} else if isPublic == false && err == nil {
+		t.Log("Repository is private")
+	} else {
+		t.Fatalf("Unexpected error: %s\n", err.Error())
+	}
+}
+
 func TestChangeRepositoryVisibility(t *testing.T) {
 	if quayToken == "" {
 		return

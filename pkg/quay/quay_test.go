@@ -487,6 +487,65 @@ func TestQuayClient_DoesRepositoryExist(t *testing.T) {
 	}
 }
 
+func TestQuayClient_IsRepositoryPublic(t *testing.T) {
+	defer gock.Off()
+
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+
+	testCases := []struct {
+		name       string
+		isPublic   bool
+		err        error
+		statusCode int
+		response   []byte
+	}{
+		{
+			name:       "Repository is public",
+			isPublic:   true,
+			err:        nil,
+			statusCode: 200,
+			response:   []byte(`{"namespace": "test_org", "name": "test_repo", "kind": "image", "description": "Test repository", "is_public": true, "is_organization": true, "is_starred": false, "status_token": "", "trust_enabled": false, "tag_expiration_s": 1209600, "is_free_account": false, "state": "NORMAL", "tags": {}, "can_write": true, "can_admin": true}`),
+		},
+		{
+			name:       "Repository is private",
+			isPublic:   false,
+			err:        nil,
+			statusCode: 200,
+			response:   []byte(`{"namespace": "test_org", "name": "test_repo", "kind": "image", "description": "Test repository", "is_public": false, "is_organization": true, "is_starred": false, "status_token": "", "trust_enabled": false, "tag_expiration_s": 1209600, "is_free_account": false, "state": "NORMAL", "tags": {}, "can_write": true, "can_admin": true}`),
+		},
+		{
+			name:       "Repository does not exist",
+			isPublic:   false,
+			err:        fmt.Errorf("repository %s does not exist in %s organization", repo, org),
+			statusCode: 404,
+			response:   []byte(`{"detail": "Not Found", "error_message": "Not Found", "error_type": "not_found", "title": "not_found", "type": "https://quay.io/api/v1/error/not_found", "status": 404}`),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gock.New("https://quay.io/api/v1").
+				MatchHeader("Content-Type", "application/json").
+				MatchHeader("Authorization", "Bearer authtoken").
+				Get(fmt.Sprintf("repository/%s/%s", org, repo)).
+				Reply(tc.statusCode).
+				JSON(tc.response)
+
+			isPublic, err := quayClient.IsRepositoryPublic(org, repo)
+			if isPublic != tc.isPublic {
+				t.Errorf("expected result to be `%t`, got `%t`", tc.isPublic, isPublic)
+			}
+			if (tc.err != nil && err == nil) || (tc.err == nil && err != nil) {
+				t.Errorf("expected error to be `%v`, got `%v`", tc.err, err)
+			}
+
+		})
+	}
+}
+
 func TestQuayClient_DeleteRepository(t *testing.T) {
 	defer gock.Off()
 
