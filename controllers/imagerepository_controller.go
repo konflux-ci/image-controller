@@ -437,18 +437,15 @@ func (r *ImageRepositoryReconciler) EnsureDockerSecret(ctx context.Context, imag
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      secretName,
 				Namespace: imageRepository.Namespace,
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						Name:       imageRepository.Name,
-						APIVersion: imageRepository.APIVersion,
-						Kind:       imageRepository.Kind,
-						UID:        imageRepository.UID,
-					},
-				},
 			},
 			Type:       corev1.SecretTypeDockerConfigJson,
 			StringData: generateDockerconfigSecretData(imageURL, robotAccount),
 		}
+		if err := controllerutil.SetOwnerReference(imageRepository, secret, r.Scheme); err != nil {
+			log.Error(err, "failed to set owner for remote secret")
+			return err
+		}
+
 		if err := r.Client.Create(ctx, secret); err != nil {
 			log.Error(err, "failed to create secret", l.Action, l.ActionAdd)
 			return err
@@ -484,14 +481,6 @@ func (r *ImageRepositoryReconciler) EnsureRemotePullSecret(ctx context.Context, 
 					ApplicationNameLabelName: imageRepository.Labels[ApplicationNameLabelName],
 					ComponentNameLabelName:   imageRepository.Labels[ComponentNameLabelName],
 				},
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						Name:       imageRepository.Name,
-						APIVersion: imageRepository.APIVersion,
-						Kind:       imageRepository.Kind,
-						UID:        imageRepository.UID,
-					},
-				},
 			},
 			Spec: remotesecretv1beta1.RemoteSecretSpec{
 				Secret: remotesecretv1beta1.LinkableSecretSpec{
@@ -509,6 +498,11 @@ func (r *ImageRepositoryReconciler) EnsureRemotePullSecret(ctx context.Context, 
 				},
 			},
 		}
+		if err := controllerutil.SetOwnerReference(imageRepository, remoteSecret, r.Scheme); err != nil {
+			log.Error(err, "failed to set owner for remote secret")
+			return err
+		}
+
 		if err := r.Client.Create(ctx, remoteSecret); err != nil {
 			log.Error(err, "failed to create remote secret", l.Action, l.ActionAdd, l.Audit, "true")
 			return err
