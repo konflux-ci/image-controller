@@ -559,20 +559,13 @@ func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, e
 // e.g. `org+robot` will be changed to `robot`, `robot` will stay `robot`
 func handleRobotName(robotName string) (string, error) {
 	// Regexp from quay api `^([a-z0-9]+(?:[._-][a-z0-9]+)*)$` with one plus sign in the middle allowed (representing longname)
-	r, err := regexp.Compile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\+[a-z0-9]+(?:[._-][a-z0-9]+)*)?$`)
+	r := regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\+[a-z0-9]+(?:[._-][a-z0-9]+)*)?$`)
 	robotName = strings.TrimSpace(robotName)
-	if err != nil {
-		return "", fmt.Errorf("failed to compile regex, error: %s", err)
-	}
 	if !r.MatchString(robotName) {
 		return "", fmt.Errorf("robot name is invalid, must match `^([a-z0-9]+(?:[._-][a-z0-9]+)*)$` (one plus sign in the middle is also allowed)")
 	}
 	if strings.Contains(robotName, "+") {
-		parts := strings.Split(robotName, "+")
-		if len(parts) != 2 {
-			return "", fmt.Errorf("robotName could not be split into two parts, expected len 2, got len %d", len(parts))
-		}
-		robotName = parts[1]
+		robotName = strings.Split(robotName, "+")[1]
 	}
 	return robotName, nil
 }
