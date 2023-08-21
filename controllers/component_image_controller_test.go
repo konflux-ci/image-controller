@@ -435,6 +435,98 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
 		})
 
+		It("should stop and report error if image repository creation fails", func() {
+			isCreateRepositoryInvoked := false
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				isCreateRepositoryInvoked = true
+				return nil, fmt.Errorf("fail to marshal data")
+			}
+
+			repositoryInfoJsonBytes, _ := json.Marshal(ImageRepositoryStatus{})
+			setComponentAnnotationValue(resourceKey, ImageAnnotationName, string(repositoryInfoJsonBytes))
+			setComponentAnnotationValue(resourceKey, GenerateImageAnnotationName, `{"visibility": "public"}`)
+
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+
+			expectedValue, _ := json.Marshal(&ImageRepositoryStatus{Message: "failed to generate image repository"})
+			waitComponentAnnotationWithValue(resourceKey, ImageAnnotationName, string(expectedValue))
+		})
+
+		It("should do nothing and set error for changing visibility if image is invalid in image annotation", func() {
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Image repository creation should not be invoked")
+				return nil, nil
+			}
+
+			// An invalid image is set, which does not include registry.
+			setComponentAnnotationValue(resourceKey, ImageAnnotationName, `{"image": "ns/img:tag", "secret": "1234"}`)
+			setComponentAnnotationValue(resourceKey, GenerateImageAnnotationName, `{"visibility": "private"}`)
+
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
+
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(Equal("Invalid image url"))
+		})
+
+		It("should stop if fail to change repository visibility", func() {
+			// Work with a specific component in order to avoid potential conflict error happened in any subsequent test.
+			testComponentKey := types.NamespacedName{
+				Name:      defaultComponentName + "-stop-if-fail-to-change-repo-visibility",
+				Namespace: defaultComponentNamespace,
+			}
+			createComponent(componentConfig{ComponentKey: testComponentKey})
+
+			isChangeRepositoryVisibilityInvoked := false
+			ChangeRepositoryVisibilityFunc = func(string, string, string) error {
+				isChangeRepositoryVisibilityInvoked = true
+				return fmt.Errorf("faile to change repository visibility")
+			}
+
+			repoInfo := map[string]string{
+				"name":       "img",
+				"image":      "registry/ns/img:0.1",
+				"secret":     "1234",
+				"visibility": "public",
+			}
+			imageAnnotationValue, _ := json.Marshal(repoInfo)
+			setComponentAnnotationValue(testComponentKey, ImageAnnotationName, string(imageAnnotationValue))
+
+			// Start to change visibility to private
+			generateAnnotationValue := `{"visibility": "private"}`
+			setComponentAnnotationValue(testComponentKey, GenerateImageAnnotationName, generateAnnotationValue)
+
+			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
+
+			// Failed to change the visibility, reconciler should return immediately and annotations are not changed
+			waitComponentAnnotationUnchangedWithValue(testComponentKey, ImageAnnotationName, string(imageAnnotationValue))
+			waitComponentAnnotationUnchangedWithValue(testComponentKey, GenerateImageAnnotationName, generateAnnotationValue)
+
+			deleteComponent(testComponentKey)
+		})
+
+		It("should do nothing and set error if image annotation is invalid JSON", func() {
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				Fail("Image repository creation should not be invoked")
+				return nil, nil
+			}
+
+			setComponentAnnotationValue(resourceKey, ImageAnnotationName, `{"image": "registry/ns/img:tag}`)
+			setComponentAnnotationValue(resourceKey, GenerateImageAnnotationName, `{"visibility": "private"}`)
+
+			waitComponentAnnotationGone(resourceKey, GenerateImageAnnotationName)
+			waitComponentAnnotation(resourceKey, ImageAnnotationName)
+
+			repoImageInfo := &ImageRepositoryStatus{}
+			component := getComponent(resourceKey)
+			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
+			Expect(repoImageInfo.Message).To(Equal("Invalid image status annotation"))
+		})
+
 		It("should not block component deletion if clean up fails", func() {
 			waitImageRepositoryFinalizerOnComponent(resourceKey)
 

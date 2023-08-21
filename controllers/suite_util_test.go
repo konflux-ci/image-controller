@@ -174,6 +174,39 @@ func waitComponentAnnotation(componentKey types.NamespacedName, annotationName s
 	}, timeout, interval).Should(BeTrue())
 }
 
+// waitComponentAnnotationWithValue waits for a component have had an annotation with a specific value.
+func waitComponentAnnotationWithValue(componentKey types.NamespacedName, annotationName, value string) {
+	Eventually(func() bool {
+		component := getComponent(componentKey)
+		annotations := component.GetAnnotations()
+		if annotations == nil {
+			return false
+		}
+		val, exists := annotations[annotationName]
+		if exists {
+			return val == value
+		} else {
+			return false
+		}
+	}, timeout, interval).Should(BeTrue())
+}
+
+func waitComponentAnnotationUnchangedWithValue(componentKey types.NamespacedName, annotationName, value string) {
+	Consistently(func() bool {
+		component := getComponent(componentKey)
+		annotations := component.GetAnnotations()
+		if annotations == nil {
+			return false
+		}
+		val, exists := annotations[annotationName]
+		if exists {
+			return val == value
+		} else {
+			return false
+		}
+	}, timeout, interval).Should(BeTrue())
+}
+
 func waitComponentAnnotationGone(componentKey types.NamespacedName, annotationName string) {
 	Eventually(func() bool {
 		component := getComponent(componentKey)
