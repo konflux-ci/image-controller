@@ -931,6 +931,20 @@ func TestQuayClient_IsRepositoryPublic(t *testing.T) {
 			statusCode: 400,
 			response:   []byte("{\"error\": \"something is wrong}"),
 		},
+		{
+			name:       "return error got from error field within response",
+			isPublic:   false,
+			statusCode: 400,
+			response:   []byte(`{"error": "something is wrong"}`),
+			err:        fmt.Errorf("something is wrong"),
+		},
+		{
+			name:       "return error got from error_message field within response",
+			isPublic:   false,
+			statusCode: 400,
+			response:   []byte(`{"error_message": "something is wrong"}`),
+			err:        fmt.Errorf("something is wrong"),
+		},
 	}
 
 	for _, tc := range testCases {
@@ -948,13 +962,12 @@ func TestQuayClient_IsRepositoryPublic(t *testing.T) {
 			}
 			quayClient := NewQuayClient(client, "authtoken", url)
 			isPublic, err := quayClient.IsRepositoryPublic(org, repo)
-			if isPublic != tc.isPublic {
-				t.Errorf("expected result to be `%t`, got `%t`", tc.isPublic, isPublic)
+			assert.Equal(t, tc.isPublic, isPublic)
+			if tc.err == nil {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.err.Error())
 			}
-			if (tc.err != nil && err == nil) || (tc.err == nil && err != nil) {
-				t.Errorf("expected error to be `%v`, got `%v`", tc.err, err)
-			}
-
 		})
 	}
 }
