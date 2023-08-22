@@ -78,7 +78,7 @@ func (r *QuayResponse) GetStatusCode() int {
 	return r.response.StatusCode
 }
 
-func (c *QuayClient) _makeRequest(url, method string, body io.Reader) (*http.Request, error) {
+func (c *QuayClient) makeRequest(url, method string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -88,8 +88,8 @@ func (c *QuayClient) _makeRequest(url, method string, body io.Reader) (*http.Req
 	return req, nil
 }
 
-func (c *QuayClient) _doRequest(url, method string, body io.Reader) (*QuayResponse, error) {
-	req, err := c._makeRequest(url, method, body)
+func (c *QuayClient) doRequest(url, method string, body io.Reader) (*QuayResponse, error) {
+	req, err := c.makeRequest(url, method, body)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Rep
 		return nil, fmt.Errorf("failed to marshal repository request data: %w", err)
 	}
 
-	resp, err := c._doRequest(url, http.MethodPost, bytes.NewReader(b))
+	resp, err := c.doRequest(url, http.MethodPost, bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Rep
 func (c *QuayClient) DoesRepositoryExist(organization, imageRepository string) (bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s", c.url, organization, imageRepository)
 
-	resp, err := c._doRequest(url, http.MethodGet, nil)
+	resp, err := c.doRequest(url, http.MethodGet, nil)
 	if err != nil {
 		return false, err
 	}
@@ -164,7 +164,7 @@ func (c *QuayClient) DoesRepositoryExist(organization, imageRepository string) (
 func (c *QuayClient) IsRepositoryPublic(organization, imageRepository string) (bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s", c.url, organization, imageRepository)
 
-	resp, err := c._doRequest(url, http.MethodGet, nil)
+	resp, err := c.doRequest(url, http.MethodGet, nil)
 	if err != nil {
 		return false, err
 	}
@@ -199,7 +199,7 @@ func (c *QuayClient) IsRepositoryPublic(organization, imageRepository string) (b
 func (c *QuayClient) DeleteRepository(organization, imageRepository string) (bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s", c.url, organization, imageRepository)
 
-	resp, err := c._doRequest(url, http.MethodDelete, nil)
+	resp, err := c.doRequest(url, http.MethodDelete, nil)
 	if err != nil {
 		return false, err
 	}
@@ -233,7 +233,7 @@ func (c *QuayClient) ChangeRepositoryVisibility(organization, imageRepositoryNam
 	url := fmt.Sprintf("%s/repository/%s/%s/changevisibility", c.url, organization, imageRepositoryName)
 	requestData := strings.NewReader(fmt.Sprintf(`{"visibility": "%s"}`, visibility))
 
-	resp, err := c._doRequest(url, http.MethodPost, requestData)
+	resp, err := c.doRequest(url, http.MethodPost, requestData)
 	if err != nil {
 		return err
 	}
@@ -262,7 +262,7 @@ func (c *QuayClient) ChangeRepositoryVisibility(organization, imageRepositoryNam
 func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*RobotAccount, error) {
 	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
 
-	resp, err := c._doRequest(url, http.MethodGet, nil)
+	resp, err := c.doRequest(url, http.MethodGet, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +288,7 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 
 	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
 	payload := strings.NewReader(`{"description": "Robot account for AppStudio Component"}`)
-	resp, err := c._doRequest(url, http.MethodPut, payload)
+	resp, err := c.doRequest(url, http.MethodPut, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +334,7 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 	}
 	url := fmt.Sprintf("%s/organization/%s/robots/%s", c.url, organization, robotName)
 
-	resp, err := c._doRequest(url, http.MethodDelete, nil)
+	resp, err := c.doRequest(url, http.MethodDelete, nil)
 	if err != nil {
 		return false, err
 	}
@@ -374,7 +374,7 @@ func (c *QuayClient) AddPermissionsForRepositoryToRobotAccount(organization, ima
 		role = "write"
 	}
 	body := strings.NewReader(fmt.Sprintf(`{"role": "%s"}`, role))
-	resp, err := c._doRequest(url, http.MethodPut, body)
+	resp, err := c.doRequest(url, http.MethodPut, body)
 	if err != nil {
 		return err
 	}
@@ -402,7 +402,7 @@ func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, erro
 	values.Add("namespace", organization)
 	url.RawQuery = values.Encode()
 
-	req, err := c._makeRequest(url.String(), http.MethodGet, nil)
+	req, err := c.makeRequest(url.String(), http.MethodGet, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +444,7 @@ func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, erro
 func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, error) {
 	url := fmt.Sprintf("%s/organization/%s/robots", c.url, organization)
 
-	resp, err := c._doRequest(url, http.MethodGet, nil)
+	resp, err := c.doRequest(url, http.MethodGet, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +481,7 @@ func handleRobotName(robotName string) (string, error) {
 func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) ([]Tag, bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s/tag/?page=%d", c.url, organization, repository, page)
 
-	resp, err := c._doRequest(url, http.MethodGet, nil)
+	resp, err := c.doRequest(url, http.MethodGet, nil)
 	if err != nil {
 		return nil, false, err
 	}
@@ -506,7 +506,7 @@ func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) 
 func (c *QuayClient) DeleteTag(organization, repository, tag string) (bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s/tag/%s", c.url, organization, repository, tag)
 
-	resp, err := c._doRequest(url, http.MethodDelete, nil)
+	resp, err := c.doRequest(url, http.MethodDelete, nil)
 	if err != nil {
 		return false, err
 	}

@@ -1337,7 +1337,7 @@ func TestMakeRequest(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			req, err := quayClient._makeRequest("http://quay.registry.io/", tc.httpMethod, nil)
+			req, err := quayClient.makeRequest("http://quay.registry.io/", tc.httpMethod, nil)
 			if tc.expectErr == "" {
 				assert.NilError(t, err)
 				assert.Assert(t, req != nil)
@@ -1400,7 +1400,7 @@ func TestDoRequest(t *testing.T) {
 					Reply(403)
 			}
 
-			resp, err := quayClient._doRequest(tc.url, tc.httpMethod, nil)
+			resp, err := quayClient.doRequest(tc.url, tc.httpMethod, nil)
 			if tc.expectErr == "" {
 				assert.NilError(t, err)
 				assert.Assert(t, resp != nil)
