@@ -25,7 +25,7 @@ import (
 // Put your own data below and run corresponding test to debug interactions with quay.io
 var (
 	quayToken  = ""
-	quayApiUrl = "https://quay.registry.io/api/v1"
+	quayApiUrl = "https://quay.io/api/v1"
 
 	quayOrgName          = "test-org"
 	quayImageRepoName    = "namespace/application/component"
