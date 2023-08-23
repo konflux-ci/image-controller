@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"regexp"
 	"testing"
 
 	"gotest.tools/v3/assert"
@@ -34,6 +35,8 @@ const (
 
 	testRepoNamespace   = "redhat-appstudio-user"
 	testRepoDescription = "test repo"
+
+	testQuayApiUrl = "https://test.registry/api/v1"
 )
 
 var responseUnauthorized = map[string]string{
@@ -46,6 +49,9 @@ var responseUnauthorized = map[string]string{
 }
 
 func TestQuayClient_CreateRepository(t *testing.T) {
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
 	testCases := []struct {
 		name               string
 		statusCode         int
@@ -100,24 +106,27 @@ func TestQuayClient_CreateRepository(t *testing.T) {
 			expectedRepository: nil,
 			expectedErr:        "failed to unmarshal response",
 		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
 
-			gock.New("https://quay.io/api/v1").
+			req := gock.New(testQuayApiUrl).
 				MatchHeader("Content-type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
-				Post("/repository").
-				Reply(tc.statusCode).
-				JSON(tc.responseData)
+				Post("/repository")
+			req.Reply(tc.statusCode).JSON(tc.responseData)
 
-			client := &http.Client{Transport: &http.Transport{}}
-			gock.InterceptClient(client)
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Put("another-path")
+			}
 
-			quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
-
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			repoInfo, err := quayClient.CreateRepository(RepositoryRequest{
 				Namespace:   testRepoNamespace,
 				Description: testRepoDescription,
@@ -201,21 +210,28 @@ func TestQuayClient_CreateRobotAccount(t *testing.T) {
 			},
 			expectedErr: "",
 		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
 
-			gock.New("https://quay.io/api/v1").
+			req := gock.New(testQuayApiUrl).
 				MatchHeader("Content-type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
-				Put("/organization/org/robots/robot").
-				Reply(tc.statusCode).
-				JSON(tc.responseData)
+				Put("/organization/org/robots/robot")
+			req.Reply(tc.statusCode).JSON(tc.responseData)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Post("another-path")
+			}
 
 			if tc.name == "robot account to be created already exists" {
-				gock.New("https://quay.io/api/v1").
+				gock.New(testQuayApiUrl).
 					MatchHeader("Content-Type", "application/json").
 					MatchHeader("Authorization", "Bearer authtoken").
 					Get("organization/org/robots/robot").
@@ -226,7 +242,7 @@ func TestQuayClient_CreateRobotAccount(t *testing.T) {
 			client := &http.Client{Transport: &http.Transport{}}
 			gock.InterceptClient(client)
 
-			quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 
 			var robotName string
 			if tc.name == "robot name is invalid" {
@@ -256,6 +272,9 @@ func TestQuayClient_CreateRobotAccount(t *testing.T) {
 }
 
 func TestQuayClient_AddPermissions(t *testing.T) {
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
 	testCases := []struct {
 		name         string
 		robotName    string
@@ -299,22 +318,26 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 			responseData: "{\"name: \"info\"}",
 			expectedErr:  "failed to add permissions to the robot account",
 		},
+		{
+			name:        "stop if http request fails",
+			robotName:   robotName,
+			expectedErr: "failed to Do request:",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
 
-			gock.New("https://quay.io/api/v1").
-				Put("/repository/org/repository/permissions/user/org\\+robot").
-				Reply(tc.statusCode).
-				JSON(tc.responseData)
+			req := gock.New(testQuayApiUrl).
+				Put("/repository/org/repository/permissions/user/org\\+robot")
+			req.Reply(tc.statusCode).JSON(tc.responseData)
 
-			client := &http.Client{Transport: &http.Transport{}}
-			gock.InterceptClient(client)
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Put("another-path")
+			}
 
-			quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
-
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			err := quayClient.AddPermissionsForRepositoryToRobotAccount("org", "repository", tc.robotName, true)
 
 			if tc.expectedErr == "" {
@@ -350,7 +373,12 @@ func TestQuayClient_GetAllRepositories(t *testing.T) {
 		{
 			name:        "server responds invalid a JSON string",
 			statusCode:  200,
-			expectedErr: "failed to unmarshal body",
+			expectedErr: "failed to unmarshal response body",
+		},
+		{
+			name:        "stop if http request fails",
+			statusCode:  200,
+			expectedErr: "failed to Do request",
 		},
 	}
 
@@ -361,13 +389,13 @@ func TestQuayClient_GetAllRepositories(t *testing.T) {
 			// First page
 			response := Response{Repositories: []Repository{{Name: "test1"}}, NextPage: "next_page_token"}
 
-			resp := gock.New("https://quay.io/api/v1").
+			resp := gock.New(testQuayApiUrl).
 				MatchHeader("Content-Type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
 				Get("/repository").
 				Reply(tc.statusCode)
 
-			if tc.expectedErr == "failed to unmarshal body" {
+			if tc.expectedErr == "failed to unmarshal response body" {
 				resp.JSON("{\"next_page\": \"page_token}")
 			} else {
 				resp.JSON(response)
@@ -376,13 +404,11 @@ func TestQuayClient_GetAllRepositories(t *testing.T) {
 			client := &http.Client{Transport: &http.Transport{}}
 			gock.InterceptClient(client)
 
-			quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
-
 			// Second page
 			response.Repositories = []Repository{{Name: "test2"}}
 			response.NextPage = "next_page_token2"
 
-			gock.New("https://quay.io/api/v1").
+			gock.New(testQuayApiUrl).
 				MatchHeader("Content-Type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
 				MatchParam("next_page", "next_page_token").
@@ -393,14 +419,18 @@ func TestQuayClient_GetAllRepositories(t *testing.T) {
 			// Last page
 			response.Repositories = []Repository{{Name: "test3"}}
 
-			gock.New("https://quay.io/api/v1").
+			req := gock.New(testQuayApiUrl).
 				MatchHeader("Content-Type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
 				MatchParam("next_page", "next_page_token2").
-				Get("/repository").
-				Reply(200).
-				JSON(response)
+				Get("/repository")
+			req.Reply(200).JSON(response)
 
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Get("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			receivedRepos, err := quayClient.GetAllRepositories("test_org")
 
 			if tc.expectedErr == "" {
@@ -445,24 +475,30 @@ func TestQuayClient_GetAllRobotAccounts(t *testing.T) {
 			expectedRobots: nil,
 			expectedErr:    "failed to unmarshal response body",
 		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
 
-			gock.New("https://quay.io/api/v1").
+			req := gock.New(testQuayApiUrl).
 				MatchHeader("Content-Type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
-				Get("/organization/test_org/robots").
-				Reply(tc.statusCode).
-				JSON(tc.responseData)
+				Get("/organization/test_org/robots")
+			req.Reply(tc.statusCode).JSON(tc.responseData)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Get("another-path")
+			}
 
 			client := &http.Client{Transport: &http.Transport{}}
 			gock.InterceptClient(client)
 
-			quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
-
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			robots, err := quayClient.GetAllRobotAccounts("test_org")
 
 			if tc.expectedErr == "" {
@@ -605,16 +641,23 @@ func TestQuayClient_GetTagsFromPage(t *testing.T) {
 			hasAdditional: []bool{false},
 			expectedErr:   "failed to unmarshal response body",
 		},
+		{
+			name:        "stop if http request fails",
+			statusCode:  200,
+			pages:       1,
+			tagsPerPage: 2,
+			expectedErr: "failed to Do request:",
+		},
 	}
 
 	for _, tc := range testCases {
 		client := &http.Client{Transport: &http.Transport{}}
 		gock.InterceptClient(client)
 
-		quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
-
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 
 			for page := 1; page <= tc.pages; page++ {
 				mockTags := make([]Tag, tc.tagsPerPage)
@@ -624,20 +667,25 @@ func TestQuayClient_GetTagsFromPage(t *testing.T) {
 					}
 				}
 
-				resp := gock.New("https://quay.io/api/v1").
+				req := gock.New(testQuayApiUrl).
 					MatchHeader("Authorization", "Bearer authtoken").
 					MatchHeader("Content-Type", "application/json").
 					Get(fmt.Sprintf("repository/%s/%s/tag/", org, repo)).
-					MatchParam("page", fmt.Sprintf("%d", page)).
-					Reply(tc.statusCode)
+					MatchParam("page", fmt.Sprintf("%d", page))
 
+				var responseData interface{}
 				if tc.expectedErr == "" {
-					resp.JSON(map[string]interface{}{
+					responseData = map[string]interface{}{
 						"tags":           mockTags,
 						"has_additional": tc.hasAdditional[page-1],
-					})
+					}
 				} else {
-					resp.JSON("{\"has_additional: false}")
+					responseData = "{\"has_additional: false}"
+				}
+				req.Reply(tc.statusCode).JSON(responseData)
+
+				if tc.name == "stop if http request fails" {
+					req.AddMatcher(gock.MatchPath).Get("another-path")
 				}
 
 				tags, hasAdditional, err := quayClient.GetTagsFromPage(org, repo, page)
@@ -703,6 +751,10 @@ func TestQuayClient_DeleteTag(t *testing.T) {
 			statusCode:  500,
 			response:    "{\"error_message\": \"error deleting tag}",
 		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -711,14 +763,17 @@ func TestQuayClient_DeleteTag(t *testing.T) {
 			client := &http.Client{Transport: &http.Transport{}}
 			gock.InterceptClient(client)
 
-			quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
-			gock.New("https://quay.io/api/v1").
+			req := gock.New(testQuayApiUrl).
 				MatchHeader("Authorization", "Bearer authtoken").
 				MatchHeader("Content-Type", "application/json").
-				Delete(fmt.Sprintf("repository/%s/%s/tag/%s", org, repo, tc.tag)).
-				Reply(tc.statusCode).
-				JSON(tc.response)
+				Delete(fmt.Sprintf("repository/%s/%s/tag/%s", org, repo, tc.tag))
+			req.Reply(tc.statusCode).JSON(tc.response)
 
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Delete("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			deleted, err := quayClient.DeleteTag(org, repo, tc.tag)
 			assert.Equal(t, tc.deleted, deleted)
 			if tc.expectedErr == "" {
@@ -733,8 +788,6 @@ func TestQuayClient_DeleteTag(t *testing.T) {
 func TestQuayClient_DoesRepositoryExist(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
-
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
 
 	testCases := []struct {
 		name        string
@@ -785,19 +838,27 @@ func TestQuayClient_DoesRepositoryExist(t *testing.T) {
 			statusCode:  403, // must not be 404 and 200
 			response:    "{\"error\": \"something is wrong}",
 		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
 
-			gock.New("https://quay.io/api/v1").
+			req := gock.New(testQuayApiUrl).
 				MatchHeader("Content-Type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
-				Get(fmt.Sprintf("repository/%s/%s", org, repo)).
-				Reply(tc.statusCode).
-				JSON(tc.response)
+				Get(fmt.Sprintf("repository/%s/%s", org, repo))
+			req.Reply(tc.statusCode).JSON(tc.response)
 
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Get("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			exists, err := quayClient.DoesRepositoryExist(org, repo)
 			assert.Equal(t, tc.shouldExist, exists)
 			if tc.expectedErr == "" {
@@ -814,8 +875,6 @@ func TestQuayClient_IsRepositoryPublic(t *testing.T) {
 
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
-
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
 
 	testCases := []struct {
 		name       string
@@ -845,25 +904,58 @@ func TestQuayClient_IsRepositoryPublic(t *testing.T) {
 			statusCode: 404,
 			response:   []byte(`{"detail": "Not Found", "error_message": "Not Found", "error_type": "not_found", "title": "not_found", "type": "https://quay.io/api/v1/error/not_found", "status": 404}`),
 		},
+		{
+			name: "stop if http request fails",
+			err:  fmt.Errorf("failed to Do request"),
+		},
+		{
+			name:       "server responds an invalid JSON string for 200",
+			err:        fmt.Errorf("failed to unmarshal response body"),
+			statusCode: 200,
+			response:   []byte("{\"error\": \"something is wrong}"),
+		},
+		{
+			name:       "server responds an invalid JSON string for other status code",
+			err:        fmt.Errorf("failed to unmarshal response body"),
+			statusCode: 400,
+			response:   []byte("{\"error\": \"something is wrong}"),
+		},
+		{
+			name:       "return error got from error field within response",
+			isPublic:   false,
+			statusCode: 400,
+			response:   []byte(`{"error": "something is wrong"}`),
+			err:        fmt.Errorf("something is wrong"),
+		},
+		{
+			name:       "return error got from error_message field within response",
+			isPublic:   false,
+			statusCode: 400,
+			response:   []byte(`{"error_message": "something is wrong"}`),
+			err:        fmt.Errorf("something is wrong"),
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			gock.New("https://quay.io/api/v1").
+			req := gock.New(testQuayApiUrl).
 				MatchHeader("Content-Type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
-				Get(fmt.Sprintf("repository/%s/%s", org, repo)).
-				Reply(tc.statusCode).
-				JSON(tc.response)
+				Get(fmt.Sprintf("repository/%s/%s", org, repo))
+			req.Reply(tc.statusCode).JSON(tc.response)
 
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Get("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			isPublic, err := quayClient.IsRepositoryPublic(org, repo)
-			if isPublic != tc.isPublic {
-				t.Errorf("expected result to be `%t`, got `%t`", tc.isPublic, isPublic)
+			assert.Equal(t, tc.isPublic, isPublic)
+			if tc.err == nil {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.err.Error())
 			}
-			if (tc.err != nil && err == nil) || (tc.err == nil && err != nil) {
-				t.Errorf("expected error to be `%v`, got `%v`", tc.err, err)
-			}
-
 		})
 	}
 }
@@ -871,8 +963,6 @@ func TestQuayClient_IsRepositoryPublic(t *testing.T) {
 func TestQuayClient_DeleteRepository(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
-
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
 
 	testCases := []struct {
 		name        string
@@ -917,19 +1007,27 @@ func TestQuayClient_DeleteRepository(t *testing.T) {
 			statusCode:  403, // must not be 404 and 200
 			response:    "{\"error\": \"something is wrong}",
 		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
 
-			gock.New("https://quay.io/api/v1").
+			req := gock.New(testQuayApiUrl).
 				MatchHeader("Content-Type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
-				Delete(fmt.Sprintf("repository/%s/%s", org, repo)).
-				Reply(tc.statusCode).
-				JSON(tc.response)
+				Delete(fmt.Sprintf("repository/%s/%s", org, repo))
+			req.Reply(tc.statusCode).JSON(tc.response)
 
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Delete("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			exists, err := quayClient.DeleteRepository(org, repo)
 			assert.Equal(t, tc.deleted, exists)
 			if tc.expectedErr == "" {
@@ -944,8 +1042,6 @@ func TestQuayClient_DeleteRepository(t *testing.T) {
 func TestQuayClient_ChangeRepositoryVisibility(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
-
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
 
 	testCases := []struct {
 		name       string
@@ -1003,20 +1099,29 @@ func TestQuayClient_ChangeRepositoryVisibility(t *testing.T) {
 			statusCode: 500,
 			response:   map[string]string{"error": "something is wrong"},
 		},
+		{
+			name:       "stop if http request fails",
+			visibility: "public",
+			err:        "failed to Do request:",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
 
-			gock.New("https://quay.io/api/v1").
+			req := gock.New(testQuayApiUrl).
 				MatchHeader("Content-Type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
 				BodyString(fmt.Sprintf(`{"visibility": "%s"}`, tc.visibility)).
-				Post(fmt.Sprintf("repository/%s/%s/changevisibility", org, repo)).
-				Reply(tc.statusCode).
-				JSON(tc.response)
+				Post(fmt.Sprintf("repository/%s/%s/changevisibility", org, repo))
+			req.Reply(tc.statusCode).JSON(tc.response)
 
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Post("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			err := quayClient.ChangeRepositoryVisibility(org, repo, tc.visibility)
 			if tc.err == "" {
 				assert.NilError(t, err)
@@ -1030,8 +1135,6 @@ func TestQuayClient_ChangeRepositoryVisibility(t *testing.T) {
 func TestQuayClient_GetRobotAccount(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
-
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
 
 	sampleRobot := &RobotAccount{
 		Description:  "",
@@ -1070,19 +1173,27 @@ func TestQuayClient_GetRobotAccount(t *testing.T) {
 			statusCode:  400, // this field can be ignored for this case
 			response:    "{\"error\": \"something is wrong}",
 		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
 
-			gock.New("https://quay.io/api/v1").
+			req := gock.New(testQuayApiUrl).
 				MatchHeader("Content-Type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
-				Get(fmt.Sprintf("organization/%s/robots/%s", org, robotName)).
-				Reply(tc.statusCode).
-				JSON(tc.response)
+				Get(fmt.Sprintf("organization/%s/robots/%s", org, robotName))
+			req.Reply(tc.statusCode).JSON(tc.response)
 
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Get("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			robot, err := quayClient.GetRobotAccount(org, robotName)
 			if !reflect.DeepEqual(robot, tc.robot) {
 				t.Error("robots are not the same")
@@ -1099,8 +1210,6 @@ func TestQuayClient_GetRobotAccount(t *testing.T) {
 func TestQuayClient_DeleteRobotAccount(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
-
-	quayClient := NewQuayClient(client, "authtoken", "https://quay.io/api/v1")
 
 	testCases := []struct {
 		name            string
@@ -1150,25 +1259,139 @@ func TestQuayClient_DeleteRobotAccount(t *testing.T) {
 			statusCode:      500, // can be any status code except 204 and 404
 			response:        "{\"error\": \"something is wrong in the server\"}",
 		},
+		{
+			name:        "stop if http request fails",
+			robotName:   robotName,
+			expectedErr: "failed to Do request:",
+		},
+		{
+			name:        "server responds an invalid JSON string",
+			robotName:   robotName,
+			expectedErr: "failed to unmarshal response body",
+			response:    "{\"error\": \"something is wrong}",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
 
-			gock.New("https://quay.io/api/v1").
+			req := gock.New(testQuayApiUrl).
 				MatchHeader("Content-Type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
-				Delete(fmt.Sprintf("organization/%s/robots/%s", org, tc.robotName)).
-				Reply(tc.statusCode).
-				JSON(tc.response)
+				Delete(fmt.Sprintf("organization/%s/robots/%s", org, tc.robotName))
+			req.Reply(tc.statusCode).JSON(tc.response)
 
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Delete("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			deleted, err := quayClient.DeleteRobotAccount(org, tc.robotName)
 			assert.Equal(t, tc.shouldBeDeleted, deleted)
 			if tc.expectedErr == "" {
 				assert.NilError(t, err)
 			} else {
 				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+		})
+	}
+}
+
+func TestMakeRequest(t *testing.T) {
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+
+	testCases := []struct {
+		name       string
+		httpMethod string
+		expectErr  string
+	}{
+		{
+			name:       "create a new request",
+			httpMethod: http.MethodOptions,
+			expectErr:  "",
+		},
+		{
+			name:       "fail to create a new request",
+			httpMethod: "(get)",
+			expectErr:  "failed to create request:.+invalid method.*",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := quayClient.makeRequest("http://quay.registry.io/", tc.httpMethod, nil)
+			if tc.expectErr == "" {
+				assert.NilError(t, err)
+				assert.Assert(t, req != nil)
+				val, exists := req.Header["Content-Type"]
+				assert.Equal(t, true, exists)
+				assert.Equal(t, "application/json", val[0])
+				val, exists = req.Header["Authorization"]
+				assert.Equal(t, true, exists)
+				assert.Equal(t, "Bearer authtoken", val[0])
+			} else {
+				assert.Assert(t, req == nil, fmt.Sprintf("expected nil request, got %v", req))
+				reg := regexp.MustCompile(tc.expectErr)
+				assert.Assert(t, reg.MatchString(err.Error()))
+			}
+		})
+	}
+}
+
+func TestDoRequest(t *testing.T) {
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	testCases := []struct {
+		name       string
+		httpMethod string
+		expectErr  string
+	}{
+		{
+			name:       "stop if fail to create a request",
+			httpMethod: "(get)", // make it fail
+			expectErr:  "failed to create request:.+",
+		},
+		{
+			name:       "fail to do a request",
+			httpMethod: http.MethodPost,
+			expectErr:  "failed to Do request:.+cannot match any request.*",
+		},
+		{
+			name:       "success to do a request",
+			httpMethod: http.MethodGet,
+			expectErr:  "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req := gock.New(testQuayApiUrl).
+				MatchHeader("Content-Type", "application/json").
+				MatchHeader("Authorization", "Bearer authtoken").
+				Get("/")
+			req.Reply(403)
+
+			if tc.name == "fail to do a request" {
+				req.AddMatcher(gock.MatchPath).Post("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			resp, err := quayClient.doRequest(testQuayApiUrl, tc.httpMethod, nil)
+			if tc.expectErr == "" {
+				assert.NilError(t, err)
+				assert.Assert(t, resp != nil)
+				assert.Equal(t, 403, resp.response.StatusCode)
+			} else {
+				assert.Assert(t, resp == nil, fmt.Sprintf("expected nil QuayResponse object, got %v", resp))
+				re := regexp.MustCompile(tc.expectErr)
+				assert.Assert(t, re.MatchString(err.Error()), fmt.Sprintf("got %s", err))
 			}
 		})
 	}

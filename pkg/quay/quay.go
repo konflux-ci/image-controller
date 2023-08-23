@@ -57,6 +57,49 @@ func NewQuayClient(c *http.Client, authToken, url string) *QuayClient {
 	}
 }
 
+// QuayResponse wraps http.Response in order to provide custom methods, e.g. GetJson
+type QuayResponse struct {
+	response *http.Response
+}
+
+func (r *QuayResponse) GetJson(obj interface{}) error {
+	defer r.response.Body.Close()
+	body, err := io.ReadAll(r.response.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %s", err)
+	}
+	if err := json.Unmarshal(body, obj); err != nil {
+		return fmt.Errorf("failed to unmarshal response body: %s, got body: %s", err, string(body))
+	}
+	return nil
+}
+
+func (r *QuayResponse) GetStatusCode() int {
+	return r.response.StatusCode
+}
+
+func (c *QuayClient) makeRequest(url, method string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
+	req.Header.Add("Content-Type", "application/json")
+	return req, nil
+}
+
+func (c *QuayClient) doRequest(url, method string, body io.Reader) (*QuayResponse, error) {
+	req, err := c.makeRequest(url, method, body)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to Do request: %w", err)
+	}
+	return &QuayResponse{response: resp}, nil
+}
+
 // CreateRepository creates a new Quay.io image repository.
 func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Repository, error) {
 	url := fmt.Sprintf("%s/%s", c.url, "repository")
@@ -65,33 +108,24 @@ func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Rep
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal repository request data: %w", err)
 	}
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
 
-	res, err := c.httpClient.Do(req)
+	resp, err := c.doRequest(url, http.MethodPost, bytes.NewReader(b))
 	if err != nil {
-		return nil, fmt.Errorf("failed to Do request: %w", err)
+		return nil, err
 	}
-	defer res.Body.Close()
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
+	statusCode := resp.GetStatusCode()
+
 	data := &Repository{}
-	if err := json.Unmarshal(body, data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response, got response code %d and body %s with error: %w", res.StatusCode, string(body), err)
+	if err := resp.GetJson(data); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response, got response code %d with error: %w", statusCode, err)
 	}
 
-	if res.StatusCode != 200 {
-		if res.StatusCode == 402 {
+	if statusCode != 200 {
+		if statusCode == 402 {
 			// Current plan doesn't allow private image repositories
 			return nil, errors.New("payment required")
-		} else if res.StatusCode == 400 && data.ErrorMessage == "Repository already exists" {
+		} else if statusCode == 400 && data.ErrorMessage == "Repository already exists" {
 			data.Name = repositoryRequest.Repository
 		} else if data.ErrorMessage != "" {
 			return data, errors.New(data.ErrorMessage)
@@ -105,33 +139,20 @@ func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Rep
 func (c *QuayClient) DoesRepositoryExist(organization, imageRepository string) (bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s", c.url, organization, imageRepository)
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	resp, err := c.doRequest(url, http.MethodGet, nil)
 	if err != nil {
-		return false, fmt.Errorf("failed to create request: %w", err)
+		return false, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
 
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("failed to Do request: %w", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode == 404 {
+	if resp.GetStatusCode() == 404 {
 		return false, fmt.Errorf("repository %s does not exist in %s organization", imageRepository, organization)
-	} else if res.StatusCode == 200 {
+	} else if resp.GetStatusCode() == 200 {
 		return true, nil
 	}
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return false, fmt.Errorf("failed to read response body: %w", err)
-	}
 	data := &QuayError{}
-	err = json.Unmarshal(body, data)
-	if err != nil {
-		return false, fmt.Errorf("failed to unmarshal response body: %w", err)
+	if err := resp.GetJson(data); err != nil {
+		return false, err
 	}
 	if data.Error != "" {
 		return false, errors.New(data.Error)
@@ -143,29 +164,19 @@ func (c *QuayClient) DoesRepositoryExist(organization, imageRepository string) (
 func (c *QuayClient) IsRepositoryPublic(organization, imageRepository string) (bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s", c.url, organization, imageRepository)
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	resp, err := c.doRequest(url, http.MethodGet, nil)
 	if err != nil {
-		return false, fmt.Errorf("failed to create request: %w", err)
+		return false, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
 
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("failed to Do request: %w", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode == 404 {
+	if resp.GetStatusCode() == 404 {
 		return false, fmt.Errorf("repository %s does not exist in %s organization", imageRepository, organization)
 	}
 
-	if res.StatusCode == 200 {
-		body, _ := io.ReadAll(res.Body)
+	if resp.GetStatusCode() == 200 {
 		repo := &Repository{}
-		err := json.Unmarshal(body, repo)
-		if err != nil {
-			return false, fmt.Errorf("failed to unmarshal response body: %w", err)
+		if err := resp.GetJson(repo); err != nil {
+			return false, err
 		}
 		if repo.IsPublic {
 			return true, nil
@@ -174,14 +185,9 @@ func (c *QuayClient) IsRepositoryPublic(organization, imageRepository string) (b
 		}
 	}
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return false, fmt.Errorf("failed to read response body: %w", err)
-	}
 	data := &QuayError{}
-	err = json.Unmarshal(body, data)
-	if err != nil {
-		return false, fmt.Errorf("failed to unmarshal response body: %w", err)
+	if err := resp.GetJson(data); err != nil {
+		return false, err
 	}
 	if data.Error != "" {
 		return false, errors.New(data.Error)
@@ -193,34 +199,23 @@ func (c *QuayClient) IsRepositoryPublic(organization, imageRepository string) (b
 func (c *QuayClient) DeleteRepository(organization, imageRepository string) (bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s", c.url, organization, imageRepository)
 
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	resp, err := c.doRequest(url, http.MethodDelete, nil)
 	if err != nil {
-		return false, fmt.Errorf("failed to create request: %w", err)
+		return false, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
 
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("failed to Do request: %w", err)
-	}
-	defer res.Body.Close()
+	statusCode := resp.GetStatusCode()
 
-	if res.StatusCode == 204 {
+	if statusCode == 204 {
 		return true, nil
 	}
-	if res.StatusCode == 404 {
+	if statusCode == 404 {
 		return false, nil
 	}
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return false, fmt.Errorf("failed to read response body: %w", err)
-	}
 	data := &QuayError{}
-	err = json.Unmarshal(body, data)
-	if err != nil {
-		return false, fmt.Errorf("failed to unmarshal response, got response code %d and body %s with error: %w", res.StatusCode, string(body), err)
+	if err := resp.GetJson(data); err != nil {
+		return false, err
 	}
 	if data.Error != "" {
 		return false, errors.New(data.Error)
@@ -236,74 +231,48 @@ func (c *QuayClient) ChangeRepositoryVisibility(organization, imageRepositoryNam
 
 	// https://quay.io/api/v1/repository/user-org/repo-name/changevisibility
 	url := fmt.Sprintf("%s/repository/%s/%s/changevisibility", c.url, organization, imageRepositoryName)
+	requestData := strings.NewReader(fmt.Sprintf(`{"visibility": "%s"}`, visibility))
 
-	requestData := fmt.Sprintf(`{"visibility": "%s"}`, visibility)
-
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte(requestData)))
+	resp, err := c.doRequest(url, http.MethodPost, requestData)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
-
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to Do request: %w", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != 200 {
-		if res.StatusCode == 402 {
-			// Current plan doesn't allow private image repositories
-			return errors.New("payment required")
-		}
-
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			return fmt.Errorf("failed to read response body: %w", err)
-		}
-		data := &QuayError{}
-		err = json.Unmarshal(body, data)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal response body: %w", err)
-		}
-		if data.ErrorMessage != "" {
-			return errors.New(data.ErrorMessage)
-		}
-		return errors.New(res.Status)
+		return err
 	}
 
-	return nil
+	statusCode := resp.GetStatusCode()
+
+	if statusCode == 200 {
+		return nil
+	}
+
+	if statusCode == 402 {
+		// Current plan doesn't allow private image repositories
+		return errors.New("payment required")
+	}
+
+	data := &QuayError{}
+	if err := resp.GetJson(data); err != nil {
+		return err
+	}
+	if data.ErrorMessage != "" {
+		return errors.New(data.ErrorMessage)
+	}
+	return errors.New(resp.response.Status)
 }
 
 func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*RobotAccount, error) {
 	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
 
-	req, err := http.NewRequest(http.MethodGet, url, &bytes.Buffer{})
+	resp, err := c.doRequest(url, http.MethodGet, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
-
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to Do request: %w", err)
-	}
-	defer res.Body.Close()
-
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, err
 	}
 
 	data := &RobotAccount{}
-	err = json.Unmarshal(body, data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
+	if err := resp.GetJson(data); err != nil {
+		return nil, err
 	}
 
-	if res.StatusCode != http.StatusOK {
+	if resp.GetStatusCode() != http.StatusOK {
 		return nil, errors.New(data.Message)
 	}
 
@@ -316,56 +285,43 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 	if err != nil {
 		return nil, err
 	}
+
 	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
-
 	payload := strings.NewReader(`{"description": "Robot account for AppStudio Component"}`)
-
-	req, err := http.NewRequest(http.MethodPut, url, payload)
+	resp, err := c.doRequest(url, http.MethodPut, payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
 
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to Do request: %w", err)
-	}
-	defer res.Body.Close()
-
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
+	statusCode := resp.GetStatusCode()
 
 	//400 has special handling
 	//see below
-	if res.StatusCode > 400 {
+	if statusCode > 400 {
 		message := "Failed to create robot account"
 		data := &QuayError{}
-		if err := json.Unmarshal(body, data); err == nil {
+		if err := resp.GetJson(data); err == nil {
 			if data.ErrorMessage != "" {
 				message = data.ErrorMessage
 			} else {
 				message = data.Error
 			}
 		}
-		return nil, fmt.Errorf("failed to create robot account. Status code: %d, message: %s", res.StatusCode, message)
+		return nil, fmt.Errorf("failed to create robot account. Status code: %d, message: %s", statusCode, message)
 	}
 
 	data := &RobotAccount{}
-	err = json.Unmarshal(body, data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
+	if err := resp.GetJson(data); err != nil {
+		return nil, err
 	}
 
-	if res.StatusCode == 400 && strings.Contains(data.Message, "Existing robot with name") {
+	if statusCode == 400 && strings.Contains(data.Message, "Existing robot with name") {
 		data, err = c.GetRobotAccount(organization, robotName)
 		if err != nil {
 			return nil, err
 		}
-	} else if res.StatusCode == 400 {
-		return nil, fmt.Errorf("failed to create robot account. Status code: %d, message: %s", res.StatusCode, data.Message)
+	} else if statusCode == 400 {
+		return nil, fmt.Errorf("failed to create robot account. Status code: %d, message: %s", statusCode, data.Message)
 	}
 	return data, nil
 }
@@ -378,34 +334,21 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 	}
 	url := fmt.Sprintf("%s/organization/%s/robots/%s", c.url, organization, robotName)
 
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	resp, err := c.doRequest(url, http.MethodDelete, nil)
 	if err != nil {
-		return false, fmt.Errorf("failed to create request: %w", err)
+		return false, err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
 
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("failed to Do request: %w", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode == 204 {
+	if resp.GetStatusCode() == 204 {
 		return true, nil
 	}
-	if res.StatusCode == 404 {
+	if resp.GetStatusCode() == 404 {
 		return false, nil
 	}
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return false, fmt.Errorf("failed to read response body: %w", err)
-	}
 	data := &QuayError{}
-	err = json.Unmarshal(body, data)
-	if err != nil {
-		return false, fmt.Errorf("failed to unmarshal response body: %w", err)
+	if err := resp.GetJson(data); err != nil {
+		return false, err
 	}
 	if data.Error != "" {
 		return false, errors.New(data.Error)
@@ -430,54 +373,39 @@ func (c *QuayClient) AddPermissionsForRepositoryToRobotAccount(organization, ima
 	if isWrite {
 		role = "write"
 	}
-	payload := strings.NewReader(fmt.Sprintf(`{"role": "%s"}`, role))
-
-	req, err := http.NewRequest(http.MethodPut, url, payload)
+	body := strings.NewReader(fmt.Sprintf(`{"role": "%s"}`, role))
+	resp, err := c.doRequest(url, http.MethodPut, body)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
 
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to Do request: %w", err)
-	}
-	if res.StatusCode != 200 {
+	if resp.GetStatusCode() != 200 {
 		var message string
-		defer res.Body.Close()
-		// Ignore read errors while getting returned by quay API error
-		if body, err := io.ReadAll(res.Body); err == nil {
-			data := &QuayError{}
-			if err := json.Unmarshal(body, data); err == nil {
-				if data.ErrorMessage != "" {
-					message = data.ErrorMessage
-				} else {
-					message = data.Error
-				}
+		data := &QuayError{}
+		if err := resp.GetJson(data); err == nil {
+			if data.ErrorMessage != "" {
+				message = data.ErrorMessage
+			} else {
+				message = data.Error
 			}
 		}
-		return fmt.Errorf("failed to add permissions to the robot account. Status code: %d, message: %s", res.StatusCode, message)
+		return fmt.Errorf("failed to add permissions to the robot account. Status code: %d, message: %s", resp.GetStatusCode(), message)
 	}
 	return nil
 }
 
-// Returns all repositories of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
+// GetAllRepositories returns all repositories of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
 func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, error) {
-	url := fmt.Sprintf("%s/repository", c.url)
-
+	url, _ := neturl.Parse(fmt.Sprintf("%s/repository", c.url))
 	values := neturl.Values{}
 	values.Add("last_modified", "true")
 	values.Add("namespace", organization)
+	url.RawQuery = values.Encode()
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := c.makeRequest(url.String(), http.MethodGet, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create new request, error: %s", err)
+		return nil, err
 	}
-
-	req.URL.RawQuery = values.Encode()
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
 
 	type Response struct {
 		Repositories []Repository `json:"repositories"`
@@ -495,15 +423,9 @@ func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, erro
 			return nil, fmt.Errorf("error getting repositories, got status code %d", res.StatusCode)
 		}
 
-		defer res.Body.Close()
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read response body, error: %s", err)
-		}
-
-		err = json.Unmarshal(body, &response)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal body, error: %s", err)
+		resp := QuayResponse{response: res}
+		if err := resp.GetJson(&response); err != nil {
+			return nil, err
 		}
 
 		repositories = append(repositories, response.Repositories...)
@@ -518,39 +440,25 @@ func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, erro
 	return repositories, nil
 }
 
-// Returns all robot accounts of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
+// GetAllRobotAccounts returns all robot accounts of the DEFAULT_QUAY_ORG organization (used in e2e-tests)
 func (c *QuayClient) GetAllRobotAccounts(organization string) ([]RobotAccount, error) {
 	url := fmt.Sprintf("%s/organization/%s/robots", c.url, organization)
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	resp, err := c.doRequest(url, http.MethodGet, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create new request: %w", err)
+		return nil, err
 	}
 
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
-
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to Do request: %w", err)
-	}
-	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("failed to get robot accounts. Status code: %d", res.StatusCode)
-	}
-
-	defer res.Body.Close()
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+	if resp.GetStatusCode() != 200 {
+		return nil, fmt.Errorf("failed to get robot accounts. Status code: %d", resp.GetStatusCode())
 	}
 
 	type Response struct {
 		Robots []RobotAccount
 	}
 	var response Response
-	err = json.Unmarshal(body, &response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response body: %w", err)
+	if err := resp.GetJson(&response); err != nil {
+		return nil, err
 	}
 	return response.Robots, nil
 }
@@ -573,26 +481,14 @@ func handleRobotName(robotName string) (string, error) {
 func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) ([]Tag, bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s/tag/?page=%d", c.url, organization, repository, page)
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	resp, err := c.doRequest(url, http.MethodGet, nil)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to create new request: %w", err)
+		return nil, false, err
 	}
 
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
-
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to Do request: %w", err)
-	}
-	if res.StatusCode != 200 {
-		return nil, false, fmt.Errorf("failed to get repository tags. Status code: %d", res.StatusCode)
-	}
-
-	defer res.Body.Close()
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to read response body: %w", err)
+	statusCode := resp.GetStatusCode()
+	if statusCode != 200 {
+		return nil, false, fmt.Errorf("failed to get repository tags. Status code: %d", statusCode)
 	}
 
 	var response struct {
@@ -600,9 +496,9 @@ func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) 
 		Page          int   `json:"page"`
 		HasAdditional bool  `json:"has_additional"`
 	}
-	err = json.Unmarshal(body, &response)
+	err = resp.GetJson(&response)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to unmarshal response body: %w", err)
+		return nil, false, err
 	}
 	return response.Tags, response.HasAdditional, nil
 }
@@ -610,35 +506,21 @@ func (c *QuayClient) GetTagsFromPage(organization, repository string, page int) 
 func (c *QuayClient) DeleteTag(organization, repository, tag string) (bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s/tag/%s", c.url, organization, repository, tag)
 
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	resp, err := c.doRequest(url, http.MethodDelete, nil)
 	if err != nil {
 		return false, err
 	}
 
-	req.Header.Add("Authorization", fmt.Sprintf("%s %s", "Bearer", c.AuthToken))
-	req.Header.Add("Content-Type", "application/json")
-
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("failed to Do request, error: %s", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode == 204 {
+	if resp.GetStatusCode() == 204 {
 		return true, nil
 	}
-	if res.StatusCode == 404 {
+	if resp.GetStatusCode() == 404 {
 		return false, nil
 	}
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return false, fmt.Errorf("failed to read response body: %w", err)
-	}
 	data := &QuayError{}
-	err = json.Unmarshal(body, data)
-	if err != nil {
-		return false, fmt.Errorf("failed to unmarshal response body: %s", err)
+	if err := resp.GetJson(data); err != nil {
+		return false, err
 	}
 	if data.Error != "" {
 		return false, errors.New(data.Error)
