@@ -191,7 +191,7 @@ func waitComponentAnnotationWithValue(componentKey types.NamespacedName, annotat
 	}, timeout, interval).Should(BeTrue())
 }
 
-func waitComponentAnnotationUnchangedWithValue(componentKey types.NamespacedName, annotationName, value string) {
+func ensureComponentAnnotationUnchangedWithValue(componentKey types.NamespacedName, annotationName, value string) {
 	Consistently(func() bool {
 		component := getComponent(componentKey)
 		annotations := component.GetAnnotations()

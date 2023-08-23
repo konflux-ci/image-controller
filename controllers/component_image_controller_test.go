@@ -472,7 +472,7 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Message).To(Equal("Invalid image url"))
 		})
 
-		It("should stop if fail to change repository visibility", func() {
+		It("nothing is changed and keep doing reconcile if fail to change repository visibility", func() {
 			// Work with a specific component in order to avoid potential conflict error happened in any subsequent test.
 			testComponentKey := types.NamespacedName{
 				Name:      defaultComponentName + "-stop-if-fail-to-change-repo-visibility",
@@ -483,7 +483,7 @@ var _ = Describe("Component image controller", func() {
 			isChangeRepositoryVisibilityInvoked := false
 			ChangeRepositoryVisibilityFunc = func(string, string, string) error {
 				isChangeRepositoryVisibilityInvoked = true
-				return fmt.Errorf("faile to change repository visibility")
+				return fmt.Errorf("failed to change repository visibility")
 			}
 
 			repoInfo := map[string]string{
@@ -502,8 +502,8 @@ var _ = Describe("Component image controller", func() {
 			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
 
 			// Failed to change the visibility, reconciler should return immediately and annotations are not changed
-			waitComponentAnnotationUnchangedWithValue(testComponentKey, ImageAnnotationName, string(imageAnnotationValue))
-			waitComponentAnnotationUnchangedWithValue(testComponentKey, GenerateImageAnnotationName, generateAnnotationValue)
+			ensureComponentAnnotationUnchangedWithValue(testComponentKey, ImageAnnotationName, string(imageAnnotationValue))
+			ensureComponentAnnotationUnchangedWithValue(testComponentKey, GenerateImageAnnotationName, generateAnnotationValue)
 
 			deleteComponent(testComponentKey)
 		})
