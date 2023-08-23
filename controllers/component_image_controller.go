@@ -239,12 +239,12 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 					repositoryInfo.Message = "Quay organization plan doesn't allow private image repositories"
 				} else {
 					log.Error(err, "Error in the repository generation process", l.Audit, "true")
-					return ctrl.Result{}, r.reportError(ctx, component, "failed to generete image repository")
+					return ctrl.Result{}, r.reportError(ctx, component, "failed to generate image repository")
 				}
 			} else {
 				if repo == nil || pushRobotAccount == nil || pullRobotAccount == nil {
 					log.Error(nil, "Unknown error in the repository generation process", l.Audit, "true")
-					return ctrl.Result{}, r.reportError(ctx, component, "failed to generete image repository: unknown error")
+					return ctrl.Result{}, r.reportError(ctx, component, "failed to generate image repository: unknown error")
 				}
 				log.Info(fmt.Sprintf("Prepared image repository %s for Component", repo.Name), l.Action, l.ActionAdd)
 
