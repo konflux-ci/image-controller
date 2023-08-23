@@ -1298,6 +1298,81 @@ func TestQuayClient_DeleteRobotAccount(t *testing.T) {
 	}
 }
 
+func TestQuayClient_RegenerateRobotAccountToken(t *testing.T) {
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	sampleRobot := &RobotAccount{
+		Description:  "",
+		Created:      "Wed, 12 Jul 2023 10:25:41 -0000",
+		LastAccessed: "",
+		Token:        "abc123",
+		Name:         fmt.Sprintf("%s+%s", org, robotName),
+		Message:      "",
+	}
+
+	testCases := []struct {
+		name        string
+		robot       *RobotAccount
+		expectedErr string
+		statusCode  int
+		response    interface{}
+	}{
+		{
+			name:        "Regenerate credentials for existing robot account",
+			robot:       sampleRobot,
+			expectedErr: "",
+			statusCode:  200,
+			response:    fmt.Sprintf(`{"name": "%s+%s", "created": "Wed, 12 Jul 2023 10:25:41 -0000", "last_accessed": null, "description": "", "token": "abc123", "unstructured_metadata": {}}`, org, robotName),
+		},
+		{
+			name:        "return error when server responds non-200",
+			robot:       nil,
+			expectedErr: "Could not find robot with specified name",
+			statusCode:  404,
+			response:    map[string]string{"message": "Could not find robot with specified name"},
+		},
+		{
+			name:        "server responds an invalid JSON string",
+			robot:       nil,
+			expectedErr: "failed to unmarshal response body",
+			statusCode:  200, // this field can be ignored for this case
+			response:    `{"name": "robotname", "token": "token1234}`,
+		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req := gock.New(testQuayApiUrl).
+				MatchHeader("Content-Type", "application/json").
+				MatchHeader("Authorization", "Bearer authtoken").
+				Post(fmt.Sprintf("organization/%s/robots/%s/regenerate", org, robotName))
+			req.Reply(tc.statusCode).JSON(tc.response)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Get("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			robot, err := quayClient.RegenerateRobotAccountToken(org, robotName)
+			if !reflect.DeepEqual(robot, tc.robot) {
+				t.Error("robots are not the same")
+			}
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+		})
+	}
+}
+
 func TestMakeRequest(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)

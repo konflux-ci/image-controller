@@ -475,7 +475,7 @@ var _ = Describe("Component image controller", func() {
 			// Work with a specific component in order to avoid potential conflict error happened in any subsequent test.
 			testComponentKey := types.NamespacedName{
 				Name:      defaultComponentName + "-stop-if-fail-to-change-repo-visibility",
-				Namespace: defaultComponentNamespace,
+				Namespace: defaultNamespace,
 			}
 			createComponent(componentConfig{ComponentKey: testComponentKey})
 

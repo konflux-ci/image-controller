@@ -22,7 +22,7 @@ spec:
     - jsonPath: .status.image.visibility
       name: Visibility
       type: string
-    name: v1beta1
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: ImageRepository is the Schema for the imagerepositories API
