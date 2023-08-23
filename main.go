@@ -43,7 +43,7 @@ import (
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 
-	imagerepositoryv1beta1 "github.com/redhat-appstudio/image-controller/api/v1beta1"
+	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/controllers"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	//+kubebuilder:scaffold:imports
@@ -64,7 +64,7 @@ func init() {
 
 	utilruntime.Must(appstudioredhatcomv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(remotesecretv1beta1.AddToScheme(scheme))
-	utilruntime.Must(imagerepositoryv1beta1.AddToScheme(scheme))
+	utilruntime.Must(imagerepositoryv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -169,7 +169,7 @@ func main() {
 
 func getCacheExcludedObjectsTypes() []client.Object {
 	return []client.Object{
-		&imagerepositoryv1beta1.ImageRepository{},
+		&imagerepositoryv1alpha1.ImageRepository{},
 		&corev1.Secret{},
 		&corev1.ConfigMap{},
 	}

@@ -35,7 +35,8 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/go-logr/logr"
-	imagerepositoryv1beta1 "github.com/redhat-appstudio/image-controller/api/v1beta1"
+	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
 	l "github.com/redhat-appstudio/image-controller/pkg/logs"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
@@ -58,22 +59,23 @@ type ImageRepositoryReconciler struct {
 // SetupWithManager sets up the controller with the Manager.
 func (r *ImageRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&imagerepositoryv1beta1.ImageRepository{}).
+		For(&imagerepositoryv1alpha1.ImageRepository{}).
 		Complete(r)
 }
 
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories/finalizers,verbs=update
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=remotesecrets,verbs=get;list;watch;create
+//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 
 func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx).WithName("ImageRepository")
 	ctx = ctrllog.IntoContext(ctx, log)
 
 	// Fetch the image repository instance
-	imageRepository := &imagerepositoryv1beta1.ImageRepository{}
+	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
 	err := r.Client.Get(ctx, req.NamespacedName, imageRepository)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -102,7 +104,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	if imageRepository.Status.State == imagerepositoryv1beta1.ImageRepositoryStateFailed {
+	if imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateFailed {
 		return ctrl.Result{}, nil
 	}
 
@@ -118,7 +120,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	if imageRepository.Status.State != imagerepositoryv1beta1.ImageRepositoryStateReady {
+	if imageRepository.Status.State != imagerepositoryv1alpha1.ImageRepositoryStateReady {
 		return ctrl.Result{}, nil
 	}
 
@@ -132,6 +134,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			log.Error(err, "failed to revert image repository name", "OldName", oldName, "ExpectedName", imageRepositoryName, l.Action, l.ActionUpdate)
 			return ctrl.Result{}, err
 		}
+		log.Info("reverted image repository name", "OldName", oldName, "ExpectedName", imageRepositoryName, l.Action, l.ActionUpdate)
 		return ctrl.Result{}, nil
 	}
 
@@ -143,34 +146,62 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	// Rotate credentials if requested
-	regenerateToken := imageRepository.Spec.Credentials.RegenerateToken
-	if regenerateToken != nil && *regenerateToken {
-		if err := r.RegenerateImageRepositoryCredentials(ctx, imageRepository); err != nil {
-			return ctrl.Result{}, err
+	if imageRepository.Spec.Credentials != nil {
+		// Rotate credentials if requested
+		regenerateToken := imageRepository.Spec.Credentials.RegenerateToken
+		if regenerateToken != nil && *regenerateToken {
+			if err := r.RegenerateImageRepositoryCredentials(ctx, imageRepository); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, nil
 	}
 
 	return ctrl.Result{}, nil
 }
 
-// ProvisionImageRepository creates image repository, robot account(s) and secret(s) to acces the image repository.
+// ProvisionImageRepository creates image repository, robot account(s) and secret(s) to access the image repository.
 // If labels with Application and Component name are present, robot account with pull only access
 // will be created and pull token will be propagated to all environments via Remote Secret.
-func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context, imageRepository *imagerepositoryv1beta1.ImageRepository) error {
+func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
 	log := ctrllog.FromContext(ctx).WithName("ImageRepositoryProvision")
 	ctx = ctrllog.IntoContext(ctx, log)
 
+	var component *appstudioredhatcomv1alpha1.Component
+	if isComponentLinked(imageRepository) {
+		componentName := imageRepository.Labels[ComponentNameLabelName]
+		component = &appstudioredhatcomv1alpha1.Component{}
+		componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
+		if err := r.Client.Get(ctx, componentKey, component); err != nil {
+			if errors.IsNotFound(err) {
+				imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateFailed
+				imageRepository.Status.Message = fmt.Sprintf("Component '%s' does not exist", componentName)
+				if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+					log.Error(err, "failed to update image repository status")
+					return err
+				}
+				return nil
+			}
+			log.Error(err, "failed to get component", "ComponentName", componentName)
+			return err
+		}
+	}
+
 	imageRepositoryName := ""
 	if imageRepository.Spec.Image.Name == "" {
-		imageRepositoryName = imageRepository.Namespace + "-" + imageRepository.Name
+		if isComponentLinked(imageRepository) {
+			applicationName := imageRepository.Labels[ApplicationNameLabelName]
+			componentName := imageRepository.Labels[ComponentNameLabelName]
+			imageRepositoryName = imageRepository.Namespace + "/" + applicationName + "/" + componentName
+		} else {
+			imageRepositoryName = imageRepository.Namespace + "/" + imageRepository.Name
+		}
 	} else {
-		imageRepositoryName = imageRepository.Namespace + "-" + imageRepository.Spec.Image.Name
+		imageRepositoryName = imageRepository.Namespace + "/" + imageRepository.Spec.Image.Name
 	}
 
 	if imageRepository.Spec.Image.Visibility == "" {
-		imageRepository.Spec.Image.Visibility = imagerepositoryv1beta1.ImageVisibilityPublic
+		imageRepository.Spec.Image.Visibility = imagerepositoryv1alpha1.ImageVisibilityPublic
 	}
 	visibility := string(imageRepository.Spec.Image.Visibility)
 
@@ -182,7 +213,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	})
 	if err != nil {
 		log.Error(err, "failed to create image repository", l.Action, l.ActionAdd, l.Audit, "true")
-		imageRepository.Status.State = imagerepositoryv1beta1.ImageRepositoryStateFailed
+		imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateFailed
 		if err.Error() == "payment required" {
 			imageRepository.Status.Message = "Number of private repositories exceeds current quay plan limit"
 		} else {
@@ -223,7 +254,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		return err
 	}
 
-	status := imagerepositoryv1beta1.ImageRepositoryStatus{}
+	status := imagerepositoryv1alpha1.ImageRepositoryStatus{}
 	if isComponentLinked(imageRepository) {
 		// Pull secret provision and propagation
 		pullRobotAccountName := generateQuayRobotAccountName(imageRepositoryName, true)
@@ -257,7 +288,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		status.Credentials.PullSecretName = remoteSecretName
 	}
 
-	status.State = imagerepositoryv1beta1.ImageRepositoryStateReady
+	status.State = imagerepositoryv1alpha1.ImageRepositoryStateReady
 	status.Image.URL = quayImageURL
 	status.Image.Visibility = imageRepository.Spec.Image.Visibility
 	status.Credentials.PushRobotAccountName = robotAccountName
@@ -266,6 +297,12 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 
 	imageRepository.Spec.Image.Name = imageRepositoryName
 	controllerutil.AddFinalizer(imageRepository, ImageRepositoryFinalizer)
+	if isComponentLinked(imageRepository) {
+		if err := controllerutil.SetOwnerReference(component, imageRepository, r.Scheme); err != nil {
+			log.Error(err, "failed to set component as owner", "ComponentName", component.Name)
+			// Do not brake provision because of faile owner reference
+		}
+	}
 	if err := r.Client.Update(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update CR after provision")
 		return err
@@ -283,7 +320,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 }
 
 // RegenerateImageRepositoryCredentials rotates robot account(s) token and updates corresponding secret(s)
-func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx context.Context, imageRepository *imagerepositoryv1beta1.ImageRepository) error {
+func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
 	log := ctrllog.FromContext(ctx)
 
 	quayImageURL := imageRepository.Status.Image.URL
@@ -315,21 +352,12 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx con
 		log.Info("Regenerated pull token", "RobotAccountName", pullRobotAccountName)
 	}
 
-	// if err := r.Client.Get(ctx, imageRepositoryKey, imageRepository); err != nil {
-	// 	log.Error(err, "failed to get image repository")
-	// 	return err
-	// }
 	imageRepository.Spec.Credentials.RegenerateToken = nil
 	if err := r.Client.Update(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update image repository", l.Action, l.ActionUpdate)
 		return err
 	}
 
-	// imageRepositoryKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: imageRepository.Name}
-	// if err := r.Client.Get(ctx, imageRepositoryKey, imageRepository); err != nil {
-	// 	log.Error(err, "failed to get image repository")
-	// 	return err
-	// }
 	imageRepository.Status.Credentials.GenerationTimestamp = &metav1.Time{Time: time.Now()}
 	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update image repository status", l.Action, l.ActionUpdate)
@@ -340,7 +368,7 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx con
 }
 
 // CleanupImageRepository deletes image repository and corresponding robot account(s).
-func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, imageRepository *imagerepositoryv1beta1.ImageRepository) {
+func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) {
 	log := ctrllog.FromContext(ctx).WithName("RepositoryCleanup")
 
 	robotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
@@ -373,7 +401,7 @@ func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, 
 	}
 }
 
-func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.Context, imageRepository *imagerepositoryv1beta1.ImageRepository) error {
+func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
 	if imageRepository.Status.Image.Visibility == imageRepository.Spec.Image.Visibility {
 		return nil
 	}
@@ -390,6 +418,7 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 			log.Error(err, "failed to update image repository name", l.Action, l.ActionUpdate)
 			return err
 		}
+		log.Info("changed image repository visibility", "visibility", imageRepository.Spec.Image.Visibility)
 		return nil
 	}
 
@@ -402,11 +431,6 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 			return err
 		}
 
-		// imageRepositoryKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: imageRepository.Name}
-		// if err := r.Client.Get(ctx, imageRepositoryKey, imageRepository); err != nil {
-		// 	log.Error(err, "failed to get image repository", l.Action, l.ActionView)
-		// 	return err
-		// }
 		imageRepository.Status.Message = "Quay organization plan private repositories limit exceeded"
 		if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
 			log.Error(err, "failed to update image repository", l.Action, l.ActionUpdate)
@@ -422,7 +446,7 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 }
 
 // EnsureDockerSecret makes sure that secret for given robot account exists and contains up to date credentials.
-func (r *ImageRepositoryReconciler) EnsureDockerSecret(ctx context.Context, imageRepository *imagerepositoryv1beta1.ImageRepository, robotAccount *quay.RobotAccount, secretName, imageURL string) error {
+func (r *ImageRepositoryReconciler) EnsureDockerSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, robotAccount *quay.RobotAccount, secretName, imageURL string) error {
 	log := ctrllog.FromContext(ctx).WithValues("SecretName", secretName)
 
 	secretKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: secretName}
@@ -462,7 +486,7 @@ func (r *ImageRepositoryReconciler) EnsureDockerSecret(ctx context.Context, imag
 	return nil
 }
 
-func (r *ImageRepositoryReconciler) EnsureRemotePullSecret(ctx context.Context, imageRepository *imagerepositoryv1beta1.ImageRepository, remoteSecretName string) error {
+func (r *ImageRepositoryReconciler) EnsureRemotePullSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, remoteSecretName string) error {
 	log := ctrllog.FromContext(ctx).WithValues("RemoteSecretName", remoteSecretName)
 
 	remoteSecret := &remotesecretv1beta1.RemoteSecret{}
@@ -528,6 +552,7 @@ func (r *ImageRepositoryReconciler) CreateRemotePullSecretUploadSecret(ctx conte
 				remotesecretv1beta1.RemoteSecretNameAnnotation: remoteSecretName,
 			},
 		},
+		Type:       corev1.SecretTypeDockerConfigJson,
 		StringData: generateDockerconfigSecretData(imageURL, robotAccount),
 	}
 	if err := r.Client.Create(ctx, uploadSecret); err != nil {
@@ -559,7 +584,7 @@ func generateQuayRobotAccountName(imageRepositoryName string, isPullOnly bool) s
 	return robotAccountName
 }
 
-func getRemoteSecretName(imageRepository *imagerepositoryv1beta1.ImageRepository) string {
+func getRemoteSecretName(imageRepository *imagerepositoryv1alpha1.ImageRepository) string {
 	componentName := imageRepository.Labels[ComponentNameLabelName]
 	if len(componentName) > 220 {
 		componentName = componentName[:220]
@@ -567,7 +592,7 @@ func getRemoteSecretName(imageRepository *imagerepositoryv1beta1.ImageRepository
 	return componentName + "-image-pull"
 }
 
-func isComponentLinked(imageRepository *imagerepositoryv1beta1.ImageRepository) bool {
+func isComponentLinked(imageRepository *imagerepositoryv1alpha1.ImageRepository) bool {
 	return imageRepository.Labels[ApplicationNameLabelName] != "" && imageRepository.Labels[ComponentNameLabelName] != ""
 }
 

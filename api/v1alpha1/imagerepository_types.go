@@ -14,13 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// / ImageRepositorySpec defines the desired state of ImageRepository
+// ImageRepositorySpec defines the desired state of ImageRepository
 type ImageRepositorySpec struct {
 	// Requested image repository configuration.
 	// +optional
@@ -28,7 +28,7 @@ type ImageRepositorySpec struct {
 
 	// Credentials management.
 	// +optional
-	Credentials ImageCredentials `json:"credentials,omitempty"`
+	Credentials *ImageCredentials `json:"credentials,omitempty"`
 }
 
 // ImageParameters describes requested image repository configuration.

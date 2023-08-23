@@ -31,7 +31,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	imagerepositoryv1beta1 "github.com/redhat-appstudio/image-controller/api/v1beta1"
+	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
 )
 
 var _ = Describe("Image repository controller", func() {
@@ -55,9 +55,9 @@ var _ = Describe("Image repository controller", func() {
 			createNamespace(defaultNamespace)
 
 			pushToken = "push-token1234"
-			expectedImageName = fmt.Sprintf("%s-%s", defaultNamespace, defaultImageRepositoryName)
+			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, defaultImageRepositoryName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedImageName)
-			expectedRobotAccountPrefix = strings.ReplaceAll(expectedImageName, "-", "_")
+			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 		})
 
 		It("should provision image repository", func() {
@@ -101,22 +101,20 @@ var _ = Describe("Image repository controller", func() {
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
 
 			imageRepository := getImageRepository(resourceKey)
-
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
-			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1beta1.ImageVisibilityPublic))
-			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1beta1.ImageRepositoryStateReady))
+			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.OwnerReferences).To(HaveLen(0))
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
-			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1beta1.ImageVisibilityPublic))
+			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
-			Expect(imageRepository.Status.Credentials.PushSecretName).To(HavePrefix(expectedImageName))
+			Expect(imageRepository.Status.Credentials.PushSecretName).To(HavePrefix(strings.ReplaceAll(expectedImageName, "/", "-")))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
 
-			secret := &corev1.Secret{}
 			secretName := imageRepository.Status.Credentials.PushSecretName
 			secretKey := types.NamespacedName{Name: secretName, Namespace: defaultNamespace}
-			waitSecretExist(secretKey)
-			Expect(k8sClient.Get(ctx, secretKey, secret)).To(Succeed())
+			secret := waitSecretExist(secretKey)
 			dockerconfigJson := string(secret.Data[corev1.DockerConfigJsonKey])
 			var authDataJson interface{}
 			Expect(json.Unmarshal([]byte(dockerconfigJson), &authDataJson)).To(Succeed())
@@ -125,7 +123,6 @@ var _ = Describe("Image repository controller", func() {
 			Expect(err).To(Succeed())
 			pushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
 			Expect(string(authString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, pushToken)))
-
 		})
 
 		It("should regenerate token", func() {
@@ -147,7 +144,7 @@ var _ = Describe("Image repository controller", func() {
 			imageRepository := getImageRepository(resourceKey)
 			oldTokenGenerationTimestamp := *imageRepository.Status.Credentials.GenerationTimestamp
 			regenerateToken := true
-			imageRepository.Spec.Credentials.RegenerateToken = &regenerateToken
+			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isRegenerateRobotAccountTokenInvoked }, timeout, interval).Should(BeTrue())
@@ -181,19 +178,19 @@ var _ = Describe("Image repository controller", func() {
 				isChangeRepositoryVisibilityInvoked = true
 				Expect(organization).To(Equal(testQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
-				Expect(visibility).To(Equal(string(imagerepositoryv1beta1.ImageVisibilityPrivate)))
+				Expect(visibility).To(Equal(string(imagerepositoryv1alpha1.ImageVisibilityPrivate)))
 				return nil
 			}
 
 			imageRepository := getImageRepository(resourceKey)
-			imageRepository.Spec.Image.Visibility = imagerepositoryv1beta1.ImageVisibilityPrivate
+			imageRepository.Spec.Image.Visibility = imagerepositoryv1alpha1.ImageVisibilityPrivate
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
 				imageRepository := getImageRepository(resourceKey)
-				return imageRepository.Spec.Image.Visibility == imagerepositoryv1beta1.ImageVisibilityPrivate &&
-					imageRepository.Status.Image.Visibility == imagerepositoryv1beta1.ImageVisibilityPrivate &&
+				return imageRepository.Spec.Image.Visibility == imagerepositoryv1alpha1.ImageVisibilityPrivate &&
+					imageRepository.Status.Image.Visibility == imagerepositoryv1alpha1.ImageVisibilityPrivate &&
 					imageRepository.Status.Message == ""
 			}, timeout, interval).Should(BeTrue())
 		})
@@ -243,10 +240,12 @@ var _ = Describe("Image repository controller", func() {
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
-			expectedImageName = fmt.Sprintf("%s-%s/%s", defaultNamespace, defaultComponentApplication, defaultComponentName)
+			expectedImageName = fmt.Sprintf("%s/%s/%s", defaultNamespace, defaultComponentApplication, defaultComponentName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 			expectedRemoteSecretName = defaultComponentName + "-image-pull"
+
+			createComponent(componentConfig{})
 		})
 
 		It("should provision image repository for component", func() {
@@ -310,11 +309,15 @@ var _ = Describe("Image repository controller", func() {
 
 			imageRepository := getImageRepository(resourceKey)
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
-			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1beta1.ImageVisibilityPublic))
-			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1beta1.ImageRepositoryStateReady))
+			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.OwnerReferences).To(HaveLen(1))
+			Expect(imageRepository.OwnerReferences[0].Name).To(Equal(defaultComponentName))
+			Expect(imageRepository.OwnerReferences[0].Kind).To(Equal("Component"))
+			Expect(imageRepository.OwnerReferences[0].UID).ToNot(BeEmpty())
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
-			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1beta1.ImageVisibilityPublic))
+			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PushSecretName).To(HavePrefix(strings.ReplaceAll(expectedImageName, "/", "-")))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
@@ -323,11 +326,9 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
 
 			var authDataJson interface{}
-			secret := &corev1.Secret{}
 			secretName := imageRepository.Status.Credentials.PushSecretName
 			secretKey := types.NamespacedName{Name: secretName, Namespace: defaultNamespace}
-			waitSecretExist(secretKey)
-			Expect(k8sClient.Get(ctx, secretKey, secret)).To(Succeed())
+			secret := waitSecretExist(secretKey)
 			dockerconfigJson := string(secret.Data[corev1.DockerConfigJsonKey])
 			Expect(json.Unmarshal([]byte(dockerconfigJson), &authDataJson)).To(Succeed())
 			Expect(dockerconfigJson).To(ContainSubstring(expectedImage))
@@ -352,6 +353,7 @@ var _ = Describe("Image repository controller", func() {
 			uploadSecret := waitSecretExist(uploadSecretKey)
 			Expect(uploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
 			Expect(uploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(expectedRemoteSecretName))
+			Expect(uploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			uploadSecretDockerconfigJson := string(uploadSecret.Data[corev1.DockerConfigJsonKey])
 			Expect(json.Unmarshal([]byte(uploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
 			Expect(uploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
@@ -388,7 +390,7 @@ var _ = Describe("Image repository controller", func() {
 			imageRepository := getImageRepository(resourceKey)
 			oldTokenGenerationTimestamp := *imageRepository.Status.Credentials.GenerationTimestamp
 			regenerateToken := true
-			imageRepository.Spec.Credentials.RegenerateToken = &regenerateToken
+			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isRegenerateRobotAccountTokenForPushInvoked }, timeout, interval).Should(BeTrue())
@@ -417,6 +419,7 @@ var _ = Describe("Image repository controller", func() {
 			uploadSecret := waitSecretExist(uploadSecretKey)
 			Expect(uploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
 			Expect(uploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(expectedRemoteSecretName))
+			Expect(uploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			uploadSecretDockerconfigJson := string(uploadSecret.Data[corev1.DockerConfigJsonKey])
 			Expect(json.Unmarshal([]byte(uploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
 			Expect(uploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
@@ -458,6 +461,9 @@ var _ = Describe("Image repository controller", func() {
 			Eventually(func() bool { return isDeleteRobotAccountForPushInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRobotAccountForPullInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
+
+			componentKey := types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespace}
+			deleteComponent(componentKey)
 		})
 	})
 
@@ -465,9 +471,9 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
-			expectedImageName = fmt.Sprintf("%s-%s", defaultNamespace, defaultImageRepositoryName)
+			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, defaultImageRepositoryName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedImageName)
-			expectedRobotAccountPrefix = strings.ReplaceAll(expectedImageName, "-", "_")
+			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 		})
 
 		It("should permanently fail if private image repository requested on creation but quota exceeded", func() {
@@ -488,12 +494,12 @@ var _ = Describe("Image repository controller", func() {
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
-			imageRepository := &imagerepositoryv1beta1.ImageRepository{}
+			imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
 			Eventually(func() bool {
 				imageRepository = getImageRepository(resourceKey)
 				return string(imageRepository.Status.State) != ""
 			}, timeout, interval).Should(BeTrue())
-			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1beta1.ImageRepositoryStateFailed))
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateFailed))
 			Expect(imageRepository.Status.Message).ToNot(BeEmpty())
 			Expect(imageRepository.Status.Message).To(ContainSubstring("exceeds current quay plan limit"))
 
@@ -521,19 +527,19 @@ var _ = Describe("Image repository controller", func() {
 				isChangeRepositoryVisibilityInvoked = true
 				Expect(organization).To(Equal(testQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
-				Expect(visibility).To(Equal(string(imagerepositoryv1beta1.ImageVisibilityPrivate)))
+				Expect(visibility).To(Equal(string(imagerepositoryv1alpha1.ImageVisibilityPrivate)))
 				return fmt.Errorf("payment required")
 			}
 
 			imageRepository := getImageRepository(resourceKey)
-			imageRepository.Spec.Image.Visibility = imagerepositoryv1beta1.ImageVisibilityPrivate
+			imageRepository.Spec.Image.Visibility = imagerepositoryv1alpha1.ImageVisibilityPrivate
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
 				imageRepository := getImageRepository(resourceKey)
-				return imageRepository.Spec.Image.Visibility == imagerepositoryv1beta1.ImageVisibilityPublic &&
-					imageRepository.Status.Image.Visibility == imagerepositoryv1beta1.ImageVisibilityPublic &&
+				return imageRepository.Spec.Image.Visibility == imagerepositoryv1alpha1.ImageVisibilityPublic &&
+					imageRepository.Status.Image.Visibility == imagerepositoryv1alpha1.ImageVisibilityPublic &&
 					imageRepository.Status.Message != ""
 			}, timeout, interval).Should(BeTrue())
 
