@@ -180,6 +180,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 					log.Error(err, "failed to update image repository status")
 					return err
 				}
+				log.Info("attempt to create image repository related to non existing component", "Component", componentName)
 				return nil
 			}
 			log.Error(err, "failed to get component", "ComponentName", componentName)

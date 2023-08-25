@@ -292,7 +292,6 @@ var _ = Describe("Image repository controller", func() {
 			}
 
 			createImageRepository(imageRepositoryConfig{
-				ImageName: fmt.Sprintf("%s/%s", defaultComponentApplication, defaultComponentName),
 				Labels: map[string]string{
 					ApplicationNameLabelName: defaultComponentApplication,
 					ComponentNameLabelName:   defaultComponentName,
@@ -467,6 +466,37 @@ var _ = Describe("Image repository controller", func() {
 		})
 	})
 
+	Context("Other image repository scenarios", func() {
+
+		It("should create image repository with requested name", func() {
+			customImageName := "my-image"
+			expectedImageName = defaultNamespace + "/" + customImageName
+
+			ResetTestQuayClient()
+
+			isCreateRepositoryInvoked := false
+			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				isCreateRepositoryInvoked = true
+				Expect(repository.Repository).To(Equal(expectedImageName))
+				Expect(repository.Namespace).To(Equal(testQuayOrg))
+				Expect(repository.Visibility).To(Equal("public"))
+				Expect(repository.Description).ToNot(BeEmpty())
+				return &quay.Repository{Name: expectedImageName}, nil
+			}
+
+			createImageRepository(imageRepositoryConfig{ImageName: customImageName})
+			defer deleteImageRepository(resourceKey)
+
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+
+			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+
+			imageRepository := getImageRepository(resourceKey)
+			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
+		})
+	})
+
 	Context("Image repository error scenarios", func() {
 
 		It("should prepare environment", func() {
@@ -490,7 +520,7 @@ var _ = Describe("Image repository controller", func() {
 				return nil, fmt.Errorf("payment required")
 			}
 
-			createImageRepository(imageRepositoryConfig{IsPrivate: true})
+			createImageRepository(imageRepositoryConfig{Visibility: "private"})
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
@@ -545,6 +575,25 @@ var _ = Describe("Image repository controller", func() {
 
 			ResetTestQuayClient()
 			deleteImageRepository(resourceKey)
+		})
+
+		It("should fail if invalid image repository linked by annotation to unexisting component", func() {
+			ResetTestQuayClientToFails()
+
+			createImageRepository(imageRepositoryConfig{
+				ImageName: fmt.Sprintf("%s/%s", defaultComponentApplication, defaultComponentName),
+				Labels: map[string]string{
+					ApplicationNameLabelName: defaultComponentApplication,
+					ComponentNameLabelName:   defaultComponentName,
+				},
+			})
+			defer deleteImageRepository(resourceKey)
+
+			Eventually(func() bool {
+				imageRepository := getImageRepository(resourceKey)
+				return imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateFailed &&
+					imageRepository.Status.Message != ""
+			}, timeout, interval).Should(BeTrue())
 		})
 
 		It("should fail if invalid image repository name given", func() {

@@ -55,7 +55,7 @@ const (
 type imageRepositoryConfig struct {
 	ResourceKey *types.NamespacedName
 	ImageName   string
-	IsPrivate   bool
+	Visibility  string
 	Labels      map[string]string
 }
 
@@ -66,14 +66,13 @@ func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1al
 		name = config.ResourceKey.Name
 		namespace = config.ResourceKey.Namespace
 	}
-	imageName := defaultImageRepositoryName
-	if config.ImageName != "" {
-		imageName = config.ImageName
-	}
-	visibility := "public"
-	if config.IsPrivate {
+	visibility := ""
+	if config.Visibility == "private" {
 		visibility = "private"
+	} else if config.Visibility == "public" {
+		visibility = "public"
 	}
+
 	return &imagerepositoryv1alpha1.ImageRepository{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -82,7 +81,7 @@ func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1al
 		},
 		Spec: imagerepositoryv1alpha1.ImageRepositorySpec{
 			Image: imagerepositoryv1alpha1.ImageParameters{
-				Name:       imageName,
+				Name:       config.ImageName,
 				Visibility: imagerepositoryv1alpha1.ImageVisibility(visibility),
 			},
 		},
