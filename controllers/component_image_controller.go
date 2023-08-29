@@ -45,7 +45,7 @@ const (
 	ImageAnnotationName         = "image.redhat.com/image"
 	GenerateImageAnnotationName = "image.redhat.com/generate"
 
-	ImageRepositoryFinalizer = "image-controller.appstudio.openshift.io/image-repository"
+	ImageRepositoryComponentFinalizer = "image-controller.appstudio.openshift.io/image-repository"
 
 	ApplicationNameLabelName = "appstudio.redhat.com/application"
 	ComponentNameLabelName   = "appstudio.redhat.com/component"
@@ -109,7 +109,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if !component.ObjectMeta.DeletionTimestamp.IsZero() {
-		if controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
+		if controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer) {
 			pushRobotAccountName, pullRobotAccountName := generateRobotAccountsNames(component)
 
 			quayClient := r.BuildQuayClient(log)
@@ -145,7 +145,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				log.Error(err, "failed to get Component", l.Action, l.ActionView)
 				return ctrl.Result{}, err
 			}
-			controllerutil.RemoveFinalizer(component, ImageRepositoryFinalizer)
+			controllerutil.RemoveFinalizer(component, ImageRepositoryComponentFinalizer)
 			if err := r.Client.Update(ctx, component); err != nil {
 				log.Error(err, "failed to remove image repository finalizer", l.Action, l.ActionUpdate)
 				return ctrl.Result{}, err
@@ -288,8 +288,8 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		component.Annotations[ImageAnnotationName] = string(repositoryInfoBytes)
 		delete(component.Annotations, GenerateImageAnnotationName)
 
-		if repositoryInfo.Image != "" && !controllerutil.ContainsFinalizer(component, ImageRepositoryFinalizer) {
-			controllerutil.AddFinalizer(component, ImageRepositoryFinalizer)
+		if repositoryInfo.Image != "" && !controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer) {
+			controllerutil.AddFinalizer(component, ImageRepositoryComponentFinalizer)
 			log.Info("Image repository finalizer added to the Component update", l.Action, l.ActionUpdate)
 		}
 
@@ -380,7 +380,7 @@ func (r *ComponentReconciler) ensureComponentPullSecretRemoteSecret(ctx context.
 	remoteSecretKey := types.NamespacedName{Namespace: component.Namespace, Name: remoteSecretName}
 	if err := r.Client.Get(ctx, remoteSecretKey, remoteSecret); err != nil {
 		if !errors.IsNotFound(err) {
-			log.Error(err, fmt.Sprintf("failed to get remote secret: %v", remoteSecretKey), l.Action, l.ActionAdd)
+			log.Error(err, fmt.Sprintf("failed to get remote secret: %v", remoteSecretKey), l.Action, l.ActionView)
 			return err
 		}
 

@@ -29,19 +29,23 @@ import (
 
 	uberzap "go.uber.org/zap"
 	uberzapcore "go.uber.org/zap/zapcore"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/go-logr/logr"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
+
+	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
 	"github.com/redhat-appstudio/image-controller/controllers"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
-	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -60,6 +64,7 @@ func init() {
 
 	utilruntime.Must(appstudioredhatcomv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(remotesecretv1beta1.AddToScheme(scheme))
+	utilruntime.Must(imagerepositoryv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -90,6 +95,7 @@ func main() {
 		MetricsBindAddress:     metricsAddr,
 		Port:                   9443,
 		HealthProbeBindAddress: probeAddr,
+		ClientDisableCacheFor:  getCacheExcludedObjectsTypes(),
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "ed4c18c3.appstudio.redhat.com",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
@@ -133,6 +139,16 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Controller")
 		os.Exit(1)
 	}
+
+	if err = (&controllers.ImageRepositoryReconciler{
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		BuildQuayClient:  buildQuayClientFunc,
+		QuayOrganization: quayOrganization,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ImageRepository")
+		os.Exit(1)
+	}
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -148,5 +164,13 @@ func main() {
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
+	}
+}
+
+func getCacheExcludedObjectsTypes() []client.Object {
+	return []client.Object{
+		&imagerepositoryv1alpha1.ImageRepository{},
+		&corev1.Secret{},
+		&corev1.ConfigMap{},
 	}
 }

@@ -30,6 +30,32 @@ rules:
 - apiGroups:
   - appstudio.redhat.com
   resources:
+  - imagerepositories
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - appstudio.redhat.com
+  resources:
+  - imagerepositories/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - appstudio.redhat.com
+  resources:
+  - imagerepositories/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - appstudio.redhat.com
+  resources:
   - remotesecrets
   verbs:
   - create

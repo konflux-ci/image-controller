@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	appstudioapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 )
 
@@ -43,10 +44,77 @@ const (
 )
 
 const (
+	defaultNamespace = "test-namespace"
+
+	defaultImageRepositoryName = "image-repository"
+
 	defaultComponentName        = "test-component"
-	defaultComponentNamespace   = "test-namespace"
 	defaultComponentApplication = "test-application"
 )
+
+type imageRepositoryConfig struct {
+	ResourceKey *types.NamespacedName
+	ImageName   string
+	Visibility  string
+	Labels      map[string]string
+}
+
+func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1alpha1.ImageRepository {
+	name := defaultImageRepositoryName
+	namespace := defaultNamespace
+	if config.ResourceKey != nil {
+		name = config.ResourceKey.Name
+		namespace = config.ResourceKey.Namespace
+	}
+	visibility := ""
+	if config.Visibility == "private" {
+		visibility = "private"
+	} else if config.Visibility == "public" {
+		visibility = "public"
+	}
+
+	return &imagerepositoryv1alpha1.ImageRepository{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels:    config.Labels,
+		},
+		Spec: imagerepositoryv1alpha1.ImageRepositorySpec{
+			Image: imagerepositoryv1alpha1.ImageParameters{
+				Name:       config.ImageName,
+				Visibility: imagerepositoryv1alpha1.ImageVisibility(visibility),
+			},
+		},
+	}
+}
+
+func createImageRepository(config imageRepositoryConfig) {
+	imageRepository := getImageRepositoryConfig(config)
+	Expect(k8sClient.Create(ctx, imageRepository)).To(Succeed())
+}
+
+func getImageRepository(imageRepositoryKey types.NamespacedName) *imagerepositoryv1alpha1.ImageRepository {
+	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
+	Eventually(func() bool {
+		Expect(k8sClient.Get(ctx, imageRepositoryKey, imageRepository)).Should(Succeed())
+		return imageRepository.ResourceVersion != ""
+	}, timeout, interval).Should(BeTrue())
+	return imageRepository
+}
+
+func deleteImageRepository(imageRepositoryKey types.NamespacedName) {
+	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
+	if err := k8sClient.Get(ctx, imageRepositoryKey, imageRepository); err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return
+		}
+		Fail("Failed to get image repository")
+	}
+	Expect(k8sClient.Delete(ctx, imageRepository)).To(Succeed())
+	Eventually(func() bool {
+		return k8sErrors.IsNotFound(k8sClient.Get(ctx, imageRepositoryKey, imageRepository))
+	}, timeout, interval).Should(BeTrue())
+}
 
 type componentConfig struct {
 	ComponentKey         types.NamespacedName
@@ -61,7 +129,7 @@ func getSampleComponentData(config componentConfig) *appstudioapiv1alpha1.Compon
 	}
 	namespace := config.ComponentKey.Namespace
 	if namespace == "" {
-		namespace = defaultComponentNamespace
+		namespace = defaultNamespace
 	}
 	application := config.ComponentApplication
 	if application == "" {
@@ -95,7 +163,7 @@ func createComponent(config componentConfig) *appstudioapiv1alpha1.Component {
 	component := getSampleComponentData(config)
 
 	Expect(k8sClient.Create(ctx, component)).Should(Succeed())
-	setComponentDevfileModel(config.ComponentKey)
+	setComponentDevfileModel(types.NamespacedName{Name: component.Name, Namespace: component.Namespace})
 
 	componentKey := types.NamespacedName{Namespace: component.Namespace, Name: component.Name}
 	return getComponent(componentKey)
@@ -235,7 +303,17 @@ func waitFinalizerOnComponent(componentKey types.NamespacedName, finalizerName s
 }
 
 func waitImageRepositoryFinalizerOnComponent(componentKey types.NamespacedName) {
-	waitFinalizerOnComponent(componentKey, ImageRepositoryFinalizer, true)
+	waitFinalizerOnComponent(componentKey, ImageRepositoryComponentFinalizer, true)
+}
+
+func waitImageRepositoryFinalizerOnImageRepository(imageRepositoryKey types.NamespacedName) {
+	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
+	Eventually(func() bool {
+		if err := k8sClient.Get(ctx, imageRepositoryKey, imageRepository); err != nil {
+			return false
+		}
+		return controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer)
+	}, timeout, interval).Should(BeTrue())
 }
 
 func createNamespace(name string) {
@@ -250,22 +328,6 @@ func createNamespace(name string) {
 	}
 
 	if err := k8sClient.Create(ctx, &namespace); err != nil && !k8sErrors.IsAlreadyExists(err) {
-		Fail(err.Error())
-	}
-}
-
-func deleteNamespace(name string) {
-	namespace := corev1.Namespace{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "Namespace",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-	}
-
-	if err := k8sClient.Delete(ctx, &namespace); err != nil && !k8sErrors.IsNotFound(err) {
 		Fail(err.Error())
 	}
 }

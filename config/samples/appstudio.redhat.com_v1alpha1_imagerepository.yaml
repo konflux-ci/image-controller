@@ -1,0 +1,13 @@
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: ImageRepository
+metadata:
+  name: imagerepository-sample
+  # labels:
+  #   appstudio.redhat.com/application: test-application
+  #   appstudio.redhat.com/component: test-component
+spec:
+  image:
+    name: my-image-name
+    visibility: public
+  #credentials:
+  #  regenerate-token: true
