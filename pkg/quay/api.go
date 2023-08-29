@@ -17,6 +17,7 @@ type Repository struct {
 	IsOrganization bool           `json:"is_organization"`
 	IsStarred      bool           `json:"is_starred"`
 	IsPublic       bool           `json:"is_public"`
+	LastModified   int            `json:"last_modified"`
 	Name           string         `json:"name"`
 	Namespace      string         `json:"namespace"`
 	Image          string         `json:"image"`
