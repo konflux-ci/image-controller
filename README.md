@@ -1,10 +1,8 @@
 [![codecov](https://codecov.io/gh/redhat-appstudio/image-controller/branch/main/graph/badge.svg)](https://codecov.io/gh/redhat-appstudio/image-controller)
 # The Image Controller for AppStudio
-The Image Controller for AppStudio helps set up container image repositories for AppStudio `Components`.
+The Image Controller operator helps set up container image repositories on `quay.io` for AppStudio.
 
-## Try it!
-
-### Installation
+### Image Controller operator installation
 
 1. Install the project on your cluster by running `make deploy`.
 2. Set up the Quay.io token that would be used by the controller to setup image repositories under the `quay.io/redhat-user-workloads` organization.
@@ -28,10 +26,132 @@ To generate organization-wide token:
 3. Select the application and choose generate token.
 4. Select `Administer organizations`, `Adminster repositories`, `Create Repositories` permissions.
 
-### Create a Component
+## General purpose image repository
 
-To request the controller to setup an image repository, annotate the `Component` with `image.redhat.com/generate: '{"visibility": "public"}'` or `image.redhat.com/generate: '{"visibility": "private"}'` depending on desired repository visibility.
+### Requesting image repository
 
+To request an image repository one should create `ImageRepository` custom resource:
+```yaml
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: ImageRepository
+metadata:
+  name: imagerepository-sample
+  namespace: test-ns
+```
+As a result, a public image repository `quay.io/my-org/test-ns/imagerepository-sample` will be created.
+When `status.state` is set to `ready`, the image repository is ready for use.
+Additional information about the image repository one may obtain from the `ImageRepository` object `status`:
+```yaml
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: ImageRepository
+metadata:
+  name: imagerepository-sample
+  namespace: test-ns
+spec:
+  image:
+    name: test-ns/imagerepository-sample
+    visibility: public
+status:
+  credentials:
+    generationTimestamp: "2023-08-23T14:56:41Z"
+    push-robot-account: test_ns_imagerepository_sample_101e4e2b63
+    push-secret: test-ns-imagerepository-sample-101e4e2b63
+  image:
+    url: quay.io/my-org/test-ns/imagerepository-sample
+    visibility: public
+  state: ready
+```
+where:
+  - `push-robot-account` is the name of quay robot account in the configured quay organization with write premissions to the repository.
+  - `push-secret` is a `Secret` of dockerconfigjson type that contains image repository access token with write permissions.
+
+### User defined image repository name
+
+One may request custom image repository name by setting `spec.image.name` field on the `ImageRepository` object creation.
+Note, it's not possible to change image repository name after creation.
+Any changes to the field will be reverted by the operator.
+
+---
+**NOTE**
+
+Image repository name is always prefixed with the `ImageRepository` namespace plus `/`.
+
+---
+
+### Image repository visibility
+
+It's possible to control image repository visibility by `spec.image.visibility` field.
+Allowed values are:
+ - `public` (default)
+ - `private`
+
+It's possible to set visibility on creation or any time later.
+
+---
+**NOTE**
+
+Your quay.io organization plan should allow creation of private repositories.
+In case your quay.io organization has free plan that does not allow setting repositories as private, then if `private` visibility was requested:
+ - on `ImageRepository` creation, then the creation will fail.
+ - after `ImageRepository` creation, then `status.message` will be set and `spec.image.visibility` reverted back to `public`.
+
+---
+
+### Credentials rotation
+
+It's possible to request robot account token rotation by adding:
+```yaml
+...
+spec:
+  ...
+  credentials:
+    regenerate-token: true
+  ...
+```
+After token rotation, the `spec.credentials` section will be deleted and `status.credentials.generationTimestamp` updated.
+
+### Error handling
+
+If a critical error happens on image repository creation, then `status.state` is set to `failed` along with `status.message` field.
+To retry image repository provision, one should recreate `ImageRepository` object.
+
+If a non critical error happens, then `status,message` is set and corresponding `spec` fields are reverted.
+
+---
+**NOTE**
+
+After any successful operation, `status.message` is cleared.
+
+---
+
+## AppStudio Component image repository
+
+There is a special use-case for image repository that stores user's `Component` built images.
+
+To request image repository provision for the `Component`'s builds, the following labels must be added on `ImageRepository` creation:
+ - `appstudio.redhat.com/component` with the `Component` name as the value
+ - `appstudio.redhat.com/application` with the `Application` name to which the `Component` belongs to.
+
+---
+**NOTE**
+
+Described above labels must be added on `ImageRepository` object creation.
+Adding them later will have no effect.
+
+---
+
+The key difference from general purpose workflow are:
+ - second robot account and corresponding secret created with read (pull) only access to the image repository.
+ - the pull secret is propagated into all `Application` environments via `RemoteSecret`.
+ - the secret with write (push) credentials is linked to the pipeline service account, so the `Component` build pipeline can push resulting images.
+
+If `spec.image.name` is omitted, then instead of `ImageRepository` object name, `application-name/component-name` is used for the image repository name.
+
+All other functionality is the same as for general purpose object.
+
+## Legacy (deprecated) Component image repository
+
+To request the controller to setup an image repository for a component, annotate the `Component` with `image.redhat.com/generate: '{"visibility": "public"}'` or `image.redhat.com/generate: '{"visibility": "private"}'` depending on desired repository visibility.
 
 ```
 apiVersion: appstudio.redhat.com/v1alpha1
