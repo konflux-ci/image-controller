@@ -1,6 +1,6 @@
 [![codecov](https://codecov.io/gh/redhat-appstudio/image-controller/branch/main/graph/badge.svg)](https://codecov.io/gh/redhat-appstudio/image-controller)
 # The Image Controller for AppStudio
-The Image Controller operator helps set up container image repositories on `quay.io` for AppStudio.
+The Image Controller operator helps set up container image repositories on Quay.io for AppStudio.
 
 ### Image Controller operator installation
 
@@ -63,18 +63,19 @@ status:
 ```
 where:
   - `push-robot-account` is the name of quay robot account in the configured quay organization with write premissions to the repository.
-  - `push-secret` is a `Secret` of dockerconfigjson type that contains image repository access token with write permissions.
+  - `push-secret` is a `Secret` of dockerconfigjson type that contains image repository push robot account token with write permissions.
 
 ### User defined image repository name
 
-One may request custom image repository name by setting `spec.image.name` field on the `ImageRepository` object creation.
+One may request custom image repository name by setting `spec.image.name` field upon the `ImageRepository` object creation.
 Note, it's not possible to change image repository name after creation.
 Any changes to the field will be reverted by the operator.
 
 ---
 **NOTE**
 
-Image repository name is always prefixed with the `ImageRepository` namespace plus `/`.
+Image repository name is always prefixed with the `ImageRepository` namespace.
+The namespace prefix is separated by `/`.
 
 ---
 
@@ -85,7 +86,7 @@ Allowed values are:
  - `public` (default)
  - `private`
 
-It's possible to set visibility on creation or any time later.
+It's possible to change the visibility at any time.
 
 ---
 **NOTE**
@@ -126,7 +127,7 @@ After any successful operation, `status.message` is cleared.
 
 ## AppStudio Component image repository
 
-There is a special use-case for image repository that stores user's `Component` built images.
+There is a special use case for image repository that stores user's `Component` built images.
 
 To request image repository provision for the `Component`'s builds, the following labels must be added on `ImageRepository` creation:
  - `appstudio.redhat.com/component` with the `Component` name as the value
@@ -141,7 +142,7 @@ Adding them later will have no effect.
 ---
 
 The key difference from general purpose workflow are:
- - second robot account and corresponding secret created with read (pull) only access to the image repository.
+ - second robot account and the corresponding `Secret` are created with read (pull) only access to the image repository.
  - the pull secret is propagated into all `Application` environments via `RemoteSecret`.
  - the secret with write (push) credentials is linked to the pipeline service account, so the `Component` build pipeline can push resulting images.
 
