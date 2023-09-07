@@ -43,6 +43,8 @@ import (
 )
 
 const (
+	InternalRemoteSecretLabelName = "appstudio.redhat.com/internal"
+
 	ImageRepositoryFinalizer = "appstudio.openshift.io/image-repository"
 )
 
@@ -503,8 +505,9 @@ func (r *ImageRepositoryReconciler) EnsureRemotePullSecret(ctx context.Context, 
 				Name:      remoteSecretName,
 				Namespace: imageRepository.Namespace,
 				Labels: map[string]string{
-					ApplicationNameLabelName: imageRepository.Labels[ApplicationNameLabelName],
-					ComponentNameLabelName:   imageRepository.Labels[ComponentNameLabelName],
+					ApplicationNameLabelName:      imageRepository.Labels[ApplicationNameLabelName],
+					ComponentNameLabelName:        imageRepository.Labels[ComponentNameLabelName],
+					InternalRemoteSecretLabelName: "true",
 				},
 			},
 			Spec: remotesecretv1beta1.RemoteSecretSpec{

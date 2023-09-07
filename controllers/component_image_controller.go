@@ -389,8 +389,9 @@ func (r *ComponentReconciler) ensureComponentPullSecretRemoteSecret(ctx context.
 				Name:      remoteSecretName,
 				Namespace: component.Namespace,
 				Labels: map[string]string{
-					ApplicationNameLabelName: component.Spec.Application,
-					ComponentNameLabelName:   component.Name,
+					ApplicationNameLabelName:      component.Spec.Application,
+					ComponentNameLabelName:        component.Name,
+					InternalRemoteSecretLabelName: "true",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{

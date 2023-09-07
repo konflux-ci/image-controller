@@ -340,6 +340,7 @@ var _ = Describe("Image repository controller", func() {
 			remoteSecret := waitRemoteSecretExist(remoteSecretKey)
 			Expect(remoteSecret.Labels[ApplicationNameLabelName]).To(Equal(defaultComponentApplication))
 			Expect(remoteSecret.Labels[ComponentNameLabelName]).To(Equal(defaultComponentName))
+			Expect(remoteSecret.Labels[InternalRemoteSecretLabelName]).To(Equal("true"))
 			Expect(remoteSecret.OwnerReferences).To(HaveLen(1))
 			Expect(remoteSecret.OwnerReferences[0].Name).To(Equal(imageRepository.Name))
 			Expect(remoteSecret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
