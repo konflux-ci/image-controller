@@ -33,7 +33,18 @@ spec:
             volumeMounts:
               - name: image-pruner-volume
                 mountPath: /image-pruner
+            resources:
+              limits:
+                cpu: 500m
+                memory: 512Mi
+              requests:
+                cpu: 150m
+                memory: 128Mi
+            securityContext:
+              readOnlyRootFilesystem: true
           restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
           volumes:
             - name: image-pruner-volume
               configMap:
