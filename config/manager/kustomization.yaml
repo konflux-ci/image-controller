@@ -13,3 +13,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/redhat-appstudio/image-controller
+  newTag: next
