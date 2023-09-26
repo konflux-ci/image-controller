@@ -55,7 +55,8 @@ status:
   credentials:
     generationTimestamp: "2023-08-23T14:56:41Z"
     push-robot-account: test_ns_imagerepository_sample_101e4e2b63
-    push-secret: test-ns-imagerepository-sample-101e4e2b63
+    push-remote-secret: imagerepository-sample-image-push
+    push-secret: imagerepository-sample-image-push
   image:
     url: quay.io/my-org/test-ns/imagerepository-sample
     visibility: public
@@ -63,6 +64,7 @@ status:
 ```
 where:
   - `push-robot-account` is the name of quay robot account in the configured quay organization with write premissions to the repository.
+  - `push-remote-secret` is an instance of `RemoteSecret` that manages the `Secret` specified in `push-secret`.
   - `push-secret` is a `Secret` of dockerconfigjson type that contains image repository push robot account token with write permissions.
 
 ### User defined image repository name
@@ -127,6 +129,8 @@ After any successful operation, `status.message` is cleared.
 
 ## AppStudio Component image repository
 
+### Image repository for Component builds
+
 There is a special use case for image repository that stores user's `Component` built images.
 
 To request image repository provision for the `Component`'s builds, the following labels must be added on `ImageRepository` creation:
@@ -141,14 +145,55 @@ Adding them later will have no effect.
 
 ---
 
-The key difference from general purpose workflow are:
- - second robot account and the corresponding `Secret` are created with read (pull) only access to the image repository.
+The key differences from the general purpose workflow are:
+ - second robot account and the corresponding `RemoteSecret` and `Secret` are created with read (pull) only access to the image repository.
  - the pull secret is propagated into all `Application` environments via `RemoteSecret`.
  - the secret with write (push) credentials is linked to the pipeline service account, so the `Component` build pipeline can push resulting images.
 
 If `spec.image.name` is omitted, then instead of `ImageRepository` object name, `application-name/component-name` is used for the image repository name.
 
 All other functionality is the same as for general purpose object.
+
+### Requesting image repository for Component builds
+
+To request an image repository for storing `Component` built images, one should create `ImageRepository` custom resource:
+```yaml
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: ImageRepository
+metadata:
+  name: imagerepository-for-component-sample
+  namespace: test-ns
+  labels:
+    appstudio.redhat.com/component: my-component
+    appstudio.redhat.com/application: my-app
+```
+As a result, a public image repository `quay.io/my-org/test-ns/my-app/my-component` will be created.
+When `status.state` is set to `ready`, the image repository is ready for use.
+Additional information about the image repository one may obtain from the `ImageRepository` object `status`:
+```yaml
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: ImageRepository
+metadata:
+  name: imagerepository-for-component-sample
+  namespace: test-ns
+spec:
+  image:
+    name: test-ns/my-app/my-component
+    visibility: public
+status:
+  credentials:
+    generationTimestamp: "2023-08-23T14:56:41Z"
+    push-robot-account: test_ns_my_app_my_component_e290bac4d
+    push-remote-secret: imagerepository-for-component-sample-image-push
+    push-secret: imagerepository-for-component-sample-image-push
+    pull-robot-account: test_ns_my_app_my_component_6a54e08b62_pull
+    pull-remote-secret: imagerepository-for-component-sample-image-pull
+    pull-secret: imagerepository-for-component-sample-image-pull
+  image:
+    url: quay.io/my-org/test-ns/my-app/my-component
+    visibility: public
+  state: ready
+```
 
 ## Legacy (deprecated) Component image repository
 

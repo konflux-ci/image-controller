@@ -44,12 +44,16 @@ var _ = Describe("Image repository controller", func() {
 		pushToken                  string
 		pullToken                  string
 		expectedRobotAccountPrefix string
-		expectedRemoteSecretName   string
 		expectedImageName          string
 		expectedImage              string
 	)
 
 	Context("Image repository provision", func() {
+
+		BeforeEach(func() {
+			ResetTestQuayClientToFails()
+			deleteUploadSecrets(defaultNamespace)
+		})
 
 		It("should prepare environment", func() {
 			createNamespace(defaultNamespace)
@@ -61,8 +65,6 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		It("should provision image repository", func() {
-			ResetTestQuayClientToFails()
-
 			isCreateRepositoryInvoked := false
 			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				defer GinkgoRecover()
@@ -94,6 +96,9 @@ var _ = Describe("Image repository controller", func() {
 
 			createImageRepository(imageRepositoryConfig{})
 
+			uploadSecretKey := types.NamespacedName{Name: "upload-secret-" + resourceKey.Name + "-image-push", Namespace: resourceKey.Namespace}
+			defer deleteSecret(uploadSecretKey)
+
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreateRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isAddPushPermissionsToRobotAccountInvoked }, timeout, interval).Should(BeTrue())
@@ -109,26 +114,42 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
 			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
-			Expect(imageRepository.Status.Credentials.PushSecretName).To(HavePrefix(strings.ReplaceAll(expectedImageName, "/", "-")))
+			Expect(imageRepository.Status.Credentials.PushRemoteSecretName).To(Equal(imageRepository.Name + "-image-push"))
+			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
 
-			secretName := imageRepository.Status.Credentials.PushSecretName
-			secretKey := types.NamespacedName{Name: secretName, Namespace: defaultNamespace}
-			secret := waitSecretExist(secretKey)
-			dockerconfigJson := string(secret.Data[corev1.DockerConfigJsonKey])
+			remoteSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushRemoteSecretName, Namespace: imageRepository.Namespace}
+			remoteSecret := waitRemoteSecretExist(remoteSecretKey)
+			Expect(remoteSecret.OwnerReferences).To(HaveLen(1))
+			Expect(remoteSecret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
+			Expect(remoteSecret.OwnerReferences[0].Name).To(Equal(imageRepository.GetName()))
+			Expect(remoteSecret.Labels[InternalRemoteSecretLabelName]).To(Equal("true"))
+			Expect(remoteSecret.Spec.Secret.Name).To(Equal(remoteSecret.Name))
+			Expect(remoteSecret.Spec.Secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			Expect(remoteSecret.Spec.Secret.LinkedTo).To(HaveLen(1))
+			Expect(remoteSecret.Spec.Secret.LinkedTo[0].ServiceAccount.Reference.Name).To(Equal(buildPipelineServiceAccountName))
+			Expect(remoteSecret.Spec.Targets).To(HaveLen(1))
+			Expect(remoteSecret.Spec.Targets[0].Namespace).To(Equal(imageRepository.Namespace))
+
+			uploadSecret := waitSecretExist(uploadSecretKey)
+			Expect(uploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
+			Expect(uploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(remoteSecret.Name))
+			Expect(uploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			uploadSecretDockerconfigJson := string(uploadSecret.Data[corev1.DockerConfigJsonKey])
 			var authDataJson interface{}
-			Expect(json.Unmarshal([]byte(dockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(dockerconfigJson).To(ContainSubstring(expectedImage))
-			authString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(dockerconfigJson)[1])
+			Expect(json.Unmarshal([]byte(uploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
+			Expect(uploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
+			uploadSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(uploadSecretDockerconfigJson)[1])
 			Expect(err).To(Succeed())
 			pushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
-			Expect(string(authString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, pushToken)))
+			Expect(string(uploadSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, pushToken)))
 		})
 
 		It("should regenerate token", func() {
 			newToken := "push-token5678"
 
-			ResetTestQuayClientToFails()
+			uploadSecretKey := types.NamespacedName{Name: "upload-secret-" + resourceKey.Name + "-image-push", Namespace: resourceKey.Namespace}
+
 			// Wait just for case it takes less than a second to regenerate credentials
 			time.Sleep(time.Second)
 
@@ -146,6 +167,7 @@ var _ = Describe("Image repository controller", func() {
 			regenerateToken := true
 			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+			defer deleteSecret(uploadSecretKey)
 
 			Eventually(func() bool { return isRegenerateRobotAccountTokenInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
@@ -155,23 +177,24 @@ var _ = Describe("Image repository controller", func() {
 					*imageRepository.Status.Credentials.GenerationTimestamp != oldTokenGenerationTimestamp
 			}, timeout, interval).Should(BeTrue())
 
-			secret := &corev1.Secret{}
-			secretName := imageRepository.Status.Credentials.PushSecretName
-			secretKey := types.NamespacedName{Name: secretName, Namespace: defaultNamespace}
-			Expect(k8sClient.Get(ctx, secretKey, secret)).To(Succeed())
-			dockerconfigJson := string(secret.Data[corev1.DockerConfigJsonKey])
+			remoteSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushRemoteSecretName, Namespace: imageRepository.Namespace}
+			remoteSecret := waitRemoteSecretExist(remoteSecretKey)
+
+			uploadSecret := waitSecretExist(uploadSecretKey)
+			Expect(uploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
+			Expect(uploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(remoteSecret.Name))
+			Expect(uploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			uploadSecretDockerconfigJson := string(uploadSecret.Data[corev1.DockerConfigJsonKey])
 			var authDataJson interface{}
-			Expect(json.Unmarshal([]byte(dockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(dockerconfigJson).To(ContainSubstring(expectedImage))
-			authString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(dockerconfigJson)[1])
+			Expect(json.Unmarshal([]byte(uploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
+			Expect(uploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
+			uploadSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(uploadSecretDockerconfigJson)[1])
 			Expect(err).To(Succeed())
-			Expect(string(authString)).To(HavePrefix(expectedRobotAccountPrefix))
-			Expect(string(authString)).To(HaveSuffix(newToken))
+			pushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
+			Expect(string(uploadSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, newToken)))
 		})
 
 		It("should update image visibility", func() {
-			ResetTestQuayClientToFails()
-
 			isChangeRepositoryVisibilityInvoked := false
 			ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
 				defer GinkgoRecover()
@@ -196,8 +219,6 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		It("should revert image name if edited", func() {
-			ResetTestQuayClientToFails()
-
 			imageRepository := getImageRepository(resourceKey)
 			imageRepository.Spec.Image.Name = "renamed"
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
@@ -209,8 +230,6 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		It("should cleanup repository", func() {
-			ResetTestQuayClientToFails()
-
 			isDeleteRobotAccountInvoked := false
 			DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
 				defer GinkgoRecover()
@@ -237,20 +256,22 @@ var _ = Describe("Image repository controller", func() {
 
 	Context("Image repository for component provision", func() {
 
+		BeforeEach(func() {
+			ResetTestQuayClientToFails()
+			deleteUploadSecrets(defaultNamespace)
+		})
+
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s/%s", defaultNamespace, defaultComponentApplication, defaultComponentName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
-			expectedRemoteSecretName = defaultComponentName + "-image-pull"
 
 			createComponent(componentConfig{})
 		})
 
 		It("should provision image repository for component", func() {
-			ResetTestQuayClientToFails()
-
 			isCreateRepositoryInvoked := false
 			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				defer GinkgoRecover()
@@ -298,6 +319,11 @@ var _ = Describe("Image repository controller", func() {
 				},
 			})
 
+			pushUploadSecretKey := types.NamespacedName{Name: "upload-secret-" + resourceKey.Name + "-image-push", Namespace: resourceKey.Namespace}
+			pullUploadSecretKey := types.NamespacedName{Name: "upload-secret-" + resourceKey.Name + "-image-pull", Namespace: resourceKey.Namespace}
+			defer deleteSecret(pushUploadSecretKey)
+			defer deleteSecret(pullUploadSecretKey)
+
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreatePushRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreatePullRobotAccountInvoked }, timeout, interval).Should(BeTrue())
@@ -318,58 +344,77 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
 			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
-			Expect(imageRepository.Status.Credentials.PushSecretName).To(HavePrefix(strings.ReplaceAll(expectedImageName, "/", "-")))
+			Expect(imageRepository.Status.Credentials.PushRemoteSecretName).To(Equal(imageRepository.Name + "-image-push"))
+			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HaveSuffix("_pull"))
-			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(expectedRemoteSecretName))
+			Expect(imageRepository.Status.Credentials.PullRemoteSecretName).To(Equal(imageRepository.Name + "-image-pull"))
+			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-image-pull"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
 
+			pushRemoteSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushRemoteSecretName, Namespace: imageRepository.Namespace}
+			pushRemoteSecret := waitRemoteSecretExist(pushRemoteSecretKey)
+			Expect(pushRemoteSecret.Labels[InternalRemoteSecretLabelName]).To(Equal("true"))
+			Expect(pushRemoteSecret.OwnerReferences).To(HaveLen(1))
+			Expect(pushRemoteSecret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
+			Expect(pushRemoteSecret.OwnerReferences[0].Name).To(Equal(imageRepository.GetName()))
+			Expect(pushRemoteSecret.Spec.Secret.Name).To(Equal(pushRemoteSecret.Name))
+			Expect(pushRemoteSecret.Spec.Secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			Expect(pushRemoteSecret.Spec.Secret.LinkedTo).To(HaveLen(1))
+			Expect(pushRemoteSecret.Spec.Secret.LinkedTo[0].ServiceAccount.Reference.Name).To(Equal(buildPipelineServiceAccountName))
+			Expect(pushRemoteSecret.Spec.Targets).To(HaveLen(1))
+			Expect(pushRemoteSecret.Spec.Targets[0].Namespace).To(Equal(imageRepository.Namespace))
+
+			pullRemoteSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullRemoteSecretName, Namespace: imageRepository.Namespace}
+			pullRemoteSecret := waitRemoteSecretExist(pullRemoteSecretKey)
+			Expect(pullRemoteSecret.Labels[ApplicationNameLabelName]).To(Equal(defaultComponentApplication))
+			Expect(pullRemoteSecret.Labels[ComponentNameLabelName]).To(Equal(defaultComponentName))
+			Expect(pullRemoteSecret.Labels[InternalRemoteSecretLabelName]).To(Equal("true"))
+			Expect(pullRemoteSecret.OwnerReferences).To(HaveLen(1))
+			Expect(pullRemoteSecret.OwnerReferences[0].Name).To(Equal(imageRepository.Name))
+			Expect(pullRemoteSecret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
+			Expect(pullRemoteSecret.Spec.Secret.Name).To(Equal(pullRemoteSecretKey.Name))
+			Expect(pullRemoteSecret.Spec.Secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			Expect(pullRemoteSecret.Spec.Secret.LinkedTo).To(HaveLen(1))
+			Expect(pullRemoteSecret.Spec.Secret.LinkedTo[0].ServiceAccount.Reference.Name).To(Equal(defaultServiceAccountName))
+			Expect(pullRemoteSecret.Spec.Targets).To(HaveLen(0))
+
 			var authDataJson interface{}
-			secretName := imageRepository.Status.Credentials.PushSecretName
-			secretKey := types.NamespacedName{Name: secretName, Namespace: defaultNamespace}
-			secret := waitSecretExist(secretKey)
-			dockerconfigJson := string(secret.Data[corev1.DockerConfigJsonKey])
-			Expect(json.Unmarshal([]byte(dockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(dockerconfigJson).To(ContainSubstring(expectedImage))
-			authString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(dockerconfigJson)[1])
+
+			pushUploadSecret := waitSecretExist(pushUploadSecretKey)
+			Expect(pushUploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
+			Expect(pushUploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(pushRemoteSecret.Name))
+			Expect(pushUploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			pushUploadSecretDockerconfigJson := string(pushUploadSecret.Data[corev1.DockerConfigJsonKey])
+			Expect(json.Unmarshal([]byte(pushUploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
+			Expect(pushUploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
+			pushUploadSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pushUploadSecretDockerconfigJson)[1])
 			Expect(err).To(Succeed())
 			pushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
-			Expect(string(authString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, pushToken)))
+			Expect(string(pushUploadSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, pushToken)))
 
-			remoteSecretKey := types.NamespacedName{Name: expectedRemoteSecretName, Namespace: defaultNamespace}
-			remoteSecret := waitRemoteSecretExist(remoteSecretKey)
-			Expect(remoteSecret.Labels[ApplicationNameLabelName]).To(Equal(defaultComponentApplication))
-			Expect(remoteSecret.Labels[ComponentNameLabelName]).To(Equal(defaultComponentName))
-			Expect(remoteSecret.Labels[InternalRemoteSecretLabelName]).To(Equal("true"))
-			Expect(remoteSecret.OwnerReferences).To(HaveLen(1))
-			Expect(remoteSecret.OwnerReferences[0].Name).To(Equal(imageRepository.Name))
-			Expect(remoteSecret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
-			Expect(remoteSecret.Spec.Secret.Name).To(Equal(remoteSecretKey.Name))
-			Expect(remoteSecret.Spec.Secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
-			Expect(remoteSecret.Spec.Secret.LinkedTo).To(HaveLen(1))
-			Expect(remoteSecret.Spec.Secret.LinkedTo[0].ServiceAccount.Reference.Name).To(Equal(defaultServiceAccountName))
-
-			uploadSecretKey := types.NamespacedName{Name: "upload-secret-" + expectedRemoteSecretName, Namespace: defaultNamespace}
-			uploadSecret := waitSecretExist(uploadSecretKey)
-			Expect(uploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
-			Expect(uploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(expectedRemoteSecretName))
-			Expect(uploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
-			uploadSecretDockerconfigJson := string(uploadSecret.Data[corev1.DockerConfigJsonKey])
-			Expect(json.Unmarshal([]byte(uploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(uploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
-			uploadSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(uploadSecretDockerconfigJson)[1])
+			pullUploadSecret := waitSecretExist(pullUploadSecretKey)
+			Expect(pullUploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
+			Expect(pullUploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(pullRemoteSecret.Name))
+			Expect(pullUploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			pullUploadSecretDockerconfigJson := string(pullUploadSecret.Data[corev1.DockerConfigJsonKey])
+			Expect(json.Unmarshal([]byte(pullUploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
+			Expect(pullUploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
+			pullUploadSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pullUploadSecretDockerconfigJson)[1])
 			Expect(err).To(Succeed())
 			pullRobotAccountName := imageRepository.Status.Credentials.PullRobotAccountName
-			Expect(string(uploadSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pullRobotAccountName, pullToken)))
-
-			deleteSecret(uploadSecretKey)
+			Expect(string(pullUploadSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pullRobotAccountName, pullToken)))
 		})
 
 		It("should regenerate tokens and update remote secret", func() {
 			newPushToken := "push-token5678"
 			newPullToken := "pull-token5678"
 
-			ResetTestQuayClientToFails()
+			pushUploadSecretKey := types.NamespacedName{Name: "upload-secret-" + resourceKey.Name + "-image-push", Namespace: resourceKey.Namespace}
+			pullUploadSecretKey := types.NamespacedName{Name: "upload-secret-" + resourceKey.Name + "-image-pull", Namespace: resourceKey.Namespace}
+			defer deleteSecret(pushUploadSecretKey)
+			defer deleteSecret(pullUploadSecretKey)
+
 			// Wait just for case it takes less than a second to regenerate credentials
 			time.Sleep(time.Second)
 
@@ -402,38 +447,40 @@ var _ = Describe("Image repository controller", func() {
 					*imageRepository.Status.Credentials.GenerationTimestamp != oldTokenGenerationTimestamp
 			}, timeout, interval).Should(BeTrue())
 
-			secret := &corev1.Secret{}
-			secretName := imageRepository.Status.Credentials.PushSecretName
-			secretKey := types.NamespacedName{Name: secretName, Namespace: defaultNamespace}
-			Expect(k8sClient.Get(ctx, secretKey, secret)).To(Succeed())
-			dockerconfigJson := string(secret.Data[corev1.DockerConfigJsonKey])
+			pushRemoteSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushRemoteSecretName, Namespace: imageRepository.Namespace}
+			pushRemoteSecret := waitRemoteSecretExist(pushRemoteSecretKey)
+
+			pullRemoteSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullRemoteSecretName, Namespace: imageRepository.Namespace}
+			pullRemoteSecret := waitRemoteSecretExist(pullRemoteSecretKey)
+
 			var authDataJson interface{}
-			Expect(json.Unmarshal([]byte(dockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(dockerconfigJson).To(ContainSubstring(expectedImage))
-			authString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(dockerconfigJson)[1])
+
+			pushUploadSecret := waitSecretExist(pushUploadSecretKey)
+			Expect(pushUploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
+			Expect(pushUploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(pushRemoteSecret.Name))
+			Expect(pushUploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			pushUploadSecretDockerconfigJson := string(pushUploadSecret.Data[corev1.DockerConfigJsonKey])
+			Expect(json.Unmarshal([]byte(pushUploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
+			Expect(pushUploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
+			pushUploadSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pushUploadSecretDockerconfigJson)[1])
 			Expect(err).To(Succeed())
 			pushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
-			Expect(string(authString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, newPushToken)))
+			Expect(string(pushUploadSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, newPushToken)))
 
-			uploadSecretKey := types.NamespacedName{Name: "upload-secret-" + expectedRemoteSecretName, Namespace: defaultNamespace}
-			uploadSecret := waitSecretExist(uploadSecretKey)
-			Expect(uploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
-			Expect(uploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(expectedRemoteSecretName))
-			Expect(uploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
-			uploadSecretDockerconfigJson := string(uploadSecret.Data[corev1.DockerConfigJsonKey])
-			Expect(json.Unmarshal([]byte(uploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(uploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
-			uploadSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(uploadSecretDockerconfigJson)[1])
+			pullUploadSecret := waitSecretExist(pullUploadSecretKey)
+			Expect(pullUploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
+			Expect(pullUploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(pullRemoteSecret.Name))
+			Expect(pullUploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			pullUploadSecretDockerconfigJson := string(pullUploadSecret.Data[corev1.DockerConfigJsonKey])
+			Expect(json.Unmarshal([]byte(pullUploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
+			Expect(pullUploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
+			pullUploadSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pullUploadSecretDockerconfigJson)[1])
 			Expect(err).To(Succeed())
 			pullRobotAccountName := imageRepository.Status.Credentials.PullRobotAccountName
-			Expect(string(uploadSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pullRobotAccountName, newPullToken)))
-
-			deleteSecret(uploadSecretKey)
+			Expect(string(pullUploadSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pullRobotAccountName, newPullToken)))
 		})
 
 		It("should cleanup component repository", func() {
-			ResetTestQuayClientToFails()
-
 			isDeleteRobotAccountForPushInvoked := false
 			isDeleteRobotAccountForPullInvoked := false
 			DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
@@ -469,11 +516,15 @@ var _ = Describe("Image repository controller", func() {
 
 	Context("Other image repository scenarios", func() {
 
+		BeforeEach(func() {
+			ResetTestQuayClient()
+			deleteImageRepository(resourceKey)
+			deleteUploadSecrets(defaultNamespace)
+		})
+
 		It("should create image repository with requested name", func() {
 			customImageName := "my-image"
 			expectedImageName = defaultNamespace + "/" + customImageName
-
-			ResetTestQuayClient()
 
 			isCreateRepositoryInvoked := false
 			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
@@ -500,6 +551,12 @@ var _ = Describe("Image repository controller", func() {
 
 	Context("Image repository error scenarios", func() {
 
+		BeforeEach(func() {
+			ResetTestQuayClient()
+			deleteImageRepository(resourceKey)
+			deleteUploadSecrets(defaultNamespace)
+		})
+
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, defaultImageRepositoryName)
@@ -508,8 +565,6 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		It("should permanently fail if private image repository requested on creation but quota exceeded", func() {
-			ResetTestQuayClient()
-
 			isCreateRepositoryInvoked := false
 			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				defer GinkgoRecover()
@@ -538,7 +593,6 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		It("should add error message and revert visibility in spec if private visibility requested after provision but quota exceeded", func() {
-			deleteImageRepository(resourceKey)
 			ResetTestQuayClient()
 
 			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
@@ -548,6 +602,8 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.RobotAccount{Name: robotName, Token: pushToken}, nil
 			}
 			createImageRepository(imageRepositoryConfig{})
+			defer deleteImageRepository(resourceKey)
+
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
 
 			ResetTestQuayClientToFails()
@@ -598,9 +654,6 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		It("should fail if invalid image repository name given", func() {
-			deleteImageRepository(resourceKey)
-			ResetTestQuayClient()
-
 			imageRepository := getImageRepositoryConfig(imageRepositoryConfig{
 				ImageName: "wrong&name",
 			})

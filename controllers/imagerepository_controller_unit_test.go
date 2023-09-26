@@ -80,23 +80,38 @@ func TestGenerateQuayRobotAccountName(t *testing.T) {
 }
 
 func TestGetRemoteSecretName(t *testing.T) {
-	longComponentName := getRandomString(300)
-	expectedRemoteSecretLongPrefix := longComponentName[0:220]
+	longImageRepositoryCrName := getRandomString(300)
+	expectedRemoteSecretLongPrefix := longImageRepositoryCrName[0:220]
 
 	testCases := []struct {
-		name                           string
-		componentName                  string
-		expectedRemoteSecretNamePrefix string
+		name                     string
+		imageRepositoryCrName    string
+		IsPullOnly               bool
+		expectedRemoteSecretName string
 	}{
 		{
-			name:                           "Should generate remote secret name",
-			componentName:                  "my-component-name",
-			expectedRemoteSecretNamePrefix: "my-component-name",
+			name:                     "Should generate push remote secret name",
+			imageRepositoryCrName:    "my-image-repo",
+			IsPullOnly:               false,
+			expectedRemoteSecretName: "my-image-repo-image-push",
 		},
 		{
-			name:                           "Should generate remote secret name if component name is too long",
-			componentName:                  longComponentName,
-			expectedRemoteSecretNamePrefix: expectedRemoteSecretLongPrefix,
+			name:                     "Should generate push remote secret name if component name is too long",
+			imageRepositoryCrName:    longImageRepositoryCrName,
+			IsPullOnly:               false,
+			expectedRemoteSecretName: expectedRemoteSecretLongPrefix + "-image-push",
+		},
+		{
+			name:                     "Should generate pull remote secret name",
+			imageRepositoryCrName:    "my-image-repo",
+			IsPullOnly:               true,
+			expectedRemoteSecretName: "my-image-repo-image-pull",
+		},
+		{
+			name:                     "Should generate pull remote secret name if component name is too long",
+			imageRepositoryCrName:    longImageRepositoryCrName,
+			IsPullOnly:               true,
+			expectedRemoteSecretName: expectedRemoteSecretLongPrefix + "-image-pull",
 		},
 	}
 
@@ -104,20 +119,17 @@ func TestGetRemoteSecretName(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			imageRepository := &imagerepositoryv1alpha1.ImageRepository{
 				ObjectMeta: v1.ObjectMeta{
-					Labels: map[string]string{
-						ComponentNameLabelName: tc.componentName,
-					},
+					Name: tc.imageRepositoryCrName,
 				},
 			}
-			expectedRemoteSecretName := tc.expectedRemoteSecretNamePrefix + "-image-pull"
 
-			remoteSecretName := getRemoteSecretName(imageRepository)
+			remoteSecretName := getRemoteSecretName(imageRepository, tc.IsPullOnly)
 
 			if len(remoteSecretName) > 253 {
 				t.Error("remote secret name is longer than allowed")
 			}
-			if remoteSecretName != expectedRemoteSecretName {
-				t.Errorf("Expected remote secret name %s, but got %s", expectedRemoteSecretName, remoteSecretName)
+			if remoteSecretName != tc.expectedRemoteSecretName {
+				t.Errorf("Expected remote secret name %s, but got %s", tc.expectedRemoteSecretName, remoteSecretName)
 			}
 		})
 	}

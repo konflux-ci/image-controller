@@ -46,6 +46,8 @@ const (
 	InternalRemoteSecretLabelName = "appstudio.redhat.com/internal"
 
 	ImageRepositoryFinalizer = "appstudio.openshift.io/image-repository"
+
+	buildPipelineServiceAccountName = "appstudio-pipeline"
 )
 
 // ImageRepositoryReconciler reconciles a ImageRepository object
@@ -202,6 +204,10 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	} else {
 		imageRepositoryName = imageRepository.Namespace + "/" + imageRepository.Spec.Image.Name
 	}
+	imageRepository.Spec.Image.Name = imageRepositoryName
+
+	quayImageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, imageRepositoryName)
+	imageRepository.Status.Image.URL = quayImageURL
 
 	if imageRepository.Spec.Image.Visibility == "" {
 		imageRepository.Spec.Image.Visibility = imagerepositoryv1alpha1.ImageVisibilityPublic
@@ -233,84 +239,46 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		return err
 	}
 
-	robotAccountName := generateQuayRobotAccountName(imageRepositoryName, false)
-	robotAccount, err := r.QuayClient.CreateRobotAccount(r.QuayOrganization, robotAccountName)
+	pushCredentialsInfo, err := r.ProvisionImageRepositoryAccess(ctx, imageRepository, false)
 	if err != nil {
-		log.Error(err, "failed to create robot account", "RobotAccountName", robotAccountName, l.Action, l.ActionAdd, l.Audit, "true")
-		return err
-	}
-	if robotAccount == nil {
-		err := fmt.Errorf("unexpected response from Quay: robot account data object is nil")
-		log.Error(err, "nil robot account")
 		return err
 	}
 
-	err = r.QuayClient.AddPermissionsForRepositoryToRobotAccount(r.QuayOrganization, repository.Name, robotAccount.Name, true)
-	if err != nil {
-		log.Error(err, "failed to add permissions to robot account", "RobotAccountName", robotAccountName, l.Action, l.ActionUpdate, l.Audit, "true")
-		return err
-	}
-
-	quayImageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, repository.Name)
-	secretName := strings.ReplaceAll(robotAccountName, "_", "-")
-	if err := r.EnsureDockerSecret(ctx, imageRepository, robotAccount, secretName, quayImageURL); err != nil {
-		return err
+	var pullCredentialsInfo *imageRepositoryAccessData
+	if isComponentLinked(imageRepository) {
+		pullCredentialsInfo, err = r.ProvisionImageRepositoryAccess(ctx, imageRepository, true)
+		if err != nil {
+			return err
+		}
 	}
 
 	status := imagerepositoryv1alpha1.ImageRepositoryStatus{}
-	if isComponentLinked(imageRepository) {
-		// Pull secret provision and propagation
-		pullRobotAccountName := generateQuayRobotAccountName(imageRepositoryName, true)
-		pullRobotAccount, err := r.QuayClient.CreateRobotAccount(r.QuayOrganization, pullRobotAccountName)
-		if err != nil {
-			log.Error(err, "failed to create pull robot account", "RobotAccountName", pullRobotAccountName, l.Action, l.ActionAdd, l.Audit, "true")
-			return err
-		}
-		if robotAccount == nil {
-			err := fmt.Errorf("unexpected response from Quay: pull robot account data object is nil")
-			log.Error(err, "nil pull robot account")
-			return err
-		}
-
-		err = r.QuayClient.AddPermissionsForRepositoryToRobotAccount(r.QuayOrganization, repository.Name, pullRobotAccount.Name, false)
-		if err != nil {
-			log.Error(err, "failed to add permissions to pull robot account", "RobotAccountName", robotAccountName, l.Action, l.ActionUpdate, l.Audit, "true")
-			return err
-		}
-
-		remoteSecretName := getRemoteSecretName(imageRepository)
-		if err := r.EnsureRemotePullSecret(ctx, imageRepository, remoteSecretName); err != nil {
-			return err
-		}
-
-		if err := r.CreateRemotePullSecretUploadSecret(ctx, pullRobotAccount, imageRepository.Namespace, remoteSecretName, quayImageURL); err != nil {
-			return err
-		}
-
-		status.Credentials.PullRobotAccountName = pullRobotAccountName
-		status.Credentials.PullSecretName = remoteSecretName
-	}
-
 	status.State = imagerepositoryv1alpha1.ImageRepositoryStateReady
 	status.Image.URL = quayImageURL
 	status.Image.Visibility = imageRepository.Spec.Image.Visibility
-	status.Credentials.PushRobotAccountName = robotAccountName
-	status.Credentials.PushSecretName = secretName
 	status.Credentials.GenerationTimestamp = &metav1.Time{Time: time.Now()}
+	status.Credentials.PushRobotAccountName = pushCredentialsInfo.RobotAccountName
+	status.Credentials.PushRemoteSecretName = pushCredentialsInfo.RemoteSecretName
+	status.Credentials.PushSecretName = pushCredentialsInfo.SecretName
+	if isComponentLinked(imageRepository) {
+		status.Credentials.PullRobotAccountName = pullCredentialsInfo.RobotAccountName
+		status.Credentials.PullRemoteSecretName = pullCredentialsInfo.RemoteSecretName
+		status.Credentials.PullSecretName = pullCredentialsInfo.SecretName
+	}
 
 	imageRepository.Spec.Image.Name = imageRepositoryName
 	controllerutil.AddFinalizer(imageRepository, ImageRepositoryFinalizer)
 	if isComponentLinked(imageRepository) {
 		if err := controllerutil.SetOwnerReference(component, imageRepository, r.Scheme); err != nil {
 			log.Error(err, "failed to set component as owner", "ComponentName", component.Name)
-			// Do not brake provision because of faile owner reference
+			// Do not brake provision because of failed owner reference
 		}
 	}
 	if err := r.Client.Update(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update CR after provision")
 		return err
 	} else {
-		log.Info("provisioned image repository and added finalizer")
+		log.Info("Finished provision of image repository and added finalizer")
 	}
 
 	imageRepository.Status = status
@@ -322,37 +290,68 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	return nil
 }
 
+type imageRepositoryAccessData struct {
+	RobotAccountName string
+	RemoteSecretName string
+	SecretName       string
+}
+
+// ProvisionImageRepositoryAccess makes existing quay image repository accessible
+// by creating robot account and storing its token in a RemoteSecret.
+func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, isPullOnly bool) (*imageRepositoryAccessData, error) {
+	log := ctrllog.FromContext(ctx).WithName("ProvisionImageRepositoryAccess").WithValues("IsPullOnly", isPullOnly)
+	ctx = ctrllog.IntoContext(ctx, log)
+
+	imageRepositoryName := imageRepository.Spec.Image.Name
+	quayImageURL := imageRepository.Status.Image.URL
+
+	robotAccountName := generateQuayRobotAccountName(imageRepositoryName, isPullOnly)
+	robotAccount, err := r.QuayClient.CreateRobotAccount(r.QuayOrganization, robotAccountName)
+	if err != nil {
+		log.Error(err, "failed to create robot account", "RobotAccountName", robotAccountName, l.Action, l.ActionAdd, l.Audit, "true")
+		return nil, err
+	}
+	if robotAccount == nil {
+		err := fmt.Errorf("unexpected response from Quay: robot account data object is nil")
+		log.Error(err, "nil robot account")
+		return nil, err
+	}
+
+	err = r.QuayClient.AddPermissionsForRepositoryToRobotAccount(r.QuayOrganization, imageRepositoryName, robotAccount.Name, !isPullOnly)
+	if err != nil {
+		log.Error(err, "failed to add permissions to robot account", "RobotAccountName", robotAccountName, l.Action, l.ActionUpdate, l.Audit, "true")
+		return nil, err
+	}
+
+	remoteSecretName := getRemoteSecretName(imageRepository, isPullOnly)
+	if err := r.EnsureRemoteSecret(ctx, imageRepository, remoteSecretName, isPullOnly); err != nil {
+		return nil, err
+	}
+
+	if err := r.CreateRemoteSecretUploadSecret(ctx, robotAccount, imageRepository.Namespace, remoteSecretName, quayImageURL); err != nil {
+		return nil, err
+	}
+
+	data := &imageRepositoryAccessData{
+		RobotAccountName: robotAccountName,
+		RemoteSecretName: remoteSecretName,
+		SecretName:       remoteSecretName,
+	}
+	return data, nil
+}
+
 // RegenerateImageRepositoryCredentials rotates robot account(s) token and updates corresponding secret(s)
 func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
 	log := ctrllog.FromContext(ctx)
 
-	quayImageURL := imageRepository.Status.Image.URL
-	robotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
-
-	robotAccount, err := r.QuayClient.RegenerateRobotAccountToken(r.QuayOrganization, robotAccountName)
-	if err != nil {
-		log.Error(err, "failed to refresh push token")
+	if err := r.RegenerateImageRepositoryAccessToken(ctx, imageRepository, false); err != nil {
 		return err
 	}
-	secretName := strings.ReplaceAll(robotAccountName, "_", "-")
-	if err := r.EnsureDockerSecret(ctx, imageRepository, robotAccount, secretName, quayImageURL); err != nil {
-		return err
-	}
-	log.Info("Regenerated push token", "RobotAccountName", robotAccountName)
 
 	if isComponentLinked(imageRepository) {
-		pullRobotAccountName := imageRepository.Status.Credentials.PullRobotAccountName
-		pullRobotAccount, err := r.QuayClient.RegenerateRobotAccountToken(r.QuayOrganization, pullRobotAccountName)
-		if err != nil {
-			log.Error(err, "failed to refresh pull token")
+		if err := r.RegenerateImageRepositoryAccessToken(ctx, imageRepository, true); err != nil {
 			return err
 		}
-
-		remoteSecretName := getRemoteSecretName(imageRepository)
-		if err := r.CreateRemotePullSecretUploadSecret(ctx, pullRobotAccount, imageRepository.Namespace, remoteSecretName, quayImageURL); err != nil {
-			return err
-		}
-		log.Info("Regenerated pull token", "RobotAccountName", pullRobotAccountName)
 	}
 
 	imageRepository.Spec.Credentials.RegenerateToken = nil
@@ -364,6 +363,39 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx con
 	imageRepository.Status.Credentials.GenerationTimestamp = &metav1.Time{Time: time.Now()}
 	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update image repository status", l.Action, l.ActionUpdate)
+		return err
+	}
+
+	return nil
+}
+
+// RegenerateImageRepositoryAccessToken rotates robot account token and updates new one to the corresponding Remote Secret.
+func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, isPullOnly bool) error {
+	log := ctrllog.FromContext(ctx).WithName("RegenerateImageRepositoryAccessToken").WithValues("IsPullOnly", isPullOnly)
+	ctx = ctrllog.IntoContext(ctx, log)
+
+	quayImageURL := imageRepository.Status.Image.URL
+
+	robotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
+	if isPullOnly {
+		robotAccountName = imageRepository.Status.Credentials.PullRobotAccountName
+	}
+	robotAccount, err := r.QuayClient.RegenerateRobotAccountToken(r.QuayOrganization, robotAccountName)
+	if err != nil {
+		log.Error(err, "failed to refresh robot account token")
+		return err
+	} else {
+		log.Info("Refreshed quay robot account token")
+	}
+
+	remoteSecretName := imageRepository.Status.Credentials.PushRemoteSecretName
+	if isPullOnly {
+		remoteSecretName = imageRepository.Status.Credentials.PullRemoteSecretName
+	}
+	if err := r.EnsureRemoteSecret(ctx, imageRepository, remoteSecretName, isPullOnly); err != nil {
+		return err
+	}
+	if err := r.CreateRemoteSecretUploadSecret(ctx, robotAccount, imageRepository.Namespace, remoteSecretName, quayImageURL); err != nil {
 		return err
 	}
 
@@ -448,48 +480,7 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 	return err
 }
 
-// EnsureDockerSecret makes sure that secret for given robot account exists and contains up to date credentials.
-func (r *ImageRepositoryReconciler) EnsureDockerSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, robotAccount *quay.RobotAccount, secretName, imageURL string) error {
-	log := ctrllog.FromContext(ctx).WithValues("SecretName", secretName)
-
-	secretKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: secretName}
-	secret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, secretKey, secret); err != nil {
-		if !errors.IsNotFound(err) {
-			log.Error(err, "failed to get push secret", l.Action, l.ActionView)
-			return err
-		}
-		// Cretate secret
-		secret = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretName,
-				Namespace: imageRepository.Namespace,
-			},
-			Type:       corev1.SecretTypeDockerConfigJson,
-			StringData: generateDockerconfigSecretData(imageURL, robotAccount),
-		}
-		if err := controllerutil.SetOwnerReference(imageRepository, secret, r.Scheme); err != nil {
-			log.Error(err, "failed to set owner for remote secret")
-			return err
-		}
-
-		if err := r.Client.Create(ctx, secret); err != nil {
-			log.Error(err, "failed to create secret", l.Action, l.ActionAdd)
-			return err
-		}
-	} else {
-		// Update the secret
-		secret.StringData = generateDockerconfigSecretData(imageURL, robotAccount)
-		if err := r.Client.Update(ctx, secret); err != nil {
-			log.Error(err, "failed to update secret", l.Action, l.ActionUpdate)
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (r *ImageRepositoryReconciler) EnsureRemotePullSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, remoteSecretName string) error {
+func (r *ImageRepositoryReconciler) EnsureRemoteSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, remoteSecretName string, isPull bool) error {
 	log := ctrllog.FromContext(ctx).WithValues("RemoteSecretName", remoteSecretName)
 
 	remoteSecret := &remotesecretv1beta1.RemoteSecret{}
@@ -500,13 +491,16 @@ func (r *ImageRepositoryReconciler) EnsureRemotePullSecret(ctx context.Context, 
 			return err
 		}
 
+		serviceAccountName := buildPipelineServiceAccountName
+		if isPull {
+			serviceAccountName = defaultServiceAccountName
+		}
+
 		remoteSecret := &remotesecretv1beta1.RemoteSecret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      remoteSecretName,
 				Namespace: imageRepository.Namespace,
 				Labels: map[string]string{
-					ApplicationNameLabelName:      imageRepository.Labels[ApplicationNameLabelName],
-					ComponentNameLabelName:        imageRepository.Labels[ComponentNameLabelName],
 					InternalRemoteSecretLabelName: "true",
 				},
 			},
@@ -518,7 +512,7 @@ func (r *ImageRepositoryReconciler) EnsureRemotePullSecret(ctx context.Context, 
 						{
 							ServiceAccount: remotesecretv1beta1.ServiceAccountLink{
 								Reference: corev1.LocalObjectReference{
-									Name: defaultServiceAccountName,
+									Name: serviceAccountName,
 								},
 							},
 						},
@@ -526,6 +520,14 @@ func (r *ImageRepositoryReconciler) EnsureRemotePullSecret(ctx context.Context, 
 				},
 			},
 		}
+
+		if isPull {
+			remoteSecret.Labels[ApplicationNameLabelName] = imageRepository.Labels[ApplicationNameLabelName]
+			remoteSecret.Labels[ComponentNameLabelName] = imageRepository.Labels[ComponentNameLabelName]
+		} else {
+			remoteSecret.Spec.Targets = []remotesecretv1beta1.RemoteSecretTarget{{Namespace: imageRepository.Namespace}}
+		}
+
 		if err := controllerutil.SetOwnerReference(imageRepository, remoteSecret, r.Scheme); err != nil {
 			log.Error(err, "failed to set owner for remote secret")
 			return err
@@ -534,14 +536,16 @@ func (r *ImageRepositoryReconciler) EnsureRemotePullSecret(ctx context.Context, 
 		if err := r.Client.Create(ctx, remoteSecret); err != nil {
 			log.Error(err, "failed to create remote secret", l.Action, l.ActionAdd, l.Audit, "true")
 			return err
+		} else {
+			log.Info("Remote Secret created")
 		}
 	}
 
 	return nil
 }
 
-// CreateRemotePullSecretUploadSecret propagates credentials from given robot account to corresponding remote secret.
-func (r *ImageRepositoryReconciler) CreateRemotePullSecretUploadSecret(ctx context.Context, robotAccount *quay.RobotAccount, namespace, remoteSecretName, imageURL string) error {
+// CreateRemoteSecretUploadSecret propagates credentials from given robot account to corresponding remote secret.
+func (r *ImageRepositoryReconciler) CreateRemoteSecretUploadSecret(ctx context.Context, robotAccount *quay.RobotAccount, namespace, remoteSecretName, imageURL string) error {
 	uploadSecretName := "upload-secret-" + remoteSecretName
 	log := ctrllog.FromContext(ctx).WithValues("RemoteSecretName", remoteSecretName).WithValues("UploadSecretName", uploadSecretName)
 
@@ -562,6 +566,8 @@ func (r *ImageRepositoryReconciler) CreateRemotePullSecretUploadSecret(ctx conte
 	if err := r.Client.Create(ctx, uploadSecret); err != nil {
 		log.Error(err, "failed to create upload secret", l.Action, l.ActionAdd, l.Audit, "true")
 		return err
+	} else {
+		log.Info("Created upload Secret for Remote Secret")
 	}
 
 	return nil
@@ -588,12 +594,17 @@ func generateQuayRobotAccountName(imageRepositoryName string, isPullOnly bool) s
 	return robotAccountName
 }
 
-func getRemoteSecretName(imageRepository *imagerepositoryv1alpha1.ImageRepository) string {
-	componentName := imageRepository.Labels[ComponentNameLabelName]
-	if len(componentName) > 220 {
-		componentName = componentName[:220]
+func getRemoteSecretName(imageRepository *imagerepositoryv1alpha1.ImageRepository, isPullOnly bool) string {
+	remoteSecretName := imageRepository.Name
+	if len(remoteSecretName) > 220 {
+		remoteSecretName = remoteSecretName[:220]
 	}
-	return componentName + "-image-pull"
+	if isPullOnly {
+		remoteSecretName += "-image-pull"
+	} else {
+		remoteSecretName += "-image-push"
+	}
+	return remoteSecretName
 }
 
 func isComponentLinked(imageRepository *imagerepositoryv1alpha1.ImageRepository) bool {
