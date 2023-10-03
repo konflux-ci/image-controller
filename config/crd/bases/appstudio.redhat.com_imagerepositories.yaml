@@ -82,6 +82,11 @@ spec:
                       were generated.
                     format: date-time
                     type: string
+                  pull-remote-secret:
+                    description: PullRemoteSecretName is present only if ImageRepository
+                      has labels that connect it to Application and Component. Holds
+                      the name of the RemoteSecret object that manages pull Secret.
+                    type: string
                   pull-robot-account:
                     description: PullRobotAccountName is present only if ImageRepository
                       has labels that connect it to Application and Component. Holds
@@ -92,8 +97,14 @@ spec:
                     description: PullSecretName is present only if ImageRepository
                       has labels that connect it to Application and Component. Holds
                       name of the dockerconfig secret with credentials to pull only
-                      from the generated repository. The secret is not present in
-                      the same namespace as ImageRepository, but created in
+                      from the generated repository. The secret might not be present
+                      in the same namespace as ImageRepository, but created in other
+                      environments.
+                    type: string
+                  push-remote-secret:
+                    description: PushRemoteSecretName holds name of RemoteSecret object
+                      that manages push Secret and its linking to appstudio-pipeline
+                      Service Account.
                     type: string
                   push-robot-account:
                     description: PushRobotAccountName holds name of the quay robot

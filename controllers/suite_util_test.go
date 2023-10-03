@@ -21,11 +21,14 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 
 	appstudioapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
@@ -358,6 +361,20 @@ func deleteSecret(resourceKey types.NamespacedName) {
 	Eventually(func() bool {
 		return k8sErrors.IsNotFound(k8sClient.Get(ctx, resourceKey, secret))
 	}, timeout, interval).Should(BeTrue())
+}
+
+func deleteUploadSecrets(namesapce string) {
+	uploadSecretRequirement, err := labels.NewRequirement(remotesecretv1beta1.UploadSecretLabel, selection.Equals, []string{"remotesecret"})
+	Expect(err).ToNot(HaveOccurred())
+	uploadSecretsSelector := labels.NewSelector().Add(*uploadSecretRequirement)
+	uploadSecretsListOptions := client.ListOptions{
+		LabelSelector: uploadSecretsSelector,
+		Namespace:     namesapce,
+	}
+	deleteOptions := &client.DeleteAllOfOptions{
+		ListOptions: uploadSecretsListOptions,
+	}
+	Expect(k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, deleteOptions)).To(Succeed())
 }
 
 func waitRemoteSecretExist(remoteSecretKey types.NamespacedName) *remotesecretv1beta1.RemoteSecret {
