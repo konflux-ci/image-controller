@@ -134,3 +134,61 @@ func TestGetRemoteSecretName(t *testing.T) {
 		})
 	}
 }
+
+func TestIsComponentLinked(t *testing.T) {
+	testCases := []struct {
+		name            string
+		imageRepository *imagerepositoryv1alpha1.ImageRepository
+		expect          bool
+	}{
+		{
+			name: "Should recognize linked component",
+			imageRepository: &imagerepositoryv1alpha1.ImageRepository{
+				ObjectMeta: v1.ObjectMeta{
+					Labels: map[string]string{
+						ApplicationNameLabelName: "application-name",
+						ComponentNameLabelName:   "component-name",
+					},
+				},
+			},
+			expect: true,
+		},
+		{
+			name:            "Should not be linked to component if labels missing",
+			imageRepository: &imagerepositoryv1alpha1.ImageRepository{},
+			expect:          false,
+		},
+		{
+			name: "Should not be linked to component if application label missing",
+			imageRepository: &imagerepositoryv1alpha1.ImageRepository{
+				ObjectMeta: v1.ObjectMeta{
+					Labels: map[string]string{
+						ComponentNameLabelName: "component-name",
+					},
+				},
+			},
+			expect: false,
+		},
+		{
+			name: "Should not be linked to component if component label missing",
+			imageRepository: &imagerepositoryv1alpha1.ImageRepository{
+				ObjectMeta: v1.ObjectMeta{
+					Labels: map[string]string{
+						ApplicationNameLabelName: "application-name",
+					},
+				},
+			},
+			expect: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isComponentLinked(tc.imageRepository)
+
+			if got != tc.expect {
+				t.Errorf("isComponentLinked() for %v: expected %t but got %t", tc.imageRepository, tc.expect, got)
+			}
+		})
+	}
+}
