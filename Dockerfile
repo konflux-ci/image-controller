@@ -27,4 +27,10 @@ WORKDIR /
 COPY --from=builder /opt/app-root/src/manager /
 USER 65532:65532
 
+LABEL description="RHTAP Build Service operator"
+LABEL io.k8s.description="RHTAP Build Service operator"
+LABEL io.k8s.display-name="build-service-operator"
+LABEL io.openshift.tags="rhtap"
+LABEL summary="RHTAP Build Service"
+
 ENTRYPOINT ["/manager"]
