@@ -151,6 +151,10 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				return ctrl.Result{}, err
 			}
 			log.Info("Image repository finalizer removed from the Component", l.Action, l.ActionDelete)
+
+			r.waitComponentUpdateInCache(ctx, req.NamespacedName, func(component *appstudioredhatcomv1alpha1.Component) bool {
+				return !controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer)
+			})
 		}
 
 		return ctrl.Result{}, nil
@@ -298,34 +302,10 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		log.Info("Component updated successfully", l.Action, l.ActionUpdate)
 
-		// Here we do some trick.
-		// The problem is that the component update triggers both: a new reconcile and operator cache update.
-		// In other words we are getting race condition. If a new reconcile is triggered before cache update,
-		// requested build action will be repeated, because the last update has not yet visible for the operator.
-		// For example, instead of one initial pipeline run we could get two.
-		// To resolve the problem above, instead of just ending the reconcile loop here,
-		// we are waiting for the cache update. This approach prevents next reconciles with outdated cache.
-		isComponentInCacheUpToDate := false
-		for i := 0; i < 5; i++ {
-			if err = r.Client.Get(ctx, req.NamespacedName, component); err == nil {
-				if _, exists := component.Annotations[GenerateImageAnnotationName]; !exists {
-					isComponentInCacheUpToDate = true
-					break
-				}
-				// Outdated version of the component, wait more.
-			} else {
-				if errors.IsNotFound(err) {
-					// The component was deleted
-					isComponentInCacheUpToDate = true
-					break
-				}
-				log.Error(err, "failed to get the component for annotation update check", l.Action, l.ActionView)
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		if !isComponentInCacheUpToDate {
-			log.Info("failed to wait for updated cache. Requested action could be repeated.", l.Audit, "true")
-		}
+		r.waitComponentUpdateInCache(ctx, req.NamespacedName, func(component *appstudioredhatcomv1alpha1.Component) bool {
+			_, exists := component.Annotations[GenerateImageAnnotationName]
+			return !exists
+		})
 	}
 
 	return ctrl.Result{}, nil
@@ -340,6 +320,41 @@ func (r *ComponentReconciler) reportError(ctx context.Context, component *appstu
 	component.Annotations[ImageAnnotationName] = string(messageBytes)
 	delete(component.Annotations, GenerateImageAnnotationName)
 	return r.Client.Update(ctx, component)
+}
+
+// waitComponentUpdateInCache waits for operator cache update with newer version of the component.
+// Here we do some trick.
+// The problem is that the component update triggers both: a new reconcile and operator cache update.
+// In other words we are getting race condition. If a new reconcile is triggered before cache update,
+// requested build action will be repeated, because the last update has not yet visible for the operator.
+// For example, instead of one initial pipeline run we could get two.
+// To resolve the problem above, instead of just ending the reconcile loop here,
+// we are waiting for the cache update. This approach prevents next reconciles with outdated cache.
+func (r *ComponentReconciler) waitComponentUpdateInCache(ctx context.Context, componentKey types.NamespacedName, componentUpdated func(component *appstudioredhatcomv1alpha1.Component) bool) {
+	log := ctrllog.FromContext(ctx).WithName("waitComponentUpdateInCache")
+
+	component := &appstudioredhatcomv1alpha1.Component{}
+	isComponentInCacheUpToDate := false
+	for i := 0; i < 10; i++ {
+		if err := r.Client.Get(ctx, componentKey, component); err == nil {
+			if componentUpdated(component) {
+				isComponentInCacheUpToDate = true
+				break
+			}
+			// Outdated version of the component, wait more.
+		} else {
+			if errors.IsNotFound(err) {
+				// The component was deleted
+				isComponentInCacheUpToDate = true
+				break
+			}
+			log.Error(err, "failed to get the component for annotation update check", l.Action, l.ActionView)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !isComponentInCacheUpToDate {
+		log.Info("failed to wait for updated cache. Requested action could be repeated.", l.Audit, "true")
+	}
 }
 
 // ensureRobotAccountSecret creates or updates robot account secret.

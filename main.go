@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/go-logr/logr"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
@@ -90,12 +91,20 @@ func main() {
 	setupLog := ctrl.Log.WithName("setup")
 	klog.SetLogger(setupLog)
 
+	clientOpts := client.Options{
+		Cache: &client.CacheOptions{
+			DisableFor: getCacheExcludedObjectsTypes(),
+		},
+	}
+	metricsOpts := server.Options{
+		BindAddress: metricsAddr,
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Client:                 clientOpts,
 		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
+		Metrics:                metricsOpts,
 		HealthProbeBindAddress: probeAddr,
-		ClientDisableCacheFor:  getCacheExcludedObjectsTypes(),
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "ed4c18c3.appstudio.redhat.com",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
