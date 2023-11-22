@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 
 	"gotest.tools/v3/assert"
@@ -202,11 +203,29 @@ func TestQuayClient_CreateRobotAccount(t *testing.T) {
 			expectedErr: "failed to create robot account",
 		},
 		{
-			name:       "robot account to be created already exists",
+			name:       "robot account to be created already exists, error in message field",
 			statusCode: 400,
 			responseData: map[string]string{
 				"name":    "robot",
 				"message": "Existing robot with name",
+			},
+			expectedErr: "",
+		},
+		{
+			name:       "robot account to be created already exists, error in error_message field",
+			statusCode: 400,
+			responseData: map[string]string{
+				"name":          "robot",
+				"error_message": "Existing robot with name",
+			},
+			expectedErr: "",
+		},
+		{
+			name:       "robot account to be created already exists, error in error field",
+			statusCode: 400,
+			responseData: map[string]string{
+				"name":  "robot",
+				"error": "Existing robot with name",
 			},
 			expectedErr: "",
 		},
@@ -230,7 +249,7 @@ func TestQuayClient_CreateRobotAccount(t *testing.T) {
 				req.AddMatcher(gock.MatchPath).Post("another-path")
 			}
 
-			if tc.name == "robot account to be created already exists" {
+			if strings.HasPrefix(tc.name, "robot account to be created already exists") {
 				gock.New(testQuayApiUrl).
 					MatchHeader("Content-Type", "application/json").
 					MatchHeader("Authorization", "Bearer authtoken").
@@ -260,7 +279,7 @@ func TestQuayClient_CreateRobotAccount(t *testing.T) {
 					assert.Equal(t, robotAcc.Token, "robotaccountoken")
 				}
 
-				if tc.name == "robot account to be created already exists" {
+				if strings.HasPrefix(tc.name, "robot account to be created already exists") {
 					// Ensure the returned robot account is got by calling GetRobotAccount func
 					assert.Equal(t, robotAcc.Token, "1234")
 				}

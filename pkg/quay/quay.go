@@ -295,36 +295,34 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 	}
 
 	statusCode := resp.GetStatusCode()
-
-	//400 has special handling
-	//see below
-	if statusCode > 400 {
-		message := "Failed to create robot account"
-		data := &QuayError{}
-		if err := resp.GetJson(data); err == nil {
-			if data.ErrorMessage != "" {
-				message = data.ErrorMessage
-			} else {
-				message = data.Error
-			}
-		}
-		return nil, fmt.Errorf("failed to create robot account. Status code: %d, message: %s", statusCode, message)
-	}
-
-	data := &RobotAccount{}
-	if err := resp.GetJson(data); err != nil {
-		return nil, err
-	}
-
-	if statusCode == 400 && strings.Contains(data.Message, "Existing robot with name") {
-		data, err = c.GetRobotAccount(organization, robotName)
-		if err != nil {
+	if statusCode >= 200 && statusCode <= 204 {
+		// Success
+		data := &RobotAccount{}
+		if err := resp.GetJson(data); err != nil {
 			return nil, err
 		}
-	} else if statusCode == 400 {
-		return nil, fmt.Errorf("failed to create robot account. Status code: %d, message: %s", statusCode, data.Message)
+		return data, nil
 	}
-	return data, nil
+	// Handle errors
+
+	data := &QuayError{}
+	message := "Failed to create robot account"
+	if err := resp.GetJson(data); err == nil {
+		if data.Message != "" {
+			message = data.Message
+		} else if data.ErrorMessage != "" {
+			message = data.ErrorMessage
+		} else {
+			message = data.Error
+		}
+	}
+
+	// Handle robot account already exists case
+	if statusCode == 400 && strings.Contains(message, "Existing robot with name") {
+		return c.GetRobotAccount(organization, robotName)
+	}
+
+	return nil, fmt.Errorf("failed to create robot account. Status code: %d, message: %s", statusCode, message)
 }
 
 // DeleteRobotAccount deletes given Quay.io robot account in the organization.
