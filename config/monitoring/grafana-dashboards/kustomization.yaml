@@ -1,0 +1,17 @@
+kind: Kustomization
+apiVersion: kustomize.config.k8s.io/v1beta1
+
+namespace: grafana-operator-system
+
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+
+configMapGenerator:
+  - name: grafana-dashboard-image-repository-provision
+    files:
+      - grafana-dashboard-image-repository-provision.json
+  - name: grafana-dashboard-image-repository-provision-failure
+    files:
+      - grafana-dashboard-image-repository-provision-failure.json
