@@ -70,7 +70,7 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 
 	applicationApiDepVersion := "v0.0.0-20231026192857-89515ad2504f"
-	remoteSecretApiDepVersion := "v0.0.0-20231108162916-8f7ff94e0e6a"
+	remoteSecretApiDepVersion := "v0.0.0-20240103070316-c146261dd544"
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
