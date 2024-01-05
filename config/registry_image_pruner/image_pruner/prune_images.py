@@ -1,4 +1,5 @@
 import argparse
+import itertools
 import json
 import logging
 import os
@@ -16,7 +17,7 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 QUAY_API_URL = "https://quay.io/api/v1"
 
-PROCESSED_REPOS = 0
+processed_repos_counter = itertools.count()
 
 
 ImageRepo = Dict[str, Any]
@@ -62,12 +63,10 @@ def remove_images(images: Dict[str, Any], quay_token: str, namespace: str, name:
 
 
 def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool = False) -> None:
-    global PROCESSED_REPOS
     for repo in repos:
-        PROCESSED_REPOS += 1
         namespace = repo["namespace"]
         name = repo["name"]
-        LOGGER.info("Processing repository %s: %s/%s", PROCESSED_REPOS, namespace, name)
+        LOGGER.info("Processing repository %s: %s/%s", next(processed_repos_counter), namespace, name)
         repo_info = get_quay_repo(quay_token, namespace, name)
         if (images := repo_info.get("tags")) is not None:
             remove_images(images, quay_token, namespace, name, dry_run=dry_run)
