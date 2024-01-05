@@ -47,11 +47,11 @@ def delete_image_repo(quay_token: str, namespace: str, name: str, tag: str) -> N
 
 def remove_images(images: Dict[str, Any], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
     image_digests = [image["manifest_digest"] for image in images.values()]
+    image_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att)$", re.IGNORECASE)
     for image in images:
         # attestation or sbom image
-        if image.endswith(".att") or image.endswith(".sbom"):
-            sha = re.search("sha256-(.*)(.sbom|.att)", image).group(1)
-            if f"sha256:{sha}" not in image_digests:
+        if (match := image_regex.match(image)) is not None:
+            if f"sha256:{match.group(1)}" not in image_digests:
                 if dry_run:
                     LOGGER.info("Image %s from %s/%s should be removed", image, namespace, name)
                 else:
