@@ -42,6 +42,8 @@ spec:
               requests:
                 cpu: 150m
                 memory: 128Mi
+            securityContext:
+              readOnlyRootFilesystem: true
           restartPolicy: OnFailure
           securityContext:
             runAsNonRoot: true
