@@ -2,8 +2,6 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: image-pruner-cronjob
-  annotations:
-    ignore-check.kube-linter.io/no-read-only-root-fs: 'image pruner writes to disk'
 spec:
   schedule: "0 0 * * *"
   concurrencyPolicy: Forbid
