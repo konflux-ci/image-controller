@@ -4,12 +4,12 @@ import re
 import unittest
 from email.message import Message
 from typing import Final
-from unittest.mock import patch, MagicMock
+from unittest.mock import call, patch, MagicMock
 from urllib.parse import parse_qsl, urlparse
 from urllib.request import Request
 from urllib.error import HTTPError
 
-from prune_images import fetch_image_repos, main, LOGGER, QUAY_API_URL
+from prune_images import fetch_image_repos, main, remove_images, LOGGER, QUAY_API_URL
 
 QUAY_TOKEN: Final = "1234"
 
@@ -263,6 +263,107 @@ class TestPruner(unittest.TestCase):
         self.assertListEqual([{"namespace": "sample", "name": "another-image"}], next(fetcher))
         with self.assertRaises(StopIteration):
             next(fetcher)
+
+
+class TestRemoveImages(unittest.TestCase):
+
+    @patch("prune_images.delete_image_repo")
+    def test_remove_images(self, delete_image_repo):
+        images = {
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
+                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+            },
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom": {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
+                "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
+            },
+        }
+
+        with self.assertLogs(LOGGER) as logs:
+            remove_images(images, QUAY_TOKEN, "some", "repository")
+            logs_output = "\n".join(logs.output)
+            for tag in images:
+                self.assertIn(f"Removing image {tag} from some/repository", logs_output)
+
+        self.assertEqual(len(images), delete_image_repo.call_count)
+        calls = [call(QUAY_TOKEN, "some", "repository", tag) for tag in images]
+        delete_image_repo.assert_has_calls(calls)
+
+    @patch("prune_images.delete_image_repo")
+    def test_remove_images_dry_run(self, delete_image_repo):
+        images = {
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
+                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+            },
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom": {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
+                "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
+            },
+        }
+
+        with self.assertLogs(LOGGER) as logs:
+            remove_images(images, QUAY_TOKEN, "some", "repository", dry_run=True)
+            logs_output = "\n".join(logs.output)
+            for tag in images:
+                self.assertIn(f"Image {tag} from some/repository should be removed", logs_output)
+
+        delete_image_repo.assert_not_called()
+
+    @patch("prune_images.delete_image_repo")
+    def test_remove_images_nothing_to_remove(self, delete_image_repo):
+        images = {
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
+                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+            },
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom": {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
+                "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
+            },
+            "app-image": {
+                "name": "app-image",
+                "manifest_digest": "sha256:502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd",
+            },
+        }
+
+        with self.assertRaisesRegex(AssertionError, expected_regex="no logs of level INFO"):
+            with self.assertLogs(LOGGER) as logs:
+                remove_images(images, QUAY_TOKEN, "some", "repository", dry_run=True)
+
+        delete_image_repo.assert_not_called()
+
+    @patch("prune_images.delete_image_repo")
+    def test_remove_images_multiple_images(self, delete_image_repo):
+        images = {
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
+                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+            },
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom": {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
+                "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
+            },
+            "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.att": {
+                "name": "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.att",
+                "manifest_digest": "sha256:5126ed26d60fffab5f82783af65b5a8e69da0820b723eea82a0eb71b0743c191",
+            },
+            "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.sbom": {
+                "name": "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.sbom",
+                "manifest_digest": "sha256:9b1f70d94117c63ee73d53688a3e4d412c1ba58d86b8e45845cce9b8dab44113",
+            },
+        }
+
+        with self.assertLogs(LOGGER) as logs:
+            remove_images(images, QUAY_TOKEN, "some", "repository")
+            logs_output = "\n".join(logs.output)
+            for tag in images:
+                self.assertIn(f"Removing image {tag} from some/repository", logs_output)
+
+        self.assertEqual(len(images), delete_image_repo.call_count)
+        calls = [call(QUAY_TOKEN, "some", "repository", tag) for tag in images]
+        delete_image_repo.assert_has_calls(calls)
 
 
 if __name__ == "__main__":
