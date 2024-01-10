@@ -7,7 +7,7 @@ import re
 
 from collections.abc import Iterator
 from http.client import HTTPResponse
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -35,7 +35,7 @@ def get_quay_repo(quay_token: str, namespace: str, name: str) -> ImageRepo:
         return json.loads(resp.read())
 
 
-def delete_image_repo(quay_token: str, namespace: str, name: str, tag: str) -> None:
+def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> None:
     api_url = f"{QUAY_API_URL}/repository/{namespace}/{name}/tag/{tag}"
     request = Request(api_url, method="DELETE", headers={
         "Authorization": f"Bearer {quay_token}",
@@ -46,20 +46,20 @@ def delete_image_repo(quay_token: str, namespace: str, name: str, tag: str) -> N
             raise RuntimeError(resp.reason)
 
 
-def remove_images(images: Dict[str, Any], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
-    image_digests = [image["manifest_digest"] for image in images.values()]
-    image_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att)$", re.IGNORECASE)
-    for image in images:
+def remove_tags(tags: Dict[str, Any], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
+    image_digests = [image["manifest_digest"] for image in tags.values()]
+    tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att)$")
+    for tag in tags:
         # attestation or sbom image
-        if (match := image_regex.match(image)) is not None:
+        if (match := tag_regex.match(tag)) is not None:
             if f"sha256:{match.group(1)}" not in image_digests:
                 if dry_run:
-                    LOGGER.info("Image %s from %s/%s should be removed", image, namespace, name)
+                    LOGGER.info("Image %s from %s/%s should be removed", tag, namespace, name)
                 else:
-                    LOGGER.info("Removing image %s from %s/%s", image, namespace, name)
-                    delete_image_repo(quay_token, namespace, name, image)
+                    LOGGER.info("Removing image %s from %s/%s", tag, namespace, name)
+                    delete_image_tag(quay_token, namespace, name, tag)
         else:
-            LOGGER.debug("%s is not an image with suffix .att or .sbom", image)
+            LOGGER.debug("%s is not an image with suffix .att or .sbom", tag)
 
 
 def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool = False) -> None:
@@ -68,8 +68,8 @@ def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool 
         name = repo["name"]
         LOGGER.info("Processing repository %s: %s/%s", next(processed_repos_counter), namespace, name)
         repo_info = get_quay_repo(quay_token, namespace, name)
-        if (images := repo_info.get("tags")) is not None:
-            remove_images(images, quay_token, namespace, name, dry_run=dry_run)
+        if (tags := repo_info.get("tags")) is not None:
+            remove_tags(tags, quay_token, namespace, name, dry_run=dry_run)
 
 
 def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageRepo]]:

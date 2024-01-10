@@ -9,7 +9,7 @@ from urllib.parse import parse_qsl, urlparse
 from urllib.request import Request
 from urllib.error import HTTPError
 
-from prune_images import fetch_image_repos, main, remove_images, LOGGER, QUAY_API_URL
+from prune_images import fetch_image_repos, main, remove_tags, LOGGER, QUAY_API_URL
 
 QUAY_TOKEN: Final = "1234"
 
@@ -39,8 +39,8 @@ class TestPruner(unittest.TestCase):
     @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
     @patch("sys.argv", ["prune_images", "--namespace", "sample"])
     @patch("prune_images.urlopen")
-    @patch("prune_images.delete_image_repo")
-    def test_no_image_with_expected_suffixes_is_found(self, delete_image_repo, urlopen):
+    @patch("prune_images.delete_image_tag")
+    def test_no_image_with_expected_suffixes_is_found(self, delete_image_tag, urlopen):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -72,7 +72,7 @@ class TestPruner(unittest.TestCase):
 
         main()
 
-        delete_image_repo.assert_not_called()
+        delete_image_tag.assert_not_called()
 
         self.assertEqual(2, urlopen.call_count)
 
@@ -97,7 +97,7 @@ class TestPruner(unittest.TestCase):
     @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
     @patch("sys.argv", ["prune_images", "--namespace", "sample"])
     @patch("prune_images.urlopen")
-    def test_remove_orphan_images_with_expected_suffixes(self, urlopen):
+    def test_remove_orphan_tags_with_expected_suffixes(self, urlopen):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -137,21 +137,21 @@ class TestPruner(unittest.TestCase):
         }).encode()
         get_repo_rv.__enter__.return_value = response
 
-        delete_image_rv = MagicMock()
+        delete_tag_rv = MagicMock()
         response = MagicMock()
         response.status = 204
-        delete_image_rv.__enter__.return_value = response
+        delete_tag_rv.__enter__.return_value = response
 
         urlopen.side_effect = [
             # yield repositories
             fetch_repos_rv,
             # return the repo info including tags
             get_repo_rv,
-            # return value for deleting images
-            delete_image_rv,
-            delete_image_rv,
-            delete_image_rv,
-            delete_image_rv,
+            # return value for deleting tags
+            delete_tag_rv,
+            delete_tag_rv,
+            delete_tag_rv,
+            delete_tag_rv,
         ]
 
         main()
@@ -175,7 +175,7 @@ class TestPruner(unittest.TestCase):
     @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
     @patch("sys.argv", ["prune_images", "--namespace", "sample", "--dry-run"])
     @patch("prune_images.urlopen")
-    def test_remove_image_dry_run(self, urlopen):
+    def test_remove_tag_dry_run(self, urlopen):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -265,11 +265,11 @@ class TestPruner(unittest.TestCase):
             next(fetcher)
 
 
-class TestRemoveImages(unittest.TestCase):
+class TestRemoveTags(unittest.TestCase):
 
-    @patch("prune_images.delete_image_repo")
-    def test_remove_images(self, delete_image_repo):
-        images = {
+    @patch("prune_images.delete_image_tag")
+    def test_remove_tags(self, delete_image_tag):
+        tags = {
             "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": {
                 "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
                 "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
@@ -281,18 +281,18 @@ class TestRemoveImages(unittest.TestCase):
         }
 
         with self.assertLogs(LOGGER) as logs:
-            remove_images(images, QUAY_TOKEN, "some", "repository")
+            remove_tags(tags, QUAY_TOKEN, "some", "repository")
             logs_output = "\n".join(logs.output)
-            for tag in images:
+            for tag in tags:
                 self.assertIn(f"Removing image {tag} from some/repository", logs_output)
 
-        self.assertEqual(len(images), delete_image_repo.call_count)
-        calls = [call(QUAY_TOKEN, "some", "repository", tag) for tag in images]
-        delete_image_repo.assert_has_calls(calls)
+        self.assertEqual(len(tags), delete_image_tag.call_count)
+        calls = [call(QUAY_TOKEN, "some", "repository", tag) for tag in tags]
+        delete_image_tag.assert_has_calls(calls)
 
-    @patch("prune_images.delete_image_repo")
-    def test_remove_images_dry_run(self, delete_image_repo):
-        images = {
+    @patch("prune_images.delete_image_tag")
+    def test_remove_tags_dry_run(self, delete_image_tag):
+        tags = {
             "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": {
                 "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
                 "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
@@ -304,16 +304,16 @@ class TestRemoveImages(unittest.TestCase):
         }
 
         with self.assertLogs(LOGGER) as logs:
-            remove_images(images, QUAY_TOKEN, "some", "repository", dry_run=True)
+            remove_tags(tags, QUAY_TOKEN, "some", "repository", dry_run=True)
             logs_output = "\n".join(logs.output)
-            for tag in images:
+            for tag in tags:
                 self.assertIn(f"Image {tag} from some/repository should be removed", logs_output)
 
-        delete_image_repo.assert_not_called()
+        delete_image_tag.assert_not_called()
 
-    @patch("prune_images.delete_image_repo")
-    def test_remove_images_nothing_to_remove(self, delete_image_repo):
-        images = {
+    @patch("prune_images.delete_image_tag")
+    def test_remove_tags_nothing_to_remove(self, delete_image_tag):
+        tags = {
             "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": {
                 "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
                 "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
@@ -330,13 +330,13 @@ class TestRemoveImages(unittest.TestCase):
 
         with self.assertRaisesRegex(AssertionError, expected_regex="no logs of level INFO"):
             with self.assertLogs(LOGGER) as logs:
-                remove_images(images, QUAY_TOKEN, "some", "repository", dry_run=True)
+                remove_tags(tags, QUAY_TOKEN, "some", "repository", dry_run=True)
 
-        delete_image_repo.assert_not_called()
+        delete_image_tag.assert_not_called()
 
-    @patch("prune_images.delete_image_repo")
-    def test_remove_images_multiple_images(self, delete_image_repo):
-        images = {
+    @patch("prune_images.delete_image_tag")
+    def test_remove_tags_multiple_tags(self, delete_image_tag):
+        tags = {
             "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": {
                 "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
                 "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
@@ -356,14 +356,14 @@ class TestRemoveImages(unittest.TestCase):
         }
 
         with self.assertLogs(LOGGER) as logs:
-            remove_images(images, QUAY_TOKEN, "some", "repository")
+            remove_tags(tags, QUAY_TOKEN, "some", "repository")
             logs_output = "\n".join(logs.output)
-            for tag in images:
+            for tag in tags:
                 self.assertIn(f"Removing image {tag} from some/repository", logs_output)
 
-        self.assertEqual(len(images), delete_image_repo.call_count)
-        calls = [call(QUAY_TOKEN, "some", "repository", tag) for tag in images]
-        delete_image_repo.assert_has_calls(calls)
+        self.assertEqual(len(tags), delete_image_tag.call_count)
+        calls = [call(QUAY_TOKEN, "some", "repository", tag) for tag in tags]
+        delete_image_tag.assert_has_calls(calls)
 
 
 if __name__ == "__main__":
