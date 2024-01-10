@@ -33,8 +33,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/go-logr/logr"
+	"github.com/prometheus/client_golang/prometheus"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
 	l "github.com/redhat-appstudio/image-controller/pkg/logs"
@@ -48,6 +50,15 @@ const (
 	ImageRepositoryFinalizer = "appstudio.openshift.io/image-repository"
 
 	buildPipelineServiceAccountName = "appstudio-pipeline"
+
+	metricsNamespace = "redhat_appstudio"
+	metricsSubsystem = "imagecontroller"
+)
+
+var (
+	imageRepositoryProvisionTimeMetric        prometheus.Histogram
+	imageRepositoryProvisionFailureTimeMetric prometheus.Histogram
+	repositoryTimesForMetrics                 = map[string]time.Time{}
 )
 
 // ImageRepositoryReconciler reconciles a ImageRepository object
@@ -60,11 +71,60 @@ type ImageRepositoryReconciler struct {
 	QuayOrganization string
 }
 
+func initMetrics() error {
+	buckets := getProvisionTimeMetricsBuckets()
+
+	// don't register it if it was already registered by another controller
+	if imageRepositoryProvisionTimeMetric != nil {
+		return nil
+	}
+
+	imageRepositoryProvisionTimeMetric = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: metricsNamespace,
+		Subsystem: metricsSubsystem,
+		Buckets:   buckets,
+		Name:      "image_repository_provision_time",
+		Help:      "The time in seconds spent from the moment of Image repository provision request to Image repository is ready to use.",
+	})
+
+	imageRepositoryProvisionFailureTimeMetric = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: metricsNamespace,
+		Subsystem: metricsSubsystem,
+		Buckets:   buckets,
+		Name:      "image_repository_provision_failure_time",
+		Help:      "The time in seconds spent from the moment of Image repository provision request to Image repository failure.",
+	})
+
+	if err := metrics.Registry.Register(imageRepositoryProvisionTimeMetric); err != nil {
+		return fmt.Errorf("failed to register the image_repository_provision_time metric: %w", err)
+	}
+	if err := metrics.Registry.Register(imageRepositoryProvisionFailureTimeMetric); err != nil {
+		return fmt.Errorf("failed to register the image_repository_provision_failure_time metric: %w", err)
+	}
+
+	return nil
+}
+
+func getProvisionTimeMetricsBuckets() []float64 {
+	return []float64{5, 10, 15, 20, 30, 60, 120, 300}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ImageRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := initMetrics(); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&imagerepositoryv1alpha1.ImageRepository{}).
 		Complete(r)
+}
+
+func setMetricsTime(idForMetrics string, reconcileStartTime time.Time) {
+	_, timeRecorded := repositoryTimesForMetrics[idForMetrics]
+	if !timeRecorded {
+		repositoryTimesForMetrics[idForMetrics] = reconcileStartTime
+	}
 }
 
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories,verbs=get;list;watch;create;update;patch;delete
@@ -77,6 +137,7 @@ func (r *ImageRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx).WithName("ImageRepository")
 	ctx = ctrllog.IntoContext(ctx, log)
+	reconcileStartTime := time.Now()
 
 	// Fetch the image repository instance
 	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
@@ -89,8 +150,13 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		log.Error(err, "failed to get image repository", l.Action, l.ActionView)
 		return ctrl.Result{}, err
 	}
+	
+	repositoryIdForMetrics := fmt.Sprintf("%s=%s", imageRepository.Name, imageRepository.Namespace)
 
 	if !imageRepository.DeletionTimestamp.IsZero() {
+		// remove component from metrics map
+		delete(repositoryTimesForMetrics, repositoryIdForMetrics)
+
 		// Reread quay token
 		r.QuayClient = r.BuildQuayClient(log)
 
@@ -109,6 +175,14 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateFailed {
+		provisionTime, timeRecorded := repositoryTimesForMetrics[repositoryIdForMetrics]
+		if timeRecorded {
+			imageRepositoryProvisionFailureTimeMetric.Observe(time.Since(provisionTime).Seconds())
+
+			// remove component from metrics map
+			delete(repositoryTimesForMetrics, repositoryIdForMetrics)
+		}
+
 		return ctrl.Result{}, nil
 	}
 
@@ -117,6 +191,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Provision image repository if it hasn't been done yet
 	if !controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {
+		setMetricsTime(repositoryIdForMetrics, reconcileStartTime)
 		if err := r.ProvisionImageRepository(ctx, imageRepository); err != nil {
 			log.Error(err, "provision of image repository failed")
 			return ctrl.Result{}, err
@@ -160,6 +235,15 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, nil
 		}
 	}
+
+	// we are adding to map only for new provision, not for some partial actions,
+	// so report time only if time was recorded
+	provisionTime, timeRecorded := repositoryTimesForMetrics[repositoryIdForMetrics]
+	if timeRecorded {
+		imageRepositoryProvisionTimeMetric.Observe(time.Since(provisionTime).Seconds())
+	}
+	// remove component from metrics map
+	delete(repositoryTimesForMetrics, repositoryIdForMetrics)
 
 	return ctrl.Result{}, nil
 }

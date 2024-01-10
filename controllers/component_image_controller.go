@@ -79,6 +79,10 @@ type ComponentReconciler struct {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := initMetrics(); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appstudioredhatcomv1alpha1.Component{}).
 		Complete(r)
@@ -93,6 +97,7 @@ func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx).WithName("ComponentImageRepository")
 	ctx = ctrllog.IntoContext(ctx, log)
+	reconcileStartTime := time.Now()
 
 	// Fetch the Component instance
 	component := &appstudioredhatcomv1alpha1.Component{}
@@ -108,7 +113,12 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("error reading component: %w", err)
 	}
 
+	componentIdForMetrics := getComponentIdForMetrics(component)
+
 	if !component.ObjectMeta.DeletionTimestamp.IsZero() {
+		// remove component from metrics map
+		delete(repositoryTimesForMetrics, componentIdForMetrics)
+
 		if controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer) {
 			pushRobotAccountName, pullRobotAccountName := generateRobotAccountsNames(component)
 
@@ -193,6 +203,8 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		message := fmt.Sprintf("invalid value: %s in visibility field in %s annotation", requestRepositoryOpts.Visibility, GenerateImageAnnotationName)
 		return ctrl.Result{}, r.reportError(ctx, component, message)
 	}
+
+	setMetricsTime(componentIdForMetrics, reconcileStartTime)
 
 	imageRepositoryExists := false
 	repositoryInfo := ImageRepositoryStatus{}
@@ -286,7 +298,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Update component with the generated data and add finalizer
 	err = r.Client.Get(ctx, req.NamespacedName, component)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("error updating the Component's annotations: %w", err)
+		return ctrl.Result{}, fmt.Errorf("error reading component: %w", err)
 	}
 	if component.ObjectMeta.DeletionTimestamp.IsZero() {
 		component.Annotations[ImageAnnotationName] = string(repositoryInfoBytes)
@@ -308,6 +320,10 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		})
 	}
 
+	imageRepositoryProvisionTimeMetric.Observe(time.Since(repositoryTimesForMetrics[componentIdForMetrics]).Seconds())
+	// remove component from metrics map
+	delete(repositoryTimesForMetrics, componentIdForMetrics)
+
 	return ctrl.Result{}, nil
 }
 
@@ -319,6 +335,11 @@ func (r *ComponentReconciler) reportError(ctx context.Context, component *appstu
 	messageBytes, _ := json.Marshal(&ImageRepositoryStatus{Message: messsage})
 	component.Annotations[ImageAnnotationName] = string(messageBytes)
 	delete(component.Annotations, GenerateImageAnnotationName)
+
+	componentIdForMetrics := getComponentIdForMetrics(component)
+	// remove component from metrics map, permanent error
+	delete(repositoryTimesForMetrics, componentIdForMetrics)
+
 	return r.Client.Update(ctx, component)
 }
 
@@ -557,4 +578,8 @@ func generateDockerconfigSecretData(quayImageURL string, robotAccount *quay.Robo
 	secretData[corev1.DockerConfigJsonKey] = fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`,
 		quayImageURL, base64.StdEncoding.EncodeToString([]byte(authString)))
 	return secretData
+}
+
+func getComponentIdForMetrics(component *appstudioredhatcomv1alpha1.Component) string {
+	return component.Name + "=" + component.Namespace
 }
