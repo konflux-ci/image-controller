@@ -1,8 +1,15 @@
 import argparse
-import os
+import itertools
+import json
 import logging
+import os
 import re
-import requests
+
+from collections.abc import Iterator
+from http.client import HTTPResponse
+from typing import Any, Dict, List
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -10,44 +17,88 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 QUAY_API_URL = "https://quay.io/api/v1"
 
-PROCESSED_REPOS = 0
+processed_repos_counter = itertools.count()
 
 
-def remove_images(images, session, repository, dry_run=False):
-    image_digests = [image["manifest_digest"] for image in images.values()]
-    for image in images:
-        # attribute or sbom image
-        if image.endswith(".att") or image.endswith(".sbom"):
-            sha = re.search("sha256-(.*)(.sbom|.att)", image).group(1)
-            if f"sha256:{sha}" not in image_digests:
+ImageRepo = Dict[str, Any]
+
+
+def get_quay_repo(quay_token: str, namespace: str, name: str) -> ImageRepo:
+    api_url = f"{QUAY_API_URL}/repository/{namespace}/{name}"
+    request = Request(api_url, headers={
+        "Authorization": f"Bearer {quay_token}",
+    })
+    resp: HTTPResponse
+    with urlopen(request) as resp:
+        if resp.status != 200:
+            raise RuntimeError(resp.reason)
+        return json.loads(resp.read())
+
+
+def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> None:
+    api_url = f"{QUAY_API_URL}/repository/{namespace}/{name}/tag/{tag}"
+    request = Request(api_url, method="DELETE", headers={
+        "Authorization": f"Bearer {quay_token}",
+    })
+    resp: HTTPResponse
+    with urlopen(request) as resp:
+        if resp.status != 200 and resp.status != 204:
+            raise RuntimeError(resp.reason)
+
+
+def remove_tags(tags: Dict[str, Any], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
+    image_digests = [image["manifest_digest"] for image in tags.values()]
+    tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att)$")
+    for tag in tags:
+        # attestation or sbom image
+        if (match := tag_regex.match(tag)) is not None:
+            if f"sha256:{match.group(1)}" not in image_digests:
                 if dry_run:
-                    LOGGER.info("Image %s from %s should be removed", image, repository)
+                    LOGGER.info("Image %s from %s/%s should be removed", tag, namespace, name)
                 else:
-                    LOGGER.info("Removing image %s from %s", image, repository)
-                    delete_image_endpoint = (
-                        f"{QUAY_API_URL}/repository/{repository}/tag/{image}"
-                    )
-                    response = session.delete(delete_image_endpoint)
-                    response.raise_for_status()
+                    LOGGER.info("Removing image %s from %s/%s", tag, namespace, name)
+                    delete_image_tag(quay_token, namespace, name, tag)
+        else:
+            LOGGER.debug("%s is not an image with suffix .att or .sbom", tag)
 
 
-def process_repositories(repositories, session, dry_run=False):
-    global PROCESSED_REPOS
+def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool = False) -> None:
+    for repo in repos:
+        namespace = repo["namespace"]
+        name = repo["name"]
+        LOGGER.info("Processing repository %s: %s/%s", next(processed_repos_counter), namespace, name)
+        repo_info = get_quay_repo(quay_token, namespace, name)
+        if (tags := repo_info.get("tags")) is not None:
+            remove_tags(tags, quay_token, namespace, name, dry_run=dry_run)
 
-    for repo in repositories:
-        repository = f"{repo['namespace']}/{repo['name']}"
 
-        PROCESSED_REPOS += 1
-        LOGGER.info("Processing repository %s: %s", PROCESSED_REPOS, repository)
+def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageRepo]]:
+    next_page = None
+    resp: HTTPResponse
+    while True:
+        query_args = {"namespace": namespace}
+        if next_page is not None:
+            query_args["next_page"] = next_page
 
-        repository_endpoint = f"{QUAY_API_URL}/repository/{repository}"
-        response = session.get(repository_endpoint)
-        response.raise_for_status()
-        repository_json = response.json()
+        api_url = f"{QUAY_API_URL}/repository?{urlencode(query_args)}"
+        request = Request(api_url, headers={
+            "Authorization": f"Bearer {access_token}",
+        })
 
-        images = repository_json.get("tags")
-        if images:
-            remove_images(images, session, repository, dry_run=dry_run)
+        with urlopen(request) as resp:
+            if resp.status != 200:
+                raise RuntimeError(resp.reason)
+            json_data = json.loads(resp.read())
+
+        repos = json_data.get("repositories", [])
+        if not repos:
+            LOGGER.debug("No image repository is found.")
+            break
+
+        yield repos
+
+        if (next_page := json_data.get("next_page", None)) is None:
+            break
 
 
 def main():
@@ -57,29 +108,8 @@ def main():
 
     args = parse_args()
 
-    session = requests.Session()
-    session.headers = {"Authorization": f"Bearer {token}"}
-    session.params = {"namespace": args.namespace}
-    repositories_endpoint = f"{QUAY_API_URL}/repository"
-
-    response = session.get(repositories_endpoint)
-    response.raise_for_status()
-    resp_json = response.json()
-
-    repositories = resp_json.get("repositories")
-    next_page = resp_json.get("next_page")
-
-    if repositories:
-        process_repositories(repositories, session, dry_run=args.dry_run)
-
-    while next_page:
-        response = session.get(repositories_endpoint, params={"next_page": next_page})
-        response.raise_for_status()
-        resp_json = response.json()
-
-        repositories = resp_json.get("repositories")
-        next_page = resp_json.get("next_page")
-        process_repositories(repositories, session, dry_run=args.dry_run)
+    for image_repos in fetch_image_repos(token, args.namespace):
+        process_repositories(image_repos, token, dry_run=args.dry_run)
 
 
 def parse_args():

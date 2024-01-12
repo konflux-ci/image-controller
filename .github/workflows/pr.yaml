@@ -57,4 +57,16 @@ jobs:
         uses: codecov/codecov-action@v3.1.1
         with:
           fail_ci_if_error: true
-      
+
+  test_prune_images:
+    name: Run prune_images tests
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+    - run: |
+        cd config/registry_image_pruner/image_pruner/
+        python3.9 test_prune_images.py

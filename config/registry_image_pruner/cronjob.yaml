@@ -29,9 +29,7 @@ spec:
             command:
               - /bin/bash
               - '-c'
-              - >-
-                pip install -r /image-pruner/requirements.txt && python
-                /image-pruner/prune_images.py --namespace $(NAMESPACE)
+              - python /image-pruner/prune_images.py --namespace $(NAMESPACE)
             volumeMounts:
               - name: image-pruner-volume
                 mountPath: /image-pruner
