@@ -60,6 +60,7 @@ type imageRepositoryConfig struct {
 	ImageName   string
 	Visibility  string
 	Labels      map[string]string
+	Annotations map[string]string
 }
 
 func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1alpha1.ImageRepository {
@@ -75,12 +76,17 @@ func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1al
 	} else if config.Visibility == "public" {
 		visibility = "public"
 	}
+	annotations := make(map[string]string)
+	if config.Annotations != nil {
+		annotations = config.Annotations
+	}
 
 	return &imagerepositoryv1alpha1.ImageRepository{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    config.Labels,
+			Name:        name,
+			Namespace:   namespace,
+			Labels:      config.Labels,
+			Annotations: annotations,
 		},
 		Spec: imagerepositoryv1alpha1.ImageRepositorySpec{
 			Image: imagerepositoryv1alpha1.ImageParameters{

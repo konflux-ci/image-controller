@@ -255,10 +255,16 @@ var _ = Describe("Image repository controller", func() {
 	})
 
 	Context("Image repository for component provision", func() {
+		componentKey := types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespace}
 
 		BeforeEach(func() {
 			ResetTestQuayClientToFails()
 			deleteUploadSecrets(defaultNamespace)
+			createComponent(componentConfig{})
+		})
+
+		AfterEach(func() {
+			deleteComponent(componentKey)
 		})
 
 		It("should prepare environment", func() {
@@ -268,10 +274,9 @@ var _ = Describe("Image repository controller", func() {
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 
-			createComponent(componentConfig{})
 		})
 
-		It("should provision image repository for component", func() {
+		assertProvisionRepository := func(updateComponentAnnotation bool) {
 			isCreateRepositoryInvoked := false
 			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				defer GinkgoRecover()
@@ -312,12 +317,18 @@ var _ = Describe("Image repository controller", func() {
 				return nil
 			}
 
-			createImageRepository(imageRepositoryConfig{
+			imageRepositoryConfigObject := imageRepositoryConfig{
 				Labels: map[string]string{
 					ApplicationNameLabelName: defaultComponentApplication,
 					ComponentNameLabelName:   defaultComponentName,
 				},
-			})
+			}
+
+			if updateComponentAnnotation {
+				imageRepositoryConfigObject.Annotations = map[string]string{updateComponentAnnotationName: "true"}
+			}
+
+			createImageRepository(imageRepositoryConfigObject)
 
 			pushUploadSecretKey := types.NamespacedName{Name: "upload-secret-" + resourceKey.Name + "-image-push", Namespace: resourceKey.Namespace}
 			pullUploadSecretKey := types.NamespacedName{Name: "upload-secret-" + resourceKey.Name + "-image-pull", Namespace: resourceKey.Namespace}
@@ -332,7 +343,16 @@ var _ = Describe("Image repository controller", func() {
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
 
+			component := getComponent(componentKey)
 			imageRepository := getImageRepository(resourceKey)
+
+			if updateComponentAnnotation {
+				Expect(component.Spec.ContainerImage).To(Equal(imageRepository.Status.Image.URL))
+				Expect(imageRepository.Annotations).To(HaveLen(0))
+			} else {
+				Expect(component.Spec.ContainerImage).To(BeEmpty())
+			}
+
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
 			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.OwnerReferences).To(HaveLen(1))
@@ -404,6 +424,23 @@ var _ = Describe("Image repository controller", func() {
 			Expect(err).To(Succeed())
 			pullRobotAccountName := imageRepository.Status.Credentials.PullRobotAccountName
 			Expect(string(pullUploadSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pullRobotAccountName, pullToken)))
+		}
+
+		It("should provision image repository for component, without update component annotation", func() {
+			assertProvisionRepository(false)
+
+			DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+				return true, nil
+			}
+			DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				return true, nil
+			}
+
+			deleteImageRepository(resourceKey)
+		})
+
+		It("should provision image repository for component, with update component annotation", func() {
+			assertProvisionRepository(true)
 		})
 
 		It("should regenerate tokens and update remote secret", func() {
@@ -508,9 +545,6 @@ var _ = Describe("Image repository controller", func() {
 			Eventually(func() bool { return isDeleteRobotAccountForPushInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRobotAccountForPullInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
-
-			componentKey := types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespace}
-			deleteComponent(componentKey)
 		})
 	})
 
