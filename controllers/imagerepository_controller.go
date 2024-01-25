@@ -50,6 +50,7 @@ const (
 	ImageRepositoryFinalizer = "appstudio.openshift.io/image-repository"
 
 	buildPipelineServiceAccountName = "appstudio-pipeline"
+	updateComponentAnnotationName   = "image-controller.appstudio.redhat.com/update-component-image"
 
 	metricsNamespace = "redhat_appstudio"
 	metricsSubsystem = "imagecontroller"
@@ -150,7 +151,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		log.Error(err, "failed to get image repository", l.Action, l.ActionView)
 		return ctrl.Result{}, err
 	}
-	
+
 	repositoryIdForMetrics := fmt.Sprintf("%s=%s", imageRepository.Name, imageRepository.Namespace)
 
 	if !imageRepository.DeletionTimestamp.IsZero() {
@@ -197,6 +198,41 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
+	}
+
+	// Update component
+	if isComponentLinked(imageRepository) {
+		updateComponentAnnotation, updateComponentAnnotationExists := imageRepository.Annotations[updateComponentAnnotationName]
+		if updateComponentAnnotationExists && updateComponentAnnotation == "true" {
+
+			componentName := imageRepository.Labels[ComponentNameLabelName]
+			component := &appstudioredhatcomv1alpha1.Component{}
+			componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
+			if err := r.Client.Get(ctx, componentKey, component); err != nil {
+				if errors.IsNotFound(err) {
+					log.Info("attempt to update non existing component", "ComponentName", componentName)
+					return ctrl.Result{}, nil
+				}
+
+				log.Error(err, "failed to get component", "ComponentName", componentName)
+				return ctrl.Result{}, err
+			}
+
+			component.Spec.ContainerImage = imageRepository.Status.Image.URL
+
+			if err := r.Client.Update(ctx, component); err != nil {
+				log.Error(err, "failed to update Component after provision", "ComponentName", componentName)
+				return ctrl.Result{}, err
+			}
+			log.Info("Updated component's ContainerImage", "ComponentName", componentName)
+			delete(imageRepository.Annotations, updateComponentAnnotationName)
+
+			if err := r.Client.Update(ctx, imageRepository); err != nil {
+				log.Error(err, "failed to update imageRepository annotation")
+				return ctrl.Result{}, err
+			}
+			log.Info("Updated image repository annotation")
+		}
 	}
 
 	if imageRepository.Status.State != imagerepositoryv1alpha1.ImageRepositoryStateReady {
@@ -358,6 +394,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 			// Do not brake provision because of failed owner reference
 		}
 	}
+
 	if err := r.Client.Update(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update CR after provision")
 		return err
