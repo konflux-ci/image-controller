@@ -27,10 +27,12 @@ WORKDIR /
 COPY --from=builder /opt/app-root/src/manager /
 USER 65532:65532
 
-LABEL description="RHTAP Image Controller operator"
-LABEL io.k8s.description="RHTAP Image Controller operator"
+LABEL name="image-controller"
+LABEL description="Konflux Image Controller operator"
+LABEL summary="Konflux Image Service"
+LABEL io.k8s.description="Konflux Image Controller operator"
 LABEL io.k8s.display-name="image-controller-operator"
-LABEL io.openshift.tags="rhtap"
-LABEL summary="RHTAP Image Service"
+LABEL io.openshift.tags="konflux"
+LABEL com.redhat.component="image-controller-operator"
 
 ENTRYPOINT ["/manager"]
