@@ -115,7 +115,7 @@ class TestPruner(unittest.TestCase):
         response.read.return_value = json.dumps({
             "tags": {
                 "latest": {"name": "latest", "manifest_digest": "sha256:93a8743dc130"},
-                # image sha256:e45fad41f2ff has been removed
+                # image manifest sha256:03fabe17d4c5 does not exist
                 "sha256-03fabe17d4c5.sbom": {
                     "name": "sha256-03fabe17d4c5.sbom",
                     "manifest_digest": "sha256:e45fad41f2ff",
@@ -124,7 +124,11 @@ class TestPruner(unittest.TestCase):
                     "name": "sha256-03fabe17d4c5.att",
                     "manifest_digest": "sha256:e45fad41f2ff",
                 },
-                # image sha256:03fabe17d4c5 has been removed
+                "sha256-03fabe17d4c5.src": {
+                    "name": "sha256-03fabe17d4c5.src",
+                    "manifest_digest": "sha256:f490ad41f2cc",
+                },
+                # image manifest sha256:071c766795a0 does not exist
                 "sha256-071c766795a0.sbom": {
                     "name": "sha256-071c766795a0.sbom",
                     "manifest_digest": "sha256:961207f62413",
@@ -132,6 +136,10 @@ class TestPruner(unittest.TestCase):
                 "sha256-071c766795a0.att": {
                     "name": "sha256-071c766795a0.att",
                     "manifest_digest": "sha256:961207f62413",
+                },
+                "sha256-071c766795a0.src": {
+                    "name": "sha256-071c766795a0.src",
+                    "manifest_digest": "sha256:0ab207f62413",
                 },
             },
         }).encode()
@@ -152,23 +160,25 @@ class TestPruner(unittest.TestCase):
             delete_tag_rv,
             delete_tag_rv,
             delete_tag_rv,
+            delete_tag_rv,
+            delete_tag_rv,
         ]
 
         main()
 
-        self.assertEqual(6, urlopen.call_count)
+        self.assertEqual(8, urlopen.call_count)
 
         def _assert_deletion_request(request: Request, tag: str) -> None:
             expected_url_path = f"{QUAY_API_URL}/repository/sample/hello-image/tag/{tag}"
             self.assertEqual(expected_url_path, request.get_full_url())
             self.assertEqual("DELETE", request.get_method())
 
-        test_pairs = zip(
-            # keep same order as above
-            ("sha256-03fabe17d4c5.sbom", "sha256-03fabe17d4c5.att",
-             "sha256-071c766795a0.sbom", "sha256-071c766795a0.att"),
-            urlopen.mock_calls[-4:],
+        # keep same order as above
+        tags_to_remove = (
+            "sha256-03fabe17d4c5.sbom", "sha256-03fabe17d4c5.att", "sha256-03fabe17d4c5.src",
+            "sha256-071c766795a0.sbom", "sha256-071c766795a0.att", "sha256-071c766795a0.src",
         )
+        test_pairs = zip(tags_to_remove, urlopen.mock_calls[-6:])
         for tag, call in test_pairs:
             _assert_deletion_request(call.args[0], tag)
 
