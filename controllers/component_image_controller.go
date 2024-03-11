@@ -424,6 +424,7 @@ func (r *ComponentReconciler) ensureComponentPullSecretRemoteSecret(ctx context.
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      remoteSecretName,
 				Namespace: component.Namespace,
+				// TODO: remove application/component labels when SEB controller will be discontinued
 				Labels: map[string]string{
 					ApplicationNameLabelName:      component.Spec.Application,
 					ComponentNameLabelName:        component.Name,

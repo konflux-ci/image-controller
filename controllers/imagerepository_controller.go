@@ -647,11 +647,10 @@ func (r *ImageRepositoryReconciler) EnsureRemoteSecret(ctx context.Context, imag
 			},
 		}
 
+		// TODO: remove application/component labels when SEB controller will be discontinued
 		if isPull {
 			remoteSecret.Labels[ApplicationNameLabelName] = imageRepository.Labels[ApplicationNameLabelName]
 			remoteSecret.Labels[ComponentNameLabelName] = imageRepository.Labels[ComponentNameLabelName]
-		} else {
-			remoteSecret.Spec.Targets = []remotesecretv1beta1.RemoteSecretTarget{{Namespace: imageRepository.Namespace}}
 		}
 
 		if err := controllerutil.SetOwnerReference(imageRepository, remoteSecret, r.Scheme); err != nil {
