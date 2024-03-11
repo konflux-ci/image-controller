@@ -397,7 +397,8 @@ var _ = Describe("Image repository controller", func() {
 			Expect(pullRemoteSecret.Spec.Secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			Expect(pullRemoteSecret.Spec.Secret.LinkedTo).To(HaveLen(1))
 			Expect(pullRemoteSecret.Spec.Secret.LinkedTo[0].ServiceAccount.Reference.Name).To(Equal(defaultServiceAccountName))
-			Expect(pullRemoteSecret.Spec.Targets).To(HaveLen(0))
+			Expect(pullRemoteSecret.Spec.Targets).To(HaveLen(1))
+			Expect(pullRemoteSecret.Spec.Targets[0].Namespace).To(Equal(imageRepository.Namespace))
 
 			var authDataJson interface{}
 

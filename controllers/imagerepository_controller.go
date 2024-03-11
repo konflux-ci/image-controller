@@ -639,6 +639,11 @@ func (r *ImageRepositoryReconciler) EnsureRemoteSecret(ctx context.Context, imag
 						},
 					},
 				},
+				Targets: []remotesecretv1beta1.RemoteSecretTarget{
+					{
+						Namespace: imageRepository.Namespace,
+					},
+				},
 			},
 		}
 

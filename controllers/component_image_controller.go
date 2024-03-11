@@ -452,6 +452,11 @@ func (r *ComponentReconciler) ensureComponentPullSecretRemoteSecret(ctx context.
 						},
 					},
 				},
+				Targets: []remotesecretv1beta1.RemoteSecretTarget{
+					{
+						Namespace: component.Namespace,
+					},
+				},
 			},
 		}
 		if err := r.Client.Create(ctx, remoteSecret); err != nil {
