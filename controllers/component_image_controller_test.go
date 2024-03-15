@@ -171,6 +171,8 @@ var _ = Describe("Component image controller", func() {
 			Expect(remoteSecret.Spec.Secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			Expect(remoteSecret.Spec.Secret.LinkedTo).To(HaveLen(1))
 			Expect(remoteSecret.Spec.Secret.LinkedTo[0].ServiceAccount.Reference.Name).To(Equal(defaultServiceAccountName))
+			Expect(remoteSecret.Spec.Targets).To(HaveLen(1))
+			Expect(remoteSecret.Spec.Targets[0].Namespace).To(Equal(component.Namespace))
 
 			waitSecretExist(uploadSecretKey)
 			uploadSecret := &corev1.Secret{}
@@ -692,6 +694,9 @@ var _ = Describe("Component image controller", func() {
 			Expect(remoteSecret.Spec.Secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			Expect(remoteSecret.Spec.Secret.LinkedTo).To(HaveLen(1))
 			Expect(remoteSecret.Spec.Secret.LinkedTo[0].ServiceAccount.Reference.Name).To(Equal(defaultServiceAccountName))
+			Expect(remoteSecret.Spec.Targets).To(HaveLen(1))
+			Expect(remoteSecret.Spec.Targets[0].Namespace).To(Equal(component.Namespace))
+
 		})
 	})
 
