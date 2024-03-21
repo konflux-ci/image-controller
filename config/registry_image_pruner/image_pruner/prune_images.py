@@ -48,7 +48,7 @@ def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> No
 
 def remove_tags(tags: Dict[str, Any], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
     image_digests = [image["manifest_digest"] for image in tags.values()]
-    tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src)$")
+    tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src|\.sig)$")
     for tag in tags:
         # attestation or sbom image
         if (match := tag_regex.match(tag)) is not None:
