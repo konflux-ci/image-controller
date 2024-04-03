@@ -49,9 +49,6 @@ const (
 
 	buildPipelineServiceAccountName = "appstudio-pipeline"
 	updateComponentAnnotationName   = "image-controller.appstudio.redhat.com/update-component-image"
-
-	metricsNamespace = "redhat_appstudio"
-	metricsSubsystem = "imagecontroller"
 )
 
 // ImageRepositoryReconciler reconciles a ImageRepository object

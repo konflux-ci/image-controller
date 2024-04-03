@@ -30,8 +30,6 @@ type TestQuayClient struct{}
 var _ QuayService = (*TestQuayClient)(nil)
 
 var (
-	testQuayClient = &TestQuayClient{}
-
 	CreateRepositoryFunc                          func(repository RepositoryRequest) (*Repository, error)
 	DeleteRepositoryFunc                          func(organization, imageRepository string) (bool, error)
 	ChangeRepositoryVisibilityFunc                func(organization, imageRepository string, visibility string) error
