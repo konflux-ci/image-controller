@@ -19,8 +19,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/redhat-appstudio/image-controller/pkg/metrics"
 	"net/http"
 	"os"
+	cmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -168,6 +170,14 @@ func main() {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
+
+	ctx := ctrl.SetupSignalHandler()
+	imageControllerMetrics := metrics.NewImageControllerMetrics([]metrics.AvailabilityProbe{metrics.NewQuayAvailabilityProbe(buildQuayClientFunc, quayOrganization)})
+	if err := imageControllerMetrics.InitMetrics(cmetrics.Registry); err != nil {
+		setupLog.Error(err, "unable to initialize metrics")
+		os.Exit(1)
+	}
+	imageControllerMetrics.StartMetrics(ctx)
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {

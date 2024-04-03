@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/redhat-appstudio/image-controller/pkg/metrics"
 	"strings"
 	"time"
 
@@ -79,10 +80,6 @@ type ComponentReconciler struct {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := initMetrics(); err != nil {
-		return err
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appstudioredhatcomv1alpha1.Component{}).
 		Complete(r)
@@ -117,7 +114,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	if !component.ObjectMeta.DeletionTimestamp.IsZero() {
 		// remove component from metrics map
-		delete(repositoryTimesForMetrics, componentIdForMetrics)
+		delete(metrics.RepositoryTimesForMetrics, componentIdForMetrics)
 
 		if controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer) {
 			pushRobotAccountName, pullRobotAccountName := generateRobotAccountsNames(component)
@@ -320,9 +317,9 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		})
 	}
 
-	imageRepositoryProvisionTimeMetric.Observe(time.Since(repositoryTimesForMetrics[componentIdForMetrics]).Seconds())
+	metrics.ImageRepositoryProvisionTimeMetric.Observe(time.Since(metrics.RepositoryTimesForMetrics[componentIdForMetrics]).Seconds())
 	// remove component from metrics map
-	delete(repositoryTimesForMetrics, componentIdForMetrics)
+	delete(metrics.RepositoryTimesForMetrics, componentIdForMetrics)
 
 	return ctrl.Result{}, nil
 }
@@ -338,7 +335,7 @@ func (r *ComponentReconciler) reportError(ctx context.Context, component *appstu
 
 	componentIdForMetrics := getComponentIdForMetrics(component)
 	// remove component from metrics map, permanent error
-	delete(repositoryTimesForMetrics, componentIdForMetrics)
+	delete(metrics.RepositoryTimesForMetrics, componentIdForMetrics)
 
 	return r.Client.Update(ctx, component)
 }
