@@ -30,7 +30,7 @@ func NewQuayAvailabilityProbe(clientBuilder func(logr.Logger) quay.QuayService, 
 
 func (q *QuayAvailabilityProbe) CheckAvailability(ctx context.Context) error {
 	client := q.BuildQuayClient(ctrllog.FromContext(ctx))
-	_, err := client.GetAllRepositories(q.QuayOrganization)
+	_, err := client.GetAllRobotAccounts(q.QuayOrganization)
 	return err
 }
 
