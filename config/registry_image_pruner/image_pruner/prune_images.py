@@ -8,6 +8,7 @@ import re
 from collections.abc import Iterator
 from http.client import HTTPResponse
 from typing import Any, Dict, List
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -29,10 +30,18 @@ def get_quay_repo(quay_token: str, namespace: str, name: str) -> ImageRepo:
         "Authorization": f"Bearer {quay_token}",
     })
     resp: HTTPResponse
-    with urlopen(request) as resp:
-        if resp.status != 200:
-            raise RuntimeError(resp.reason)
-        return json.loads(resp.read())
+    try:
+        with urlopen(request) as resp:
+            if resp.status != 200:
+                raise RuntimeError(resp.reason)
+            return json.loads(resp.read())
+
+    except HTTPError as ex:
+        # ignore if not found
+        if ex.status != 404:
+            raise(ex)
+        else:
+            return {}
 
 
 def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> None:
@@ -41,9 +50,15 @@ def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> No
         "Authorization": f"Bearer {quay_token}",
     })
     resp: HTTPResponse
-    with urlopen(request) as resp:
-        if resp.status != 200 and resp.status != 204:
-            raise RuntimeError(resp.reason)
+    try:
+        with urlopen(request) as resp:
+            if resp.status != 200 and resp.status != 204:
+                raise RuntimeError(resp.reason)
+
+    except HTTPError as ex:
+        # ignore if not found
+        if ex.status != 404:
+            raise(ex)
 
 
 def remove_tags(tags: Dict[str, Any], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
@@ -68,6 +83,10 @@ def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool 
         name = repo["name"]
         LOGGER.info("Processing repository %s: %s/%s", next(processed_repos_counter), namespace, name)
         repo_info = get_quay_repo(quay_token, namespace, name)
+
+        if not repo_info:
+            continue
+
         if (tags := repo_info.get("tags")) is not None:
             remove_tags(tags, quay_token, namespace, name, dry_run=dry_run)
 
