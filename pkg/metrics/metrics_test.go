@@ -12,6 +12,9 @@ import (
 func TestRegisterMetrics(t *testing.T) {
 	t.Run("Should register and record availability metric", func(t *testing.T) {
 		probe, err := NewQuayAvailabilityProbe(context.Background(), getTestClient, quay.TestQuayOrg)
+		if err != nil {
+			t.Errorf("Fail to register probe: %v", err)
+		}
 		buildMetrics := NewImageControllerMetrics([]AvailabilityProbe{probe})
 		registry := prometheus.NewPedanticRegistry()
 		err = buildMetrics.InitMetrics(registry)
