@@ -172,7 +172,12 @@ func main() {
 	}
 
 	ctx := ctrl.SetupSignalHandler()
-	imageControllerMetrics := metrics.NewImageControllerMetrics([]metrics.AvailabilityProbe{metrics.NewQuayAvailabilityProbe(buildQuayClientFunc, quayOrganization)})
+	quayProbe, err := metrics.NewQuayAvailabilityProbe(ctx, buildQuayClientFunc, quayOrganization)
+	if err != nil {
+		setupLog.Error(err, "unable to register quay availability probe")
+		os.Exit(1)
+	}
+	imageControllerMetrics := metrics.NewImageControllerMetrics([]metrics.AvailabilityProbe{quayProbe})
 	if err := imageControllerMetrics.InitMetrics(cmetrics.Registry); err != nil {
 		setupLog.Error(err, "unable to initialize metrics")
 		os.Exit(1)
