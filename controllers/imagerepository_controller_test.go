@@ -51,7 +51,7 @@ var _ = Describe("Image repository controller", func() {
 	Context("Image repository provision", func() {
 
 		BeforeEach(func() {
-			ResetTestQuayClientToFails()
+			quay.ResetTestQuayClientToFails()
 			deleteUploadSecrets(defaultNamespace)
 		})
 
@@ -60,34 +60,34 @@ var _ = Describe("Image repository controller", func() {
 
 			pushToken = "push-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, defaultImageRepositoryName)
-			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedImageName)
+			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 		})
 
 		It("should provision image repository", func() {
 			isCreateRepositoryInvoked := false
-			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				defer GinkgoRecover()
 				isCreateRepositoryInvoked = true
 				Expect(repository.Repository).To(Equal(expectedImageName))
-				Expect(repository.Namespace).To(Equal(testQuayOrg))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
 				Expect(repository.Visibility).To(Equal("public"))
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
 			isCreateRobotAccountInvoked := false
-			CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+			quay.CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
 				defer GinkgoRecover()
 				isCreateRobotAccountInvoked = true
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(strings.HasPrefix(robotName, expectedRobotAccountPrefix)).To(BeTrue())
 				return &quay.RobotAccount{Name: robotName, Token: pushToken}, nil
 			}
 			isAddPushPermissionsToRobotAccountInvoked := false
-			AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error {
+			quay.AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error {
 				defer GinkgoRecover()
 				isAddPushPermissionsToRobotAccountInvoked = true
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
 				Expect(isWrite).To(BeTrue())
 				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
@@ -154,10 +154,10 @@ var _ = Describe("Image repository controller", func() {
 			time.Sleep(time.Second)
 
 			isRegenerateRobotAccountTokenInvoked := false
-			RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+			quay.RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
 				defer GinkgoRecover()
 				isRegenerateRobotAccountTokenInvoked = true
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(strings.HasPrefix(robotName, expectedRobotAccountPrefix)).To(BeTrue())
 				return &quay.RobotAccount{Name: robotName, Token: newToken}, nil
 			}
@@ -196,10 +196,10 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should update image visibility", func() {
 			isChangeRepositoryVisibilityInvoked := false
-			ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
+			quay.ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
 				defer GinkgoRecover()
 				isChangeRepositoryVisibilityInvoked = true
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
 				Expect(visibility).To(Equal(string(imagerepositoryv1alpha1.ImageVisibilityPrivate)))
 				return nil
@@ -231,18 +231,18 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should cleanup repository", func() {
 			isDeleteRobotAccountInvoked := false
-			DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
 				defer GinkgoRecover()
 				isDeleteRobotAccountInvoked = true
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
 				return true, nil
 			}
 			isDeleteRepositoryInvoked := false
-			DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
 				defer GinkgoRecover()
 				isDeleteRepositoryInvoked = true
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
 				return true, nil
 			}
@@ -258,7 +258,7 @@ var _ = Describe("Image repository controller", func() {
 		componentKey := types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespace}
 
 		BeforeEach(func() {
-			ResetTestQuayClientToFails()
+			quay.ResetTestQuayClientToFails()
 			deleteUploadSecrets(defaultNamespace)
 			createComponent(componentConfig{})
 		})
@@ -271,27 +271,27 @@ var _ = Describe("Image repository controller", func() {
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s/%s", defaultNamespace, defaultComponentApplication, defaultComponentName)
-			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedImageName)
+			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 
 		})
 
 		assertProvisionRepository := func(updateComponentAnnotation bool) {
 			isCreateRepositoryInvoked := false
-			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				defer GinkgoRecover()
 				isCreateRepositoryInvoked = true
 				Expect(repository.Repository).To(Equal(expectedImageName))
-				Expect(repository.Namespace).To(Equal(testQuayOrg))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
 				Expect(repository.Visibility).To(Equal("public"))
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
 			isCreatePushRobotAccountInvoked := false
 			isCreatePullRobotAccountInvoked := false
-			CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+			quay.CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
 				defer GinkgoRecover()
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(strings.HasPrefix(robotName, expectedRobotAccountPrefix)).To(BeTrue())
 				if strings.HasSuffix(robotName, "_pull") {
 					isCreatePullRobotAccountInvoked = true
@@ -302,9 +302,9 @@ var _ = Describe("Image repository controller", func() {
 			}
 			isAddPushPermissionsToRobotAccountInvoked := false
 			isAddPullPermissionsToRobotAccountInvoked := false
-			AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error {
+			quay.AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error {
 				defer GinkgoRecover()
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
 				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
 				if strings.HasSuffix(robotAccountName, "_pull") {
@@ -430,10 +430,10 @@ var _ = Describe("Image repository controller", func() {
 		It("should provision image repository for component, without update component annotation", func() {
 			assertProvisionRepository(false)
 
-			DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
 				return true, nil
 			}
-			DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
 				return true, nil
 			}
 
@@ -458,9 +458,9 @@ var _ = Describe("Image repository controller", func() {
 
 			isRegenerateRobotAccountTokenForPushInvoked := false
 			isRegenerateRobotAccountTokenForPullInvoked := false
-			RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+			quay.RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
 				defer GinkgoRecover()
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(strings.HasPrefix(robotName, expectedRobotAccountPrefix)).To(BeTrue())
 				if strings.HasSuffix(robotName, "_pull") {
 					isRegenerateRobotAccountTokenForPullInvoked = true
@@ -521,9 +521,9 @@ var _ = Describe("Image repository controller", func() {
 		It("should cleanup component repository", func() {
 			isDeleteRobotAccountForPushInvoked := false
 			isDeleteRobotAccountForPullInvoked := false
-			DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
 				defer GinkgoRecover()
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
 				if strings.HasSuffix(robotAccountName, "_pull") {
 					isDeleteRobotAccountForPushInvoked = true
@@ -533,10 +533,10 @@ var _ = Describe("Image repository controller", func() {
 				return true, nil
 			}
 			isDeleteRepositoryInvoked := false
-			DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
 				defer GinkgoRecover()
 				isDeleteRepositoryInvoked = true
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
 				return true, nil
 			}
@@ -552,7 +552,7 @@ var _ = Describe("Image repository controller", func() {
 	Context("Other image repository scenarios", func() {
 
 		BeforeEach(func() {
-			ResetTestQuayClient()
+			quay.ResetTestQuayClient()
 			deleteImageRepository(resourceKey)
 			deleteUploadSecrets(defaultNamespace)
 		})
@@ -562,11 +562,11 @@ var _ = Describe("Image repository controller", func() {
 			expectedImageName = defaultNamespace + "/" + customImageName
 
 			isCreateRepositoryInvoked := false
-			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				defer GinkgoRecover()
 				isCreateRepositoryInvoked = true
 				Expect(repository.Repository).To(Equal(expectedImageName))
-				Expect(repository.Namespace).To(Equal(testQuayOrg))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
 				Expect(repository.Visibility).To(Equal("public"))
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
@@ -587,7 +587,7 @@ var _ = Describe("Image repository controller", func() {
 	Context("Image repository error scenarios", func() {
 
 		BeforeEach(func() {
-			ResetTestQuayClient()
+			quay.ResetTestQuayClient()
 			deleteImageRepository(resourceKey)
 			deleteUploadSecrets(defaultNamespace)
 		})
@@ -595,17 +595,17 @@ var _ = Describe("Image repository controller", func() {
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, defaultImageRepositoryName)
-			expectedImage = fmt.Sprintf("quay.io/%s/%s", testQuayOrg, expectedImageName)
+			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 		})
 
 		It("should permanently fail if private image repository requested on creation but quota exceeded", func() {
 			isCreateRepositoryInvoked := false
-			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				defer GinkgoRecover()
 				isCreateRepositoryInvoked = true
 				Expect(repository.Repository).To(Equal(expectedImageName))
-				Expect(repository.Namespace).To(Equal(testQuayOrg))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
 				Expect(repository.Visibility).To(Equal("private"))
 				Expect(repository.Description).ToNot(BeEmpty())
 				return nil, fmt.Errorf("payment required")
@@ -628,12 +628,12 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		It("should add error message and revert visibility in spec if private visibility requested after provision but quota exceeded", func() {
-			ResetTestQuayClient()
+			quay.ResetTestQuayClient()
 
-			CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
-			CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+			quay.CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
 				return &quay.RobotAccount{Name: robotName, Token: pushToken}, nil
 			}
 			createImageRepository(imageRepositoryConfig{})
@@ -641,13 +641,13 @@ var _ = Describe("Image repository controller", func() {
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
 
-			ResetTestQuayClientToFails()
+			quay.ResetTestQuayClientToFails()
 
 			isChangeRepositoryVisibilityInvoked := false
-			ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
+			quay.ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {
 				defer GinkgoRecover()
 				isChangeRepositoryVisibilityInvoked = true
-				Expect(organization).To(Equal(testQuayOrg))
+				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
 				Expect(visibility).To(Equal(string(imagerepositoryv1alpha1.ImageVisibilityPrivate)))
 				return fmt.Errorf("payment required")
@@ -665,12 +665,12 @@ var _ = Describe("Image repository controller", func() {
 					imageRepository.Status.Message != ""
 			}, timeout, interval).Should(BeTrue())
 
-			ResetTestQuayClient()
+			quay.ResetTestQuayClient()
 			deleteImageRepository(resourceKey)
 		})
 
 		It("should fail if invalid image repository linked by annotation to unexisting component", func() {
-			ResetTestQuayClientToFails()
+			quay.ResetTestQuayClientToFails()
 
 			createImageRepository(imageRepositoryConfig{
 				ImageName: fmt.Sprintf("%s/%s", defaultComponentApplication, defaultComponentName),

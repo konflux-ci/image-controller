@@ -21,9 +21,16 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"github.com/redhat-appstudio/image-controller/pkg/metrics"
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
+	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
+	l "github.com/redhat-appstudio/image-controller/pkg/logs"
+	"github.com/redhat-appstudio/image-controller/pkg/quay"
+	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,15 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/metrics"
-
-	"github.com/go-logr/logr"
-	"github.com/prometheus/client_golang/prometheus"
-	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
-	l "github.com/redhat-appstudio/image-controller/pkg/logs"
-	"github.com/redhat-appstudio/image-controller/pkg/quay"
-	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 )
 
 const (
@@ -51,15 +49,6 @@ const (
 
 	buildPipelineServiceAccountName = "appstudio-pipeline"
 	updateComponentAnnotationName   = "image-controller.appstudio.redhat.com/update-component-image"
-
-	metricsNamespace = "redhat_appstudio"
-	metricsSubsystem = "imagecontroller"
-)
-
-var (
-	imageRepositoryProvisionTimeMetric        prometheus.Histogram
-	imageRepositoryProvisionFailureTimeMetric prometheus.Histogram
-	repositoryTimesForMetrics                 = map[string]time.Time{}
 )
 
 // ImageRepositoryReconciler reconciles a ImageRepository object
@@ -72,59 +61,17 @@ type ImageRepositoryReconciler struct {
 	QuayOrganization string
 }
 
-func initMetrics() error {
-	buckets := getProvisionTimeMetricsBuckets()
-
-	// don't register it if it was already registered by another controller
-	if imageRepositoryProvisionTimeMetric != nil {
-		return nil
-	}
-
-	imageRepositoryProvisionTimeMetric = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace: metricsNamespace,
-		Subsystem: metricsSubsystem,
-		Buckets:   buckets,
-		Name:      "image_repository_provision_time",
-		Help:      "The time in seconds spent from the moment of Image repository provision request to Image repository is ready to use.",
-	})
-
-	imageRepositoryProvisionFailureTimeMetric = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Namespace: metricsNamespace,
-		Subsystem: metricsSubsystem,
-		Buckets:   buckets,
-		Name:      "image_repository_provision_failure_time",
-		Help:      "The time in seconds spent from the moment of Image repository provision request to Image repository failure.",
-	})
-
-	if err := metrics.Registry.Register(imageRepositoryProvisionTimeMetric); err != nil {
-		return fmt.Errorf("failed to register the image_repository_provision_time metric: %w", err)
-	}
-	if err := metrics.Registry.Register(imageRepositoryProvisionFailureTimeMetric); err != nil {
-		return fmt.Errorf("failed to register the image_repository_provision_failure_time metric: %w", err)
-	}
-
-	return nil
-}
-
-func getProvisionTimeMetricsBuckets() []float64 {
-	return []float64{5, 10, 15, 20, 30, 60, 120, 300}
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *ImageRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := initMetrics(); err != nil {
-		return err
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&imagerepositoryv1alpha1.ImageRepository{}).
 		Complete(r)
 }
 
 func setMetricsTime(idForMetrics string, reconcileStartTime time.Time) {
-	_, timeRecorded := repositoryTimesForMetrics[idForMetrics]
+	_, timeRecorded := metrics.RepositoryTimesForMetrics[idForMetrics]
 	if !timeRecorded {
-		repositoryTimesForMetrics[idForMetrics] = reconcileStartTime
+		metrics.RepositoryTimesForMetrics[idForMetrics] = reconcileStartTime
 	}
 }
 
@@ -156,7 +103,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	if !imageRepository.DeletionTimestamp.IsZero() {
 		// remove component from metrics map
-		delete(repositoryTimesForMetrics, repositoryIdForMetrics)
+		delete(metrics.RepositoryTimesForMetrics, repositoryIdForMetrics)
 
 		// Reread quay token
 		r.QuayClient = r.BuildQuayClient(log)
@@ -176,12 +123,12 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateFailed {
-		provisionTime, timeRecorded := repositoryTimesForMetrics[repositoryIdForMetrics]
+		provisionTime, timeRecorded := metrics.RepositoryTimesForMetrics[repositoryIdForMetrics]
 		if timeRecorded {
-			imageRepositoryProvisionFailureTimeMetric.Observe(time.Since(provisionTime).Seconds())
+			metrics.ImageRepositoryProvisionFailureTimeMetric.Observe(time.Since(provisionTime).Seconds())
 
 			// remove component from metrics map
-			delete(repositoryTimesForMetrics, repositoryIdForMetrics)
+			delete(metrics.RepositoryTimesForMetrics, repositoryIdForMetrics)
 		}
 
 		return ctrl.Result{}, nil
@@ -274,12 +221,12 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// we are adding to map only for new provision, not for some partial actions,
 	// so report time only if time was recorded
-	provisionTime, timeRecorded := repositoryTimesForMetrics[repositoryIdForMetrics]
+	provisionTime, timeRecorded := metrics.RepositoryTimesForMetrics[repositoryIdForMetrics]
 	if timeRecorded {
-		imageRepositoryProvisionTimeMetric.Observe(time.Since(provisionTime).Seconds())
+		metrics.ImageRepositoryProvisionTimeMetric.Observe(time.Since(provisionTime).Seconds())
 	}
 	// remove component from metrics map
-	delete(repositoryTimesForMetrics, repositoryIdForMetrics)
+	delete(metrics.RepositoryTimesForMetrics, repositoryIdForMetrics)
 
 	return ctrl.Result{}, nil
 }
