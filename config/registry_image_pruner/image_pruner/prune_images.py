@@ -24,24 +24,42 @@ processed_repos_counter = itertools.count()
 ImageRepo = Dict[str, Any]
 
 
-def get_quay_repo(quay_token: str, namespace: str, name: str) -> ImageRepo:
-    api_url = f"{QUAY_API_URL}/repository/{namespace}/{name}"
-    request = Request(api_url, headers={
-        "Authorization": f"Bearer {quay_token}",
-    })
+def get_quay_tags(quay_token: str, namespace: str, name: str) -> List[ImageRepo]:
+    next_page = None
     resp: HTTPResponse
-    try:
+
+    all_tags = []
+    while True:
+        query_args = {"limit": 100, "onlyActiveTags": True}
+        if next_page is not None:
+            query_args["page"] = next_page
+
+        api_url = f"{QUAY_API_URL}/repository/{namespace}/{name}/tag/?{urlencode(query_args)}"
+        request = Request(api_url, headers={
+            "Authorization": f"Bearer {quay_token}",
+        })
+
         with urlopen(request) as resp:
             if resp.status != 200:
                 raise RuntimeError(resp.reason)
-            return json.loads(resp.read())
+            json_data = json.loads(resp.read())
 
-    except HTTPError as ex:
-        # ignore if not found
-        if ex.status != 404:
-            raise(ex)
+        tags = json_data.get("tags", [])
+        all_tags.extend(tags)
+
+        if not tags:
+            LOGGER.debug("No tags found.")
+            break
+
+        page = json_data.get("page", None)
+        additional = json_data.get("has_additional", False)
+
+        if additional:
+            next_page = page + 1
         else:
-            return {}
+            break
+
+    return all_tags
 
 
 def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> None:
@@ -61,20 +79,20 @@ def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> No
             raise(ex)
 
 
-def remove_tags(tags: Dict[str, Any], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
-    image_digests = [image["manifest_digest"] for image in tags.values()]
+def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
+    image_digests = [image["manifest_digest"] for image in tags]
     tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src|\.sig)$")
     for tag in tags:
         # attestation or sbom image
-        if (match := tag_regex.match(tag)) is not None:
+        if (match := tag_regex.match(tag["name"])) is not None:
             if f"sha256:{match.group(1)}" not in image_digests:
                 if dry_run:
-                    LOGGER.info("Image %s from %s/%s should be removed", tag, namespace, name)
+                    LOGGER.info("Tag %s from %s/%s should be removed", tag["name"], namespace, name)
                 else:
-                    LOGGER.info("Removing image %s from %s/%s", tag, namespace, name)
-                    delete_image_tag(quay_token, namespace, name, tag)
+                    LOGGER.info("Removing tag %s from %s/%s", tag["name"], namespace, name)
+                    delete_image_tag(quay_token, namespace, name, tag["name"])
         else:
-            LOGGER.debug("%s is not an image with suffix .att or .sbom", tag)
+            LOGGER.debug("%s is not an tag with suffix .att or .sbom", tag["name"])
 
 
 def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool = False) -> None:
@@ -82,13 +100,12 @@ def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool 
         namespace = repo["namespace"]
         name = repo["name"]
         LOGGER.info("Processing repository %s: %s/%s", next(processed_repos_counter), namespace, name)
-        repo_info = get_quay_repo(quay_token, namespace, name)
+        all_tags = get_quay_tags(quay_token, namespace, name)
 
-        if not repo_info:
+        if not all_tags:
             continue
 
-        if (tags := repo_info.get("tags")) is not None:
-            remove_tags(tags, quay_token, namespace, name, dry_run=dry_run)
+        remove_tags(all_tags, quay_token, namespace, name, dry_run=dry_run)
 
 
 def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageRepo]]:
