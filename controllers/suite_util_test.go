@@ -167,12 +167,10 @@ func getSampleComponentData(config componentConfig) *appstudioapiv1alpha1.Compon
 }
 
 // createComponent creates sample component resource and verifies it was properly created.
-// Sets devfile model, so the component can be processed right after creation.
 func createComponent(config componentConfig) *appstudioapiv1alpha1.Component {
 	component := getSampleComponentData(config)
 
 	Expect(k8sClient.Create(ctx, component)).Should(Succeed())
-	setComponentDevfileModel(types.NamespacedName{Name: component.Name, Namespace: component.Namespace})
 
 	componentKey := types.NamespacedName{Namespace: component.Namespace, Name: component.Name}
 	return getComponent(componentKey)
@@ -203,31 +201,6 @@ func deleteComponent(componentKey types.NamespacedName) {
 	Eventually(func() bool {
 		return k8sErrors.IsNotFound(k8sClient.Get(ctx, componentKey, component))
 	}, timeout, interval).Should(BeTrue())
-}
-
-func setComponentDevfile(componentKey types.NamespacedName, devfile string) {
-	component := &appstudioapiv1alpha1.Component{}
-	Eventually(func() error {
-		Expect(k8sClient.Get(ctx, componentKey, component)).To(Succeed())
-		component.Status.Devfile = devfile
-		return k8sClient.Status().Update(ctx, component)
-	}, timeout, interval).Should(Succeed())
-
-	component = getComponent(componentKey)
-	Expect(component.Status.Devfile).Should(Not(Equal("")))
-}
-
-func getMinimalDevfile() string {
-	return `
-        schemaVersion: 2.2.0
-        metadata:
-            name: minimal-devfile
-    `
-}
-
-func setComponentDevfileModel(componentKey types.NamespacedName) {
-	devfile := getMinimalDevfile()
-	setComponentDevfile(componentKey, devfile)
 }
 
 func setComponentAnnotationValue(componentKey types.NamespacedName, annotationName string, annotationValue string) {
