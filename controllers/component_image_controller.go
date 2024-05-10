@@ -21,7 +21,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/redhat-appstudio/image-controller/pkg/metrics"
 	"strings"
 	"time"
 
@@ -38,6 +37,7 @@ import (
 	"github.com/go-logr/logr"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	l "github.com/redhat-appstudio/image-controller/pkg/logs"
+	"github.com/redhat-appstudio/image-controller/pkg/metrics"
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 )
@@ -170,16 +170,6 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	generateRepositoryOptsStr, exists := component.Annotations[GenerateImageAnnotationName]
 	if !exists {
 		// Nothing to do
-		return ctrl.Result{}, nil
-	}
-
-	// This is workaround for Application Service that doesn't properly handle component updates
-	// while initial operations with the Component are in progress.
-	if component.Status.Devfile == "" {
-		// The Component has been just created.
-		// Component controller (from Application Service) must set devfile model, wait for it.
-		log.Info("Waiting for devfile model in component")
-		// Do not requeue as after model update a new update event will trigger a new reconcile
 		return ctrl.Result{}, nil
 	}
 
