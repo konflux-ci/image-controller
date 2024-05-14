@@ -46,7 +46,7 @@ var _ = Describe("Component image controller", func() {
 		pullToken                    string
 		expectedPushRobotAccountName string
 		expectedPullRobotAccountName string
-		expectedRemoteSecretName     string
+		expectedPullSecretName       string
 		expectedRepoName             string
 		expectedImage                string
 	)
@@ -62,7 +62,7 @@ var _ = Describe("Component image controller", func() {
 			pullToken = "pull-token1234"
 			expectedPushRobotAccountName = fmt.Sprintf("%s%s%s", defaultNamespace, defaultComponentApplication, defaultComponentName)
 			expectedPullRobotAccountName = expectedPushRobotAccountName + "-pull"
-			expectedRemoteSecretName = resourceKey.Name + "-pull"
+			expectedPullSecretName = resourceKey.Name + "-pull"
 			expectedRepoName = fmt.Sprintf("%s/%s/%s", defaultNamespace, defaultComponentApplication, defaultComponentName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedRepoName)
 		})
@@ -158,31 +158,17 @@ var _ = Describe("Component image controller", func() {
 		It("should propagate pull secret to environments", func() {
 			component := getComponent(resourceKey)
 
-			remoteSecretKey := types.NamespacedName{Name: expectedRemoteSecretName, Namespace: defaultNamespace}
-			remoteSecret := waitRemoteSecretExist(remoteSecretKey)
-			Expect(remoteSecret.Labels[ApplicationNameLabelName]).To(Equal(component.Spec.Application))
-			Expect(remoteSecret.Labels[ComponentNameLabelName]).To(Equal(component.Spec.ComponentName))
-			Expect(remoteSecret.Labels[InternalRemoteSecretLabelName]).To(Equal("true"))
-			Expect(remoteSecret.OwnerReferences).To(HaveLen(1))
-			Expect(remoteSecret.OwnerReferences[0].Name).To(Equal(component.Name))
-			Expect(remoteSecret.OwnerReferences[0].Kind).To(Equal("Component"))
+			pullSecretKey := types.NamespacedName{Name: expectedPullSecretName, Namespace: defaultNamespace}
+			pullSecret := waitSecretExist(pullSecretKey)
+			Expect(pullSecret.Labels[InternalSecretLabelName]).To(Equal("true"))
+			Expect(pullSecret.OwnerReferences).To(HaveLen(1))
+			Expect(pullSecret.OwnerReferences[0].Name).To(Equal(component.Name))
+			Expect(pullSecret.OwnerReferences[0].Kind).To(Equal("Component"))
 
-			Expect(remoteSecret.Spec.Secret.Name).To(Equal(remoteSecretKey.Name))
-			Expect(remoteSecret.Spec.Secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
-			Expect(remoteSecret.Spec.Secret.LinkedTo).To(HaveLen(1))
-			Expect(remoteSecret.Spec.Secret.LinkedTo[0].ServiceAccount.Reference.Name).To(Equal(defaultServiceAccountName))
-			Expect(remoteSecret.Spec.Targets).To(HaveLen(1))
-			Expect(remoteSecret.Spec.Targets[0].Namespace).To(Equal(component.Namespace))
+			Expect(pullSecret.Name).To(Equal(pullSecretKey.Name))
+			Expect(pullSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 
-			waitSecretExist(uploadSecretKey)
-			uploadSecret := &corev1.Secret{}
-			Expect(k8sClient.Get(ctx, uploadSecretKey, uploadSecret)).To(Succeed())
-
-			Expect(uploadSecret.Labels[remotesecretv1beta1.UploadSecretLabel]).To(Equal("remotesecret"))
-			Expect(uploadSecret.Annotations[remotesecretv1beta1.RemoteSecretNameAnnotation]).To(Equal(remoteSecretKey.Name))
-			Expect(uploadSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
-
-			uploadSecretDockerconfigJson := string(uploadSecret.Data[corev1.DockerConfigJsonKey])
+			uploadSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
 			var authDataJson interface{}
 			Expect(json.Unmarshal([]byte(uploadSecretDockerconfigJson), &authDataJson)).To(Succeed())
 			Expect(uploadSecretDockerconfigJson).To(ContainSubstring(expectedImage))
@@ -603,10 +589,10 @@ var _ = Describe("Component image controller", func() {
 		})
 
 		It("should create pull robot account for existing image repositories with only push robot account and propagate it via remote secret", func() {
-			deleteSecret(types.NamespacedName{Name: expectedRemoteSecretName, Namespace: resourceKey.Namespace})
+			deleteSecret(types.NamespacedName{Name: expectedPullSecretName, Namespace: resourceKey.Namespace})
 
-			remoteSecretKey := types.NamespacedName{Name: expectedRemoteSecretName, Namespace: defaultNamespace}
-			Expect(k8sErrors.IsNotFound(k8sClient.Get(ctx, remoteSecretKey, &remotesecretv1beta1.RemoteSecret{})))
+			pullSecretKey := types.NamespacedName{Name: expectedPullSecretName, Namespace: defaultNamespace}
+			Expect(k8sErrors.IsNotFound(k8sClient.Get(ctx, pullSecretKey, &remotesecretv1beta1.RemoteSecret{})))
 
 			isCreateRepositoryInvoked := false
 			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
@@ -682,21 +668,15 @@ var _ = Describe("Component image controller", func() {
 			Expect(repoImageInfo.Visibility).To(Equal("public"))
 			Expect(repoImageInfo.Secret).To(Equal(resourceKey.Name))
 
-			remoteSecret := waitRemoteSecretExist(remoteSecretKey)
-			Expect(remoteSecret.Labels[ApplicationNameLabelName]).To(Equal(component.Spec.Application))
-			Expect(remoteSecret.Labels[ComponentNameLabelName]).To(Equal(component.Spec.ComponentName))
-			Expect(remoteSecret.Labels[InternalRemoteSecretLabelName]).To(Equal("true"))
-			Expect(remoteSecret.OwnerReferences).To(HaveLen(1))
-			Expect(remoteSecret.OwnerReferences[0].Name).To(Equal(component.Name))
-			Expect(remoteSecret.OwnerReferences[0].Kind).To(Equal("Component"))
+			pullSecret := waitSecretExist(pullSecretKey)
+			Expect(pullSecret.Labels[InternalSecretLabelName]).To(Equal("true"))
+			Expect(pullSecret.OwnerReferences).To(HaveLen(1))
+			Expect(pullSecret.OwnerReferences[0].Name).To(Equal(component.Name))
+			Expect(pullSecret.OwnerReferences[0].Kind).To(Equal("Component"))
 
-			Expect(remoteSecret.Spec.Secret.Name).To(Equal(remoteSecretKey.Name))
-			Expect(remoteSecret.Spec.Secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
-			Expect(remoteSecret.Spec.Secret.LinkedTo).To(HaveLen(1))
-			Expect(remoteSecret.Spec.Secret.LinkedTo[0].ServiceAccount.Reference.Name).To(Equal(defaultServiceAccountName))
-			Expect(remoteSecret.Spec.Targets).To(HaveLen(1))
-			Expect(remoteSecret.Spec.Targets[0].Namespace).To(Equal(component.Namespace))
-
+			Expect(pullSecret.Name).To(Equal(pullSecretKey.Name))
+			Expect(pullSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			Expect(pullSecret.Data).To(HaveKey(".dockerconfigjson"))
 		})
 	})
 

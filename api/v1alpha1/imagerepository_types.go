@@ -117,13 +117,6 @@ type CredentialsStatus struct {
 	// PullRobotAccountName is present only if ImageRepository has labels that connect it to Application and Component.
 	// Holds name of the quay robot account with real (pull only) permissions from the generated repository.
 	PullRobotAccountName string `json:"pull-robot-account,omitempty"`
-
-	// PushRemoteSecretName holds name of RemoteSecret object that manages push Secret and its linking to appstudio-pipeline Service Account.
-	PushRemoteSecretName string `json:"push-remote-secret,omitempty"`
-
-	// PullRemoteSecretName is present only if ImageRepository has labels that connect it to Application and Component.
-	// Holds the name of the RemoteSecret object that manages pull Secret.
-	PullRemoteSecretName string `json:"pull-remote-secret,omitempty"`
 }
 
 //+kubebuilder:object:root=true

@@ -123,7 +123,7 @@ func TestGetRemoteSecretName(t *testing.T) {
 				},
 			}
 
-			remoteSecretName := getRemoteSecretName(imageRepository, tc.IsPullOnly)
+			remoteSecretName := getSecretName(imageRepository, tc.IsPullOnly)
 
 			if len(remoteSecretName) > 253 {
 				t.Error("remote secret name is longer than allowed")
