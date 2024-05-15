@@ -18,39 +18,39 @@ for QN in "${LIST[@]}"; do
     # read secret json
     SJSON=$(kubectl get secret ${NAME} -n ${NS} -o json)
     if [[ -z $SJSON ]]; then
-      echo "Secret $NAME not found. Data not exists? Continue."
+      echo "Secret $NS/$NAME not found. Data not exists? Continue."
       continue
     fi
 
     # delete remotesecret
     if kubectl delete remotesecret ${NAME} -n ${NS}
     then
-      echo "RS $NAME removed OK"
+      echo "RS $NS/$NAME removed OK"
     else
-      echo "Failed to delete RemoteSecret $NAME. Exiting"
+      echo "Failed to delete RemoteSecret $NS/$NAME. Exiting"
       exit 1
     fi
 
      # re-create secret from json
    if echo $SJSON | kubectl create -f -
     then
-      echo "Secret $NAME re-created OK"
+      echo "Secret $NS/$NAME re-created OK"
     else
-      echo "Failed to re-create Secret $NAME. Exiting"
+      echo "Failed to re-create Secret $NS/$NAME. Exiting"
       exit 1
     fi
 
     # patch ownerReferences in the secret by saved one
     if kubectl patch secret ${NAME} -n ${NS} -p "${OREF_PATCH}" --type="merge"
     then
-      echo "Secret $NAME owner ref patched OK"
+      echo "Secret $NS/$NAME owner ref patched OK"
     else
-      echo "Failed to patch Secret $NAME owner ref. Exiting"
+      echo "Failed to patch Secret $NS/$NAME owner ref. Exiting"
       exit 1
     fi
 
     # remove redundant labels/annotations
-    kubectl label secret $NAME appstudio.redhat.com/linked-by-remote-secret-
-    kubectl annotate secret $NAME appstudio.redhat.com/linked-remote-secrets-
-    kubectl annotate secret $NAME appstudio.redhat.com/managing-remote-secret-
+    kubectl label secret $NAME -n $NS appstudio.redhat.com/linked-by-remote-secret-
+    kubectl annotate secret $NAME -n $NS appstudio.redhat.com/linked-remote-secrets-
+    kubectl annotate secret $NAME -n $NS appstudio.redhat.com/managing-remote-secret-
 done
