@@ -69,13 +69,11 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 
 	applicationApiDepVersion := "v0.0.0-20231026192857-89515ad2504f"
-	remoteSecretApiDepVersion := "v0.0.0-20240103070316-c146261dd544"
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "config", "crd", "bases"),
 			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "redhat-appstudio", "application-api@"+applicationApiDepVersion, "config", "crd", "bases"),
-			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "redhat-appstudio", "remote-secret@"+remoteSecretApiDepVersion, "config", "crd", "bases"),
 		},
 		ErrorIfCRDPathMissing: true,
 	}
