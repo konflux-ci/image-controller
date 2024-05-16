@@ -26,9 +26,7 @@ import (
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
-	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/redhat-appstudio/image-controller/pkg/quay"
@@ -592,7 +590,6 @@ var _ = Describe("Component image controller", func() {
 			deleteSecret(types.NamespacedName{Name: expectedPullSecretName, Namespace: resourceKey.Namespace})
 
 			pullSecretKey := types.NamespacedName{Name: expectedPullSecretName, Namespace: defaultNamespace}
-			Expect(k8sErrors.IsNotFound(k8sClient.Get(ctx, pullSecretKey, &remotesecretv1beta1.RemoteSecret{})))
 
 			isCreateRepositoryInvoked := false
 			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
