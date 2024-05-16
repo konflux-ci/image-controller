@@ -23,15 +23,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/konflux-ci/image-controller/pkg/quay"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
+	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 )
 
 var _ = Describe("Image repository controller", func() {

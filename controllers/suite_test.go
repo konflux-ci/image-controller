@@ -36,9 +36,9 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
+	"github.com/konflux-ci/image-controller/pkg/quay"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
-	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )

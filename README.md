@@ -1,4 +1,4 @@
-[![codecov](https://codecov.io/gh/redhat-appstudio/image-controller/branch/main/graph/badge.svg)](https://codecov.io/gh/redhat-appstudio/image-controller)
+[![codecov](https://codecov.io/gh/konflux-ci/image-controller/branch/main/graph/badge.svg)](https://codecov.io/gh/konflux-ci/image-controller)
 # The Image Controller for AppStudio
 The Image Controller operator helps set up container image repositories on Quay.io for AppStudio.
 

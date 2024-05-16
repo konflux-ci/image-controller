@@ -31,8 +31,8 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 
+	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	appstudioapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
 	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 )
 

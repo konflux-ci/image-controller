@@ -3,9 +3,10 @@ package metrics
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-logr/logr"
+	"github.com/konflux-ci/image-controller/pkg/quay"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/redhat-appstudio/image-controller/pkg/quay"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
