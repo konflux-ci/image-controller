@@ -1,4 +1,4 @@
-module github.com/redhat-appstudio/image-controller
+module github.com/konflux-ci/image-controller
 
 go 1.20
 

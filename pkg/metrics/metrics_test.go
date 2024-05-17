@@ -2,11 +2,12 @@ package metrics
 
 import (
 	"context"
+	"testing"
+
 	"github.com/go-logr/logr"
+	"github.com/konflux-ci/image-controller/pkg/quay"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/redhat-appstudio/image-controller/pkg/quay"
-	"testing"
 )
 
 func TestRegisterMetrics(t *testing.T) {

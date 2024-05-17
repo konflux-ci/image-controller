@@ -5,7 +5,7 @@ plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: image-controller
-repo: github.com/redhat-appstudio/image-controller
+repo: github.com/konflux-ci/image-controller
 resources:
 - api:
     crdVersion: v1
@@ -14,6 +14,6 @@ resources:
   domain: appstudio.redhat.com
   group: appstudio.redhat.com
   kind: ImageRepository
-  path: github.com/redhat-appstudio/image-controller/api/v1alpha1
+  path: github.com/konflux-ci/image-controller/api/v1alpha1
   version: v1alpha1
 version: "3"

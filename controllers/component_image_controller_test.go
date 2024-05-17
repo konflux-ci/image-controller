@@ -31,7 +31,7 @@ import (
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/redhat-appstudio/image-controller/pkg/quay"
+	"github.com/konflux-ci/image-controller/pkg/quay"
 )
 
 var _ = Describe("Component image controller", func() {
