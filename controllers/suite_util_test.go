@@ -56,11 +56,12 @@ const (
 )
 
 type imageRepositoryConfig struct {
-	ResourceKey *types.NamespacedName
-	ImageName   string
-	Visibility  string
-	Labels      map[string]string
-	Annotations map[string]string
+	ResourceKey   *types.NamespacedName
+	ImageName     string
+	Visibility    string
+	Labels        map[string]string
+	Annotations   map[string]string
+	Notifications []imagerepositoryv1alpha1.Notifications
 }
 
 func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1alpha1.ImageRepository {
@@ -93,6 +94,7 @@ func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1al
 				Name:       config.ImageName,
 				Visibility: imagerepositoryv1alpha1.ImageVisibility(visibility),
 			},
+			Notifications: config.Notifications,
 		},
 	}
 }

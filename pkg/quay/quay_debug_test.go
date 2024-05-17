@@ -186,3 +186,50 @@ func TestRegenerateRobotAccountToken(t *testing.T) {
 		t.Fatal("Token must be updated")
 	}
 }
+
+func TestCreateNotification(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+	notification := Notification{
+		Title:  "Test notification",
+		Event:  "repo_push",
+		Method: "webhook",
+		Config: NotificationConfig{
+			Url: "https://example.com",
+		},
+	}
+
+	quayNotification, err := quayClient.CreateNotification(quayOrgName, quayImageRepoName, notification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quayNotification == nil {
+		t.Fatal("Notification should not be nil")
+	}
+	if quayNotification.UUID == "" {
+		t.Fatal("Notification UUID should not be empty")
+	}
+
+	allNotifications, err := quayClient.GetNotifications(quayOrgName, quayImageRepoName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(allNotifications) == 0 {
+		t.Fatal("No notifications found")
+	}
+
+	found := false
+	for _, n := range allNotifications {
+		if n.UUID == quayNotification.UUID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Notification %s not found", quayNotification.UUID)
+	}
+
+}

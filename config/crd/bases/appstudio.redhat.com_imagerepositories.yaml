@@ -69,6 +69,34 @@ spec:
                     - private
                     type: string
                 type: object
+              notifications:
+                description: Notifications defines configuration for image repository
+                  notifications.
+                items:
+                  properties:
+                    config:
+                      properties:
+                        email:
+                          description: Email is the email address to send notifications
+                            to.
+                          type: string
+                        url:
+                          description: Webhook is the URL to send notifications to.
+                          type: string
+                      type: object
+                    event:
+                      enum:
+                      - repo_push
+                      type: string
+                    method:
+                      enum:
+                      - email
+                      - webhook
+                      type: string
+                    title:
+                      type: string
+                  type: object
+                type: array
             type: object
           status:
             description: ImageRepositoryStatus defines the observed state of ImageRepository
@@ -140,6 +168,18 @@ spec:
                   contain non critical error, like failed to change image visibility,
                   while the state is ready and image resitory could be used.
                 type: string
+              notifications:
+                description: Notifications shows the status of the notifications configuration.
+                items:
+                  description: NotificationStatus shows the status of the notification
+                    configuration.
+                  properties:
+                    title:
+                      type: string
+                    uuid:
+                      type: string
+                  type: object
+                type: array
               state:
                 description: State shows if image repository could be used. "ready"
                   means repository was created and usable, "failed" means that the
