@@ -35,10 +35,10 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/go-logr/logr"
+	l "github.com/konflux-ci/image-controller/pkg/logs"
+	"github.com/konflux-ci/image-controller/pkg/metrics"
+	"github.com/konflux-ci/image-controller/pkg/quay"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	l "github.com/redhat-appstudio/image-controller/pkg/logs"
-	"github.com/redhat-appstudio/image-controller/pkg/metrics"
-	"github.com/redhat-appstudio/image-controller/pkg/quay"
 )
 
 const (

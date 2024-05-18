@@ -19,10 +19,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/redhat-appstudio/image-controller/pkg/metrics"
 	"net/http"
 	"os"
-	cmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -43,10 +41,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/go-logr/logr"
+	"github.com/konflux-ci/image-controller/pkg/metrics"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	imagerepositoryv1alpha1 "github.com/redhat-appstudio/image-controller/api/v1alpha1"
-	"github.com/redhat-appstudio/image-controller/controllers"
-	"github.com/redhat-appstudio/image-controller/pkg/quay"
+	cmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
+
+	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
+	"github.com/konflux-ci/image-controller/controllers"
+	"github.com/konflux-ci/image-controller/pkg/quay"
 	//+kubebuilder:scaffold:imports
 )
 
