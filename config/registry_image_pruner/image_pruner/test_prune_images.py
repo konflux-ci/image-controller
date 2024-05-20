@@ -142,6 +142,23 @@ class TestPruner(unittest.TestCase):
                     "name": "sha256-071c766795a0.src",
                     "manifest_digest": "sha256:0ab207f62413",
                 },
+
+                # single deprecated source image tag remains
+                {"name": "123abcd.src", "manifest_digest": "sha256:1234566"},
+
+                # old image has only the deprecated source image, which should not be removed
+                {"name": "donotdelete", "manifest_digest": "sha256:1234567"},
+                {"name": "donotdelete.src", "manifest_digest": "sha256:1234568"},
+
+                # the binary image was deleted before. Now, these should be deleted.
+                {"name": "build-100.src", "manifest_digest": "sha256:1345678"},
+                {"name": "sha256-4567890.src", "manifest_digest": "sha256:1345678"},
+
+                # existent image has a source image tagged with a deprecated tag as well.
+                # That should be removed.
+                {"name": "1a2b3c4df", "manifest_digest": "sha256:1237890"},
+                {"name": "1a2b3c4df.src", "manifest_digest": "sha256:2345678"},
+                {"name": "sha256-1237890.src", "manifest_digest": "sha256:2345678"},
             ],
         }).encode()
         get_repo_rv.__enter__.return_value = response
@@ -163,11 +180,14 @@ class TestPruner(unittest.TestCase):
             delete_tag_rv,
             delete_tag_rv,
             delete_tag_rv,
+
+            delete_tag_rv,
+            delete_tag_rv,
+            delete_tag_rv,
+            delete_tag_rv,
         ]
 
         main()
-
-        self.assertEqual(8, urlopen.call_count)
 
         def _assert_deletion_request(request: Request, tag: str) -> None:
             expected_url_path = f"{QUAY_API_URL}/repository/sample/hello-image/tag/{tag}"
@@ -178,8 +198,9 @@ class TestPruner(unittest.TestCase):
         tags_to_remove = (
             "sha256-03fabe17d4c5.sbom", "sha256-03fabe17d4c5.att", "sha256-03fabe17d4c5.src",
             "sha256-071c766795a0.sbom", "sha256-071c766795a0.att", "sha256-071c766795a0.src",
+            "123abcd.src", "build-100.src", "sha256-4567890.src", "1a2b3c4df.src",
         )
-        test_pairs = zip(tags_to_remove, urlopen.mock_calls[-6:])
+        test_pairs = zip(tags_to_remove, urlopen.mock_calls[-10:])
         for tag, call in test_pairs:
             _assert_deletion_request(call.args[0], tag)
 

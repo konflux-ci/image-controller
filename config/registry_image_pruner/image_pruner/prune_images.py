@@ -81,6 +81,7 @@ def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> No
 
 def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
     image_digests = [image["manifest_digest"] for image in tags]
+    tags_map = {tag_info["name"]: tag_info for tag_info in tags}
     tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src|\.sig)$")
     for tag in tags:
         # attestation or sbom image
@@ -91,8 +92,22 @@ def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, nam
                 else:
                     LOGGER.info("Removing tag %s from %s/%s", tag["name"], namespace, name)
                     delete_image_tag(quay_token, namespace, name, tag["name"])
+        elif tag["name"].endswith(".src"):
+            to_delete = False
+
+            binary_tag = tag["name"].removesuffix(".src")
+            if binary_tag not in tags_map:
+                to_delete = True
+            else:
+                manifest_digest = tags_map[binary_tag]["manifest_digest"]
+                new_src_tag = f"{manifest_digest.replace(':', '-')}.src"
+                to_delete = new_src_tag in tags_map
+
+            if to_delete:
+                LOGGER.info("Removing deprecated tag %s", tag["name"])
+                delete_image_tag(quay_token, namespace, name, tag["name"])
         else:
-            LOGGER.debug("%s is not an tag with suffix .att or .sbom", tag["name"])
+            LOGGER.debug("%s is not in a known type to be deleted.", tag["name"])
 
 
 def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool = False) -> None:
