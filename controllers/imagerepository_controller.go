@@ -388,7 +388,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 	}
 
 	secretName := getSecretName(imageRepository, isPullOnly)
-	if err := r.EnsureSecret(ctx, imageRepository, secretName, isPullOnly, robotAccount, quayImageURL); err != nil {
+	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, quayImageURL, isPullOnly); err != nil {
 		return nil, err
 	}
 
@@ -451,7 +451,7 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx con
 	if isPullOnly {
 		secretName = imageRepository.Status.Credentials.PullSecretName
 	}
-	if err := r.EnsureSecret(ctx, imageRepository, secretName, isPullOnly, robotAccount, quayImageURL); err != nil {
+	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, quayImageURL, isPullOnly); err != nil {
 		return err
 	}
 	return nil
@@ -535,7 +535,7 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 	return err
 }
 
-func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, secretName string, isPull bool, robotAccount *quay.RobotAccount, imageURL string) error {
+func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, secretName string, robotAccount *quay.RobotAccount, imageURL string, isPull bool) error {
 	log := ctrllog.FromContext(ctx).WithValues("RemoteSecretName", secretName)
 
 	secret := &corev1.Secret{}

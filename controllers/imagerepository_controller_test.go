@@ -155,7 +155,6 @@ var _ = Describe("Image repository controller", func() {
 			regenerateToken := true
 			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
-			//defer deleteSecret(uploadSecretKey)
 
 			Eventually(func() bool { return isRegenerateRobotAccountTokenInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
