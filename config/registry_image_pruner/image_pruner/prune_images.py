@@ -79,19 +79,49 @@ def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> No
             raise(ex)
 
 
+def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -> bool:
+    api_url = f"{QUAY_API_URL}/repository/{namespace}/{name}/manifest/{manifest}"
+    request = Request(api_url, headers={
+        "Authorization": f"Bearer {quay_token}",
+    })
+    resp: HTTPResponse
+    manifest_exists = True
+    try:
+        with urlopen(request) as resp:
+            if resp.status != 200 and resp.status != 204:
+                raise RuntimeError(resp.reason)
+
+    except HTTPError as ex:
+        if ex.status != 404:
+            raise(ex)
+        else:
+            manifest_exists = False
+
+    return manifest_exists
+
+
 def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
     image_digests = [image["manifest_digest"] for image in tags]
     tags_map = {tag_info["name"]: tag_info for tag_info in tags}
     tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src|\.sig)$")
+    manifests_checked = {}
     for tag in tags:
         # attestation or sbom image
         if (match := tag_regex.match(tag["name"])) is not None:
             if f"sha256:{match.group(1)}" not in image_digests:
-                if dry_run:
-                    LOGGER.info("Tag %s from %s/%s should be removed", tag["name"], namespace, name)
-                else:
-                    LOGGER.info("Removing tag %s from %s/%s", tag["name"], namespace, name)
-                    delete_image_tag(quay_token, namespace, name, tag["name"])
+                # verify that manifest really doesn't exist, because if tag was removed, it won't be in tag list, but may still be in the registry
+                manifest_existence = manifests_checked.get(f"sha256:{match.group(1)}")
+                if manifest_existence is None:
+                    manifest_existence = manifest_exists(quay_token, namespace, name, f"sha256:{match.group(1)}")
+                    manifests_checked[f"sha256:{match.group(1)}"] = manifest_existence
+
+                if not manifest_existence:
+                    if dry_run:
+                        LOGGER.info("Tag %s from %s/%s should be removed", tag["name"], namespace, name)
+                    else:
+                        LOGGER.info("Removing tag %s from %s/%s", tag["name"], namespace, name)
+                        delete_image_tag(quay_token, namespace, name, tag["name"])
+
         elif tag["name"].endswith(".src"):
             to_delete = False
 

@@ -98,7 +98,8 @@ class TestPruner(unittest.TestCase):
     @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
     @patch("sys.argv", ["prune_images", "--namespace", "sample"])
     @patch("prune_images.urlopen")
-    def test_remove_orphan_tags_with_expected_suffixes(self, urlopen):
+    @patch("prune_images.manifest_exists")
+    def test_remove_orphan_tags_with_expected_suffixes(self, manifest_exists, urlopen):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -187,6 +188,19 @@ class TestPruner(unittest.TestCase):
             delete_tag_rv,
         ]
 
+        manifest_exists.side_effect = [
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+        ]
+
         main()
 
         def _assert_deletion_request(request: Request, tag: str) -> None:
@@ -207,7 +221,8 @@ class TestPruner(unittest.TestCase):
     @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
     @patch("sys.argv", ["prune_images", "--namespace", "sample", "--dry-run"])
     @patch("prune_images.urlopen")
-    def test_remove_tag_dry_run(self, urlopen):
+    @patch("prune_images.manifest_exists")
+    def test_remove_tag_dry_run(self, manifest_exists, urlopen):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -235,6 +250,9 @@ class TestPruner(unittest.TestCase):
             fetch_repos_rv,
             # return the repo info including tags
             get_repo_rv,
+        ]
+        manifest_exists.side_effect = [
+            False,
         ]
 
         with self.assertLogs(LOGGER) as logs:
@@ -297,7 +315,8 @@ class TestPruner(unittest.TestCase):
 class TestRemoveTags(unittest.TestCase):
 
     @patch("prune_images.delete_image_tag")
-    def test_remove_tags(self, delete_image_tag):
+    @patch("prune_images.manifest_exists")
+    def test_remove_tags(self, manifest_exists, delete_image_tag):
         tags = [
             {
                 "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
@@ -307,6 +326,11 @@ class TestRemoveTags(unittest.TestCase):
                 "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
                 "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
             },
+        ]
+
+        manifest_exists.side_effect = [
+            False,
+            False,
         ]
 
         with self.assertLogs(LOGGER) as logs:
@@ -320,7 +344,8 @@ class TestRemoveTags(unittest.TestCase):
         delete_image_tag.assert_has_calls(calls)
 
     @patch("prune_images.delete_image_tag")
-    def test_remove_tags_dry_run(self, delete_image_tag):
+    @patch("prune_images.manifest_exists")
+    def test_remove_tags_dry_run(self, manifest_exists, delete_image_tag):
         tags = [
             {
                 "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
@@ -330,6 +355,11 @@ class TestRemoveTags(unittest.TestCase):
                 "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
                 "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
             }
+        ]
+
+        manifest_exists.side_effect = [
+            False,
+            False,
         ]
 
         with self.assertLogs(LOGGER) as logs:
@@ -364,7 +394,34 @@ class TestRemoveTags(unittest.TestCase):
         delete_image_tag.assert_not_called()
 
     @patch("prune_images.delete_image_tag")
-    def test_remove_tags_multiple_tags(self, delete_image_tag):
+    @patch("prune_images.manifest_exists")
+    def test_remove_tags_nothing_to_remove_digest_exists(self, manifest_exists, delete_image_tag):
+        tags = [
+            {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
+                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+            },
+            {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
+                "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
+            },
+        ]
+
+        manifest_exists.side_effect = [
+            True,
+            True,
+        ]
+
+        with self.assertRaisesRegex(AssertionError, expected_regex="no logs of level INFO"):
+            with self.assertLogs(LOGGER) as logs:
+                remove_tags(tags, QUAY_TOKEN, "some", "repository", dry_run=True)
+
+        delete_image_tag.assert_not_called()
+
+
+    @patch("prune_images.delete_image_tag")
+    @patch("prune_images.manifest_exists")
+    def test_remove_tags_multiple_tags(self, manifest_exists, delete_image_tag):
         tags = [
             {
                 "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
@@ -382,6 +439,13 @@ class TestRemoveTags(unittest.TestCase):
                 "name": "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.sbom",
                 "manifest_digest": "sha256:9b1f70d94117c63ee73d53688a3e4d412c1ba58d86b8e45845cce9b8dab44113",
             },
+        ]
+
+        manifest_exists.side_effect = [
+            False,
+            False,
+            False,
+            False,
         ]
 
         with self.assertLogs(LOGGER) as logs:
