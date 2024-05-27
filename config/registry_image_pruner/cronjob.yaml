@@ -27,7 +27,7 @@ spec:
             command:
               - /bin/bash
               - '-c'
-              - python /image-pruner/prune_images.py --namespace $(NAMESPACE)
+              - echo 'The pruner is temporarily disabled, see https://github.com/konflux-ci/image-controller/pull/115'
             volumeMounts:
               - name: image-pruner-volume
                 mountPath: /image-pruner
