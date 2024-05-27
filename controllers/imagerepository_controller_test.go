@@ -50,7 +50,6 @@ var _ = Describe("Image repository controller", func() {
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClientToFails()
-			deleteSecrets(defaultNamespace)
 		})
 
 		It("should prepare environment", func() {
@@ -115,6 +114,7 @@ var _ = Describe("Image repository controller", func() {
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
+			defer deleteSecret(pushSecretKey)
 			Expect(pushSecret.OwnerReferences).To(HaveLen(1))
 			Expect(pushSecret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
 			Expect(pushSecret.OwnerReferences[0].Name).To(Equal(imageRepository.GetName()))
@@ -166,6 +166,7 @@ var _ = Describe("Image repository controller", func() {
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
+			defer deleteSecret(pushSecretKey)
 
 			Expect(pushSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
@@ -243,7 +244,6 @@ var _ = Describe("Image repository controller", func() {
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClientToFails()
-			deleteSecrets(defaultNamespace)
 			createComponent(componentConfig{})
 		})
 
@@ -351,6 +351,7 @@ var _ = Describe("Image repository controller", func() {
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
+			defer deleteSecret(pushSecretKey)
 			Expect(pushSecret.Labels[InternalSecretLabelName]).To(Equal("true"))
 			Expect(pushSecret.OwnerReferences).To(HaveLen(1))
 			Expect(pushSecret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
@@ -360,6 +361,8 @@ var _ = Describe("Image repository controller", func() {
 
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
+			defer deleteSecret(pullSecretKey)
+
 			Expect(pullSecret.Labels[InternalSecretLabelName]).To(Equal("true"))
 			Expect(pullSecret.OwnerReferences).To(HaveLen(1))
 			Expect(pullSecret.OwnerReferences[0].Name).To(Equal(imageRepository.Name))
@@ -441,9 +444,11 @@ var _ = Describe("Image repository controller", func() {
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
+			defer deleteSecret(pushSecretKey)
 
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
+			defer deleteSecret(pullSecretKey)
 
 			var authDataJson interface{}
 
@@ -502,7 +507,6 @@ var _ = Describe("Image repository controller", func() {
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
 			deleteImageRepository(resourceKey)
-			deleteSecrets(defaultNamespace)
 		})
 
 		It("should create image repository with requested name", func() {
@@ -537,7 +541,6 @@ var _ = Describe("Image repository controller", func() {
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
 			deleteImageRepository(resourceKey)
-			deleteSecrets(defaultNamespace)
 		})
 
 		It("should prepare environment", func() {

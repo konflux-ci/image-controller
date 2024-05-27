@@ -21,14 +21,11 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
@@ -339,20 +336,6 @@ func deleteSecret(resourceKey types.NamespacedName) {
 	Eventually(func() bool {
 		return k8sErrors.IsNotFound(k8sClient.Get(ctx, resourceKey, secret))
 	}, timeout, interval).Should(BeTrue())
-}
-
-func deleteSecrets(namespace string) {
-	secretRequirement, err := labels.NewRequirement(InternalSecretLabelName, selection.Equals, []string{"true"})
-	Expect(err).ToNot(HaveOccurred())
-	secretsSelector := labels.NewSelector().Add(*secretRequirement)
-	secretsListOptions := client.ListOptions{
-		LabelSelector: secretsSelector,
-		Namespace:     namespace,
-	}
-	deleteOptions := &client.DeleteAllOfOptions{
-		ListOptions: secretsListOptions,
-	}
-	Expect(k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, deleteOptions)).To(Succeed())
 }
 
 func createServiceAccount(namespace, name string) corev1.ServiceAccount {
