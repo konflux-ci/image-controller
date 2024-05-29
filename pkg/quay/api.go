@@ -51,3 +51,19 @@ type QuayError struct {
 	Error        string `json:"error,omitempty"`
 	ErrorMessage string `json:"error_message,omitempty"`
 }
+
+type Notification struct {
+	UUID        string                  `json:"uuid"`
+	Title       string                  `json:"title"`
+	Event       string                  `json:"event"`
+	Method      string                  `json:"method"`
+	Config      NotificationConfig      `json:"config"`
+	EventConfig NotificationEventConfig `json:"eventConfig"`
+}
+
+type NotificationConfig struct {
+	Url string `json:"url,omitempty"`
+}
+
+type NotificationEventConfig struct {
+}

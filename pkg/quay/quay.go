@@ -40,6 +40,8 @@ type QuayService interface {
 	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
 	GetTagsFromPage(organization, repository string, page int) ([]Tag, bool, error)
 	DeleteTag(organization, repository, tag string) (bool, error)
+	GetNotifications(organization, repository string) ([]Notification, error)
+	CreateNotification(organization, repository string, notification Notification) (*Notification, error)
 }
 
 var _ QuayService = (*QuayClient)(nil)
@@ -546,4 +548,64 @@ func (c *QuayClient) DeleteTag(organization, repository, tag string) (bool, erro
 		return false, errors.New(data.Error)
 	}
 	return false, errors.New(data.ErrorMessage)
+}
+
+func (c *QuayClient) GetNotifications(organization, repository string) ([]Notification, error) {
+	url := fmt.Sprintf("%s/repository/%s/%s/notification/", c.url, organization, repository)
+
+	resp, err := c.doRequest(url, http.MethodGet, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.GetStatusCode() != 200 {
+		return nil, fmt.Errorf("failed to get repository notifications. Status code: %d", resp.GetStatusCode())
+	}
+
+	var response struct {
+		Notifications []Notification `json:"notifications"`
+		Page          int            `json:"page"`
+		HasAdditional bool           `json:"has_additional"`
+	}
+	// var notifications []Notification
+	if err := resp.GetJson(&response); err != nil {
+		return nil, err
+	}
+	return response.Notifications, nil
+}
+
+func (c *QuayClient) CreateNotification(organization, repository string, notification Notification) (*Notification, error) {
+	allNotifications, err := c.GetNotifications(organization, repository)
+	if err != nil {
+		return nil, err
+	}
+	for _, currentNotification := range allNotifications {
+		if currentNotification.Title == notification.Title {
+			return &currentNotification, nil
+		}
+	}
+	url := fmt.Sprintf("%s/repository/%s/%s/notification/", c.url, organization, repository)
+
+	b, err := json.Marshal(notification)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal notification data: %w", err)
+	}
+
+	resp, err := c.doRequest(url, http.MethodPost, bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.GetStatusCode() != 201 {
+		quay_error := &QuayError{}
+		if err := resp.GetJson(quay_error); err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to create repository notification. Status code: %d, error: %s", resp.GetStatusCode(), quay_error.ErrorMessage)
+	}
+	var notificationResponse Notification
+	if err := resp.GetJson(&notificationResponse); err != nil {
+		return nil, err
+	}
+	return &notificationResponse, nil
 }
