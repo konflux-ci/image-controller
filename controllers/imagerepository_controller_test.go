@@ -92,11 +92,19 @@ var _ = Describe("Image repository controller", func() {
 				return nil
 			}
 
+			isCreateNotificationInvoked := false
+			quay.CreateNotificationFunc = func(organization, repository string, notification quay.Notification) (*quay.Notification, error) {
+				isCreateNotificationInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				return &quay.Notification{UUID: "uuid"}, nil
+			}
+
 			createImageRepository(imageRepositoryConfig{})
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreateRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isAddPushPermissionsToRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeFalse())
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
 
@@ -111,6 +119,7 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
+			Expect(imageRepository.Status.Notifications).To(HaveLen(0))
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
@@ -300,11 +309,27 @@ var _ = Describe("Image repository controller", func() {
 				}
 				return nil
 			}
+			isCreateNotificationInvoked := false
+			quay.CreateNotificationFunc = func(organization, repository string, notification quay.Notification) (*quay.Notification, error) {
+				isCreateNotificationInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				return &quay.Notification{UUID: "uuid"}, nil
+			}
 
 			imageRepositoryConfigObject := imageRepositoryConfig{
 				Labels: map[string]string{
 					ApplicationNameLabelName: defaultComponentApplication,
 					ComponentNameLabelName:   defaultComponentName,
+				},
+				Notifications: []imagerepositoryv1alpha1.Notifications{
+					{
+						Title:  "test-notification",
+						Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+						Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+						Config: imagerepositoryv1alpha1.NotificationConfig{
+							Url: "http://test-url",
+						},
+					},
 				},
 			}
 
@@ -319,6 +344,7 @@ var _ = Describe("Image repository controller", func() {
 			Eventually(func() bool { return isCreatePullRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isAddPushPermissionsToRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isAddPullPermissionsToRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeTrue())
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
 
@@ -348,6 +374,9 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HaveSuffix("_pull"))
 			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-image-pull"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
+			Expect(imageRepository.Status.Notifications).To(HaveLen(1))
+			Expect(imageRepository.Status.Notifications[0].UUID).To(Equal("uuid"))
+			Expect(imageRepository.Status.Notifications[0].Title).To(Equal("test-notification"))
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)

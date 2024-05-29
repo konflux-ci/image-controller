@@ -1392,6 +1392,84 @@ func TestQuayClient_RegenerateRobotAccountToken(t *testing.T) {
 	}
 }
 
+func TestQuayClient_CreateNotification(t *testing.T) {
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	testCases := []struct {
+		name         string
+		notification *Notification
+		expectedErr  string
+		statusCode   int
+		response     interface{}
+	}{
+		{
+			name:         "Notification is created",
+			notification: &Notification{UUID: "1234", Title: "notification title", Config: NotificationConfig{}, EventConfig: NotificationEventConfig{}},
+			expectedErr:  "",
+			statusCode:   201,
+			response:     "{\"uuid\": \"1234\", \"title\": \"notification title\"}",
+		},
+		{
+			name:         "Notification to be created already exists",
+			notification: &Notification{UUID: "1234", Title: "notification title", Config: NotificationConfig{}, EventConfig: NotificationEventConfig{}},
+			expectedErr:  "",
+			statusCode:   201,
+			response:     "{\"uuid\": \"1234\", \"title\": \"notification title\"}",
+		},
+		{
+			name:         "Repository is not found",
+			notification: nil,
+			expectedErr:  "ailed to create repository notification. Status code: 404, error",
+			statusCode:   404,
+			response:     nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req := gock.New(testQuayApiUrl).
+				MatchHeader("Content-Type", "application/json").
+				MatchHeader("Authorization", "Bearer authtoken").
+				Post(fmt.Sprintf("repository/%s/%s/notification/", org, repo))
+			req.Reply(tc.statusCode).JSON(tc.response)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Delete("another-path")
+			}
+
+			if strings.HasPrefix(tc.name, "Notification to be created already exists") {
+				gock.New(testQuayApiUrl).
+					MatchHeader("Content-Type", "application/json").
+					MatchHeader("Authorization", "Bearer authtoken").
+					Get(fmt.Sprintf("repository/%s/%s/notification/", org, repo)).
+					Reply(200).
+					JSON(map[string][]Notification{"notifications": []Notification{*tc.notification}})
+			} else {
+				gock.New(testQuayApiUrl).
+					MatchHeader("Content-Type", "application/json").
+					MatchHeader("Authorization", "Bearer authtoken").
+					Get(fmt.Sprintf("repository/%s/%s/notification/", org, repo)).
+					Reply(200).
+					JSON(map[string][]Notification{"notifications": []Notification{}})
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			notification, err := quayClient.CreateNotification(org, repo, Notification{})
+			if !reflect.DeepEqual(notification, tc.notification) {
+				t.Error("notifications are not the same")
+			}
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+		})
+	}
+}
+
 func TestMakeRequest(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)

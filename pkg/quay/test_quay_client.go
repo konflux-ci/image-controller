@@ -38,6 +38,8 @@ var (
 	DeleteRobotAccountFunc                        func(organization string, robotName string) (bool, error)
 	AddPermissionsForRepositoryToRobotAccountFunc func(organization, imageRepository, robotAccountName string, isWrite bool) error
 	RegenerateRobotAccountTokenFunc               func(organization string, robotName string) (*RobotAccount, error)
+	GetNotificationsFunc                          func(organization, repository string) ([]Notification, error)
+	CreateNotificationFunc                        func(organization, repository string, notification Notification) (*Notification, error)
 )
 
 func ResetTestQuayClient() {
@@ -49,6 +51,11 @@ func ResetTestQuayClient() {
 	DeleteRobotAccountFunc = func(organization, robotName string) (bool, error) { return true, nil }
 	AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error { return nil }
 	RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*RobotAccount, error) { return &RobotAccount{}, nil }
+	GetNotificationsFunc = func(organization, repository string) ([]Notification, error) { return []Notification{}, nil }
+	CreateNotificationFunc = func(organization, repository string, notification Notification) (*Notification, error) {
+		return &Notification{}, nil
+	}
+
 }
 
 func ResetTestQuayClientToFails() {
@@ -92,6 +99,16 @@ func ResetTestQuayClientToFails() {
 		Fail("RegenerateRobotAccountToken invoked")
 		return nil, nil
 	}
+	GetNotificationsFunc = func(organization, repository string) ([]Notification, error) {
+		defer GinkgoRecover()
+		Fail("RegenerateRobotAccountToken invoked")
+		return nil, nil
+	}
+	CreateNotificationFunc = func(organization, repository string, notification Notification) (*Notification, error) {
+		defer GinkgoRecover()
+		Fail("CreateNotification invoked")
+		return nil, nil
+	}
 }
 
 func (c TestQuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Repository, error) {
@@ -129,4 +146,11 @@ func (TestQuayClient) DeleteTag(organization string, repository string, tag stri
 }
 func (TestQuayClient) GetTagsFromPage(organization string, repository string, page int) ([]Tag, bool, error) {
 	return nil, false, nil
+}
+func (TestQuayClient) GetNotifications(organization string, repository string) ([]Notification, error) {
+	return GetNotificationsFunc(organization, repository)
+}
+
+func (TestQuayClient) CreateNotification(organization, repository string, notification Notification) (*Notification, error) {
+	return CreateNotificationFunc(organization, repository, notification)
 }
