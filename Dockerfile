@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager main.go
 # Use ubi-minimal as minimal base image to package the manager binary
 # For more details and updates, refer to
 # https://catalog.redhat.com/software/containers/ubi8/ubi-minimal/5c359a62bed8bd75a2c3fba8
-FROM registry.access.redhat.com/ubi8/ubi-minimal:8.9
+FROM registry.access.redhat.com/ubi8/ubi-minimal:8.10
 WORKDIR /
 COPY --from=builder /opt/app-root/src/manager /
 USER 65532:65532
