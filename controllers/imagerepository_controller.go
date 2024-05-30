@@ -587,7 +587,7 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 }
 
 func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, secretName string, robotAccount *quay.RobotAccount, imageURL string, isPull bool) error {
-	log := ctrllog.FromContext(ctx).WithValues("RemoteSecretName", secretName)
+	log := ctrllog.FromContext(ctx).WithValues("SecretName", secretName)
 
 	secret := &corev1.Secret{}
 	secretKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: secretName}
