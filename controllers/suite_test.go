@@ -39,7 +39,6 @@ import (
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	"github.com/konflux-ci/image-controller/pkg/quay"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -70,13 +69,11 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 
 	applicationApiDepVersion := "v0.0.0-20231026192857-89515ad2504f"
-	remoteSecretApiDepVersion := "v0.0.0-20240103070316-c146261dd544"
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "config", "crd", "bases"),
 			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "redhat-appstudio", "application-api@"+applicationApiDepVersion, "config", "crd", "bases"),
-			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "redhat-appstudio", "remote-secret@"+remoteSecretApiDepVersion, "config", "crd", "bases"),
 		},
 		ErrorIfCRDPathMissing: true,
 	}
@@ -90,9 +87,6 @@ var _ = BeforeSuite(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	err = appstudioredhatcomv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = remotesecretv1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = imagerepositoryv1alpha1.AddToScheme(scheme.Scheme)

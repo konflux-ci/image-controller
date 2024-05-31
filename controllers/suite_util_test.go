@@ -21,19 +21,15 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	corev1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	appstudioapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 )
 
 const (
@@ -344,25 +340,26 @@ func deleteSecret(resourceKey types.NamespacedName) {
 	}, timeout, interval).Should(BeTrue())
 }
 
-func deleteUploadSecrets(namesapce string) {
-	uploadSecretRequirement, err := labels.NewRequirement(remotesecretv1beta1.UploadSecretLabel, selection.Equals, []string{"remotesecret"})
-	Expect(err).ToNot(HaveOccurred())
-	uploadSecretsSelector := labels.NewSelector().Add(*uploadSecretRequirement)
-	uploadSecretsListOptions := client.ListOptions{
-		LabelSelector: uploadSecretsSelector,
-		Namespace:     namesapce,
+func createServiceAccount(namespace, name string) corev1.ServiceAccount {
+	serviceAccount := corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+		},
 	}
-	deleteOptions := &client.DeleteAllOfOptions{
-		ListOptions: uploadSecretsListOptions,
-	}
-	Expect(k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, deleteOptions)).To(Succeed())
+	Expect(k8sClient.Create(ctx, &serviceAccount)).To(Succeed())
+	return getServiceAccount(namespace, name)
 }
 
-func waitRemoteSecretExist(remoteSecretKey types.NamespacedName) *remotesecretv1beta1.RemoteSecret {
-	remoteSecret := &remotesecretv1beta1.RemoteSecret{}
+func getServiceAccount(namespace string, name string) corev1.ServiceAccount {
+	sa := corev1.ServiceAccount{}
+	key := types.NamespacedName{
+		Namespace: namespace,
+		Name:      name,
+	}
 	Eventually(func() bool {
-		err := k8sClient.Get(ctx, remoteSecretKey, remoteSecret)
-		return err == nil && remoteSecret.ResourceVersion != ""
+		Expect(k8sClient.Get(ctx, key, &sa)).To(Succeed())
+		return sa.ResourceVersion != ""
 	}, timeout, interval).Should(BeTrue())
-	return remoteSecret
+	return sa
 }

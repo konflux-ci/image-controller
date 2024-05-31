@@ -53,12 +53,4 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - appstudio.redhat.com
-  resources:
-  - remotesecrets
-  verbs:
-  - create
-  - get
-  - list
-  - watch
+

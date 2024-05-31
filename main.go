@@ -43,7 +43,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/konflux-ci/image-controller/pkg/metrics"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 	cmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
@@ -66,7 +65,6 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(appstudioredhatcomv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(remotesecretv1beta1.AddToScheme(scheme))
 	utilruntime.Must(imagerepositoryv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }

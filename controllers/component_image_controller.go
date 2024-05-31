@@ -39,7 +39,6 @@ import (
 	"github.com/konflux-ci/image-controller/pkg/metrics"
 	"github.com/konflux-ci/image-controller/pkg/quay"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	remotesecretv1beta1 "github.com/redhat-appstudio/remote-secret/api/v1beta1"
 )
 
 const (
@@ -50,8 +49,6 @@ const (
 
 	ApplicationNameLabelName = "appstudio.redhat.com/application"
 	ComponentNameLabelName   = "appstudio.redhat.com/component"
-
-	defaultServiceAccountName = "default"
 )
 
 // GenerateRepositoryOpts defines patameters for image repository to be generated.
@@ -263,10 +260,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 				// Propagate the pull secret into all environments
 				pullSecretName := pushSecretName + "-pull"
-				if err := r.ensureComponentPullSecretRemoteSecret(ctx, component, pullSecretName); err != nil {
-					return ctrl.Result{}, err
-				}
-				if err := r.createRemoteSecretUploadSecret(ctx, pullRobotAccount, component.Namespace, pullSecretName, imageURL); err != nil {
+				if err := r.ensureComponentPullSecret(ctx, component, pullSecretName, pullRobotAccount, imageURL); err != nil {
 					return ctrl.Result{}, err
 				}
 				log.Info(fmt.Sprintf("Prepared remote secret %s for Component", pullSecretName), l.Action, l.ActionUpdate)
@@ -395,90 +389,41 @@ func (r *ComponentReconciler) ensureRobotAccountSecret(ctx context.Context, comp
 	return secretData, nil
 }
 
-// ensureComponentPullSecretRemoteSecret creates remote secret for component image repository pull token.
-func (r *ComponentReconciler) ensureComponentPullSecretRemoteSecret(ctx context.Context, component *appstudioredhatcomv1alpha1.Component, remoteSecretName string) error {
+// ensureComponentPullSecret creates secret for component image repository pull token.
+func (r *ComponentReconciler) ensureComponentPullSecret(ctx context.Context, component *appstudioredhatcomv1alpha1.Component, secretName string, robotAccount *quay.RobotAccount, imageURL string) error {
 	log := ctrllog.FromContext(ctx)
 
-	remoteSecret := &remotesecretv1beta1.RemoteSecret{}
-	remoteSecretKey := types.NamespacedName{Namespace: component.Namespace, Name: remoteSecretName}
-	if err := r.Client.Get(ctx, remoteSecretKey, remoteSecret); err != nil {
+	pullSecret := &corev1.Secret{}
+	pullSecretKey := types.NamespacedName{Namespace: component.Namespace, Name: secretName}
+	if err := r.Client.Get(ctx, pullSecretKey, pullSecret); err != nil {
 		if !errors.IsNotFound(err) {
-			log.Error(err, fmt.Sprintf("failed to get remote secret: %v", remoteSecretKey), l.Action, l.ActionView)
+			log.Error(err, fmt.Sprintf("failed to get pull secret: %v", pullSecretKey), l.Action, l.ActionView)
 			return err
 		}
 
-		remoteSecret := &remotesecretv1beta1.RemoteSecret{
+		pullSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      remoteSecretName,
+				Name:      secretName,
 				Namespace: component.Namespace,
-				// TODO: remove application/component labels when SEB controller will be discontinued
 				Labels: map[string]string{
-					ApplicationNameLabelName:      component.Spec.Application,
-					ComponentNameLabelName:        component.Name,
-					InternalRemoteSecretLabelName: "true",
-				},
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						Name:       component.Name,
-						APIVersion: component.APIVersion,
-						Kind:       component.Kind,
-						UID:        component.UID,
-					},
+					InternalSecretLabelName: "true",
 				},
 			},
-			Spec: remotesecretv1beta1.RemoteSecretSpec{
-				Secret: remotesecretv1beta1.LinkableSecretSpec{
-					Name: remoteSecretName,
-					Type: corev1.SecretTypeDockerConfigJson,
-					LinkedTo: []remotesecretv1beta1.SecretLink{
-						{
-							ServiceAccount: remotesecretv1beta1.ServiceAccountLink{
-								Reference: corev1.LocalObjectReference{
-									Name: defaultServiceAccountName,
-								},
-							},
-						},
-					},
-				},
-				Targets: []remotesecretv1beta1.RemoteSecretTarget{
-					{
-						Namespace: component.Namespace,
-					},
-				},
-			},
+			Type:       corev1.SecretTypeDockerConfigJson,
+			StringData: generateDockerconfigSecretData(imageURL, robotAccount),
 		}
-		if err := r.Client.Create(ctx, remoteSecret); err != nil {
-			log.Error(err, fmt.Sprintf("failed to create remote secret: %v", remoteSecretKey), l.Action, l.ActionAdd, l.Audit, "true")
+
+		if err := controllerutil.SetOwnerReference(component, pullSecret, r.Scheme); err != nil {
+			log.Error(err, "failed to set owner for pull secret")
 			return err
 		}
+
+		if err := r.Client.Create(ctx, pullSecret); err != nil {
+			log.Error(err, fmt.Sprintf("failed to create pull secret: %v", pullSecretKey), l.Action, l.ActionAdd, l.Audit, "true")
+			return err
+		}
+
 	}
-
-	return nil
-}
-
-// createRemoteSecretUploadSecret creates short lived secret to upload data into specified remote secret.
-func (r *ComponentReconciler) createRemoteSecretUploadSecret(ctx context.Context, robotAccount *quay.RobotAccount, namespace, remoteSecretName, imageURL string) error {
-	log := ctrllog.FromContext(ctx)
-
-	uploadSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "upload-secret-" + remoteSecretName,
-			Namespace: namespace,
-			Labels: map[string]string{
-				remotesecretv1beta1.UploadSecretLabel: "remotesecret",
-			},
-			Annotations: map[string]string{
-				remotesecretv1beta1.RemoteSecretNameAnnotation: remoteSecretName,
-			},
-		},
-		Type:       corev1.SecretTypeDockerConfigJson,
-		StringData: generateDockerconfigSecretData(imageURL, robotAccount),
-	}
-	if err := r.Client.Create(ctx, uploadSecret); err != nil {
-		log.Error(err, fmt.Sprintf("failed to create upload secret: %v", uploadSecret.Name), l.Action, l.ActionAdd, l.Audit, "true")
-		return err
-	}
-
 	return nil
 }
 
