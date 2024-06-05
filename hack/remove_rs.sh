@@ -1,7 +1,9 @@
 #/bin/bash
 
+SA_NAME="appstudio-pipeline"
 IFS=$'\n' LIST=( $(kubectl get remotesecrets -L appstudio.redhat.com/internal -A -o custom-columns=":metadata.namespace,:metadata.name" --no-headers | grep "\-pull\|\-push") )
 IFS=' '
+
 for QN in "${LIST[@]}"; do
     read -ra ARR <<< "$QN"
     NS=${ARR[0]}
@@ -31,6 +33,8 @@ for QN in "${LIST[@]}"; do
       exit 1
     fi
 
+    sleep 3
+
      # re-create secret from json
    if echo $SJSON | kubectl create -f -
     then
@@ -38,6 +42,17 @@ for QN in "${LIST[@]}"; do
     else
       echo "Failed to re-create Secret $NS/$NAME. Exiting"
       exit 1
+    fi
+
+    #patch service account for secrets
+    if [[ $NAME == *-push ]]; then
+      if kubectl patch serviceaccount $SA_NAME -n $NS -p '{"secrets": [{"name": "'$NAME'"}], "imagePullSecrets": [{"name": "'$NAME'"}]}' --type="merge"
+      then
+        echo "Service account $NS/$SA_NAME patched OK"
+      else
+        echo "Failed to patch Service account $NS/$SA_NAME. Exiting"
+        exit 1
+      fi
     fi
 
     # patch ownerReferences in the secret by saved one
