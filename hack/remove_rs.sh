@@ -44,15 +44,7 @@ for QN in "${LIST[@]}"; do
 
     #patch service account for secrets
     if [[ $NAME == *-push ]]; then
-      if kubectl patch serviceaccount $SA_NAME -n $NS -p '{"secrets": [{"name": "'$NAME'"}]}' --type="merge"
-      then
-        echo "Service account $NS/$SA_NAME patched OK"
-      else
-        echo "Failed to patch Service account $NS/$SA_NAME. Exiting"
-        exit 1
-      fi
-    else
-      if kubectl patch serviceaccount $SA_NAME -n $NS -p '{"imagePullSecrets": [{"name": "'$NAME'"}]}' --type="merge"
+      if kubectl patch serviceaccount $SA_NAME -n $NS -p '{"secrets": [{"name": "'$NAME'"}], "imagePullSecrets": [{"name": "'$NAME'"}]}' --type="merge"
       then
         echo "Service account $NS/$SA_NAME patched OK"
       else
