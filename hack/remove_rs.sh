@@ -33,6 +33,8 @@ for QN in "${LIST[@]}"; do
       exit 1
     fi
 
+    sleep 3
+
      # re-create secret from json
    if echo $SJSON | kubectl create -f -
     then
