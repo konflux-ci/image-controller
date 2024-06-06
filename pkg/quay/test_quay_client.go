@@ -40,6 +40,8 @@ var (
 	RegenerateRobotAccountTokenFunc               func(organization string, robotName string) (*RobotAccount, error)
 	GetNotificationsFunc                          func(organization, repository string) ([]Notification, error)
 	CreateNotificationFunc                        func(organization, repository string, notification Notification) (*Notification, error)
+	UpdateNotificationFunc                        func(organization, repository string, notificationUuid string, notification Notification) (*Notification, error)
+	DeleteNotificationFunc                        func(organization, repository string, notificationUuid string) (bool, error)
 )
 
 func ResetTestQuayClient() {
@@ -55,7 +57,12 @@ func ResetTestQuayClient() {
 	CreateNotificationFunc = func(organization, repository string, notification Notification) (*Notification, error) {
 		return &Notification{}, nil
 	}
-
+	UpdateNotificationFunc = func(organization, repository string, notificationUuid string, notification Notification) (*Notification, error) {
+		return &Notification{}, nil
+	}
+	DeleteNotificationFunc = func(organization, repository string, notificationUuid string) (bool, error) {
+		return true, nil
+	}
 }
 
 func ResetTestQuayClientToFails() {
@@ -101,13 +108,23 @@ func ResetTestQuayClientToFails() {
 	}
 	GetNotificationsFunc = func(organization, repository string) ([]Notification, error) {
 		defer GinkgoRecover()
-		Fail("RegenerateRobotAccountToken invoked")
+		Fail("GetNotificationsFunc invoked")
 		return nil, nil
 	}
 	CreateNotificationFunc = func(organization, repository string, notification Notification) (*Notification, error) {
 		defer GinkgoRecover()
 		Fail("CreateNotification invoked")
 		return nil, nil
+	}
+	UpdateNotificationFunc = func(organization, repository string, notificationUuid string, notification Notification) (*Notification, error) {
+		defer GinkgoRecover()
+		Fail("UpdateNotification invoked")
+		return nil, nil
+	}
+	DeleteNotificationFunc = func(organization, repository string, notificationUuid string) (bool, error) {
+		defer GinkgoRecover()
+		Fail("DeleteNotification invoked")
+		return true, nil
 	}
 }
 
@@ -150,7 +167,12 @@ func (TestQuayClient) GetTagsFromPage(organization string, repository string, pa
 func (TestQuayClient) GetNotifications(organization string, repository string) ([]Notification, error) {
 	return GetNotificationsFunc(organization, repository)
 }
-
 func (TestQuayClient) CreateNotification(organization, repository string, notification Notification) (*Notification, error) {
 	return CreateNotificationFunc(organization, repository, notification)
+}
+func (TestQuayClient) DeleteNotification(organization, repository string, notificationUuid string) (bool, error) {
+	return DeleteNotificationFunc(organization, repository, notificationUuid)
+}
+func (TestQuayClient) UpdateNotification(organization, repository string, notificationUuid string, notification Notification) (*Notification, error) {
+	return UpdateNotificationFunc(organization, repository, notificationUuid, notification)
 }
