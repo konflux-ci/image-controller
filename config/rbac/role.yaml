@@ -23,6 +23,7 @@ rules:
   - serviceaccounts
   verbs:
   - get
+  - list
   - patch
   - update
 - apiGroups:
