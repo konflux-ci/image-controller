@@ -18,6 +18,14 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - appstudio.redhat.com
   resources:
   - components
