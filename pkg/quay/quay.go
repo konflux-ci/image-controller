@@ -42,6 +42,8 @@ type QuayService interface {
 	DeleteTag(organization, repository, tag string) (bool, error)
 	GetNotifications(organization, repository string) ([]Notification, error)
 	CreateNotification(organization, repository string, notification Notification) (*Notification, error)
+	UpdateNotification(organization, repository string, notificationUuid string, notification Notification) (*Notification, error)
+	DeleteNotification(organization, repository string, notificationUuid string) (bool, error)
 }
 
 var _ QuayService = (*QuayClient)(nil)
@@ -595,7 +597,6 @@ func (c *QuayClient) CreateNotification(organization, repository string, notific
 	if err != nil {
 		return nil, err
 	}
-
 	if resp.GetStatusCode() != 201 {
 		quay_error := &QuayError{}
 		if err := resp.GetJson(quay_error); err != nil {
@@ -608,4 +609,43 @@ func (c *QuayClient) CreateNotification(organization, repository string, notific
 		return nil, err
 	}
 	return &notificationResponse, nil
+}
+
+func (c *QuayClient) DeleteNotification(organization, repository string, notificationUuid string) (bool, error) {
+	res := false
+	url := fmt.Sprintf("%s/repository/%s/%s/notification/%s", c.url, organization, repository, notificationUuid)
+
+	resp, err := c.doRequest(url, http.MethodDelete, nil)
+	if err != nil {
+		return res, err
+	}
+
+	if resp.GetStatusCode() != 204 {
+		quay_error := &QuayError{}
+		if err := resp.GetJson(quay_error); err != nil {
+			return res, err
+		}
+		return res, fmt.Errorf("failed to delete repository notification. Status code: %d, error: %s", resp.GetStatusCode(), quay_error.ErrorMessage)
+	}
+
+	return true, nil
+}
+
+func (c *QuayClient) UpdateNotification(organization, repository string, notificationUuid string, notification Notification) (*Notification, error) {
+	_, err := c.DeleteNotification(
+		organization,
+		repository,
+		notificationUuid)
+	if err != nil {
+		return nil, err
+	}
+	quayNotification, err := c.CreateNotification(
+		organization,
+		repository,
+		notification)
+	if err != nil {
+		return nil, err
+	}
+
+	return quayNotification, nil
 }

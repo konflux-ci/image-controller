@@ -218,6 +218,15 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
+	if err = r.HandleNotifications(ctx, imageRepository); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+		log.Error(err, "failed to update image repository status")
+		return ctrl.Result{}, err
+	}
+
 	// we are adding to map only for new provision, not for some partial actions,
 	// so report time only if time was recorded
 	provisionTime, timeRecorded := metrics.RepositoryTimesForMetrics[repositoryIdForMetrics]
@@ -228,51 +237,6 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	delete(metrics.RepositoryTimesForMetrics, repositoryIdForMetrics)
 
 	return ctrl.Result{}, nil
-}
-
-func (r *ImageRepositoryReconciler) AddNotifications(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) ([]imagerepositoryv1alpha1.NotificationStatus, error) {
-	log := ctrllog.FromContext(ctx).WithName("ConfigureNotifications")
-
-	if imageRepository.Spec.Notifications == nil {
-		// No notifications to configure
-		return nil, nil
-	}
-
-	log.Info("Configuring notifications")
-	notificationStatus := []imagerepositoryv1alpha1.NotificationStatus{}
-
-	for _, notification := range imageRepository.Spec.Notifications {
-		log.Info("Creating notification in Quay", "Title", notification.Title, "Event", notification.Event, "Method", notification.Method)
-		quayNotification, err := r.QuayClient.CreateNotification(
-			r.QuayOrganization,
-			imageRepository.Spec.Image.Name,
-			quay.Notification{
-				Title:  notification.Title,
-				Event:  string(notification.Event),
-				Method: string(notification.Method),
-				Config: quay.NotificationConfig{
-					Url: notification.Config.Url,
-				},
-				EventConfig: quay.NotificationEventConfig{},
-			})
-		if err != nil {
-			log.Error(err, "failed to create notification", "Title", notification.Title, "Event", notification.Event, "Method", notification.Method)
-			return nil, err
-		}
-		notificationStatus = append(
-			notificationStatus,
-			imagerepositoryv1alpha1.NotificationStatus{
-				UUID:  quayNotification.UUID,
-				Title: notification.Title,
-			})
-
-		log.Info("Notification added",
-			"Title", notification.Title,
-			"Event", notification.Event,
-			"Method", notification.Method,
-			"QuayNotification", quayNotification)
-	}
-	return notificationStatus, nil
 }
 
 // ProvisionImageRepository creates image repository, robot account(s) and secret(s) to access the image repository.
@@ -364,7 +328,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	}
 
 	var notificationStatus []imagerepositoryv1alpha1.NotificationStatus
-	if notificationStatus, err = r.AddNotifications(ctx, imageRepository); err != nil {
+	if notificationStatus, err = r.SetNotifications(ctx, imageRepository); err != nil {
 		return err
 	}
 
@@ -683,4 +647,15 @@ func getRandomString(length int) string {
 		panic("Failed to read from random generator")
 	}
 	return hex.EncodeToString(bytes)[0:length]
+}
+
+func (r *ImageRepositoryReconciler) UpdateImageRepositoryStatusMessage(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, statusMessage string) error {
+	log := ctrllog.FromContext(ctx)
+	imageRepository.Status.Message = statusMessage
+	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+		log.Error(err, "failed to update image repository status")
+		return err
+	}
+
+	return nil
 }
