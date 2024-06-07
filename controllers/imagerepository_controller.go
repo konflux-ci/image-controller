@@ -79,7 +79,7 @@ func setMetricsTime(idForMetrics string, reconcileStartTime time.Time) {
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories/finalizers,verbs=update
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
-//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;update;patch
+//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;update;patch
 
 func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx).WithName("ImageRepository")
@@ -629,6 +629,7 @@ func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepos
 				return err
 			}
 			serviceAccount.Secrets = append(serviceAccount.Secrets, corev1.ObjectReference{Name: secretName})
+			serviceAccount.ImagePullSecrets = append(serviceAccount.ImagePullSecrets, corev1.LocalObjectReference{Name: secretName})
 			if err := r.Client.Update(ctx, serviceAccount); err != nil {
 				log.Error(err, "failed to update service account", l.Action, l.ActionUpdate)
 				return err
