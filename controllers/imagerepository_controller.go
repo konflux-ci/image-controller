@@ -629,6 +629,7 @@ func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepos
 				return err
 			}
 			serviceAccount.Secrets = append(serviceAccount.Secrets, corev1.ObjectReference{Name: secretName})
+			serviceAccount.ImagePullSecrets = append(serviceAccount.ImagePullSecrets, corev1.LocalObjectReference{Name: secretName})
 			if err := r.Client.Update(ctx, serviceAccount); err != nil {
 				log.Error(err, "failed to update service account", l.Action, l.ActionUpdate)
 				return err
