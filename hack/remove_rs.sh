@@ -19,10 +19,6 @@ for QN in "${LIST[@]}"; do
 
     # read secret json
     SJSON=$(kubectl get secret ${NAME} -n ${NS} -o json)
-    if [[ -z $SJSON ]]; then
-      echo "Secret $NS/$NAME not found. Data not exists? Continue."
-      continue
-    fi
 
     # delete remotesecret
     if kubectl delete remotesecret ${NAME} -n ${NS}
@@ -33,7 +29,13 @@ for QN in "${LIST[@]}"; do
       exit 1
     fi
 
-    sleep 3
+    sleep 2
+
+    if [[ -z $SJSON ]]; then
+      echo "Secret $NS/$NAME not found. Data not exists? Continue."
+      continue
+    fi
+
 
      # re-create secret from json
    if echo $SJSON | kubectl create -f -
