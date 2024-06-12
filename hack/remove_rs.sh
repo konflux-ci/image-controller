@@ -66,6 +66,7 @@ for QN in "${LIST[@]}"; do
       exit 1
     fi
 
+    kubectl label secret $NAME -n $NS appstudio.redhat.com/internal=true
     # remove redundant labels/annotations
     kubectl label secret $NAME -n $NS appstudio.redhat.com/linked-by-remote-secret-
     kubectl annotate secret $NAME -n $NS appstudio.redhat.com/linked-remote-secrets-
