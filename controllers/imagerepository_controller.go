@@ -313,7 +313,10 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 			imageRepositoryName = imageRepository.Namespace + "/" + imageRepository.Name
 		}
 	} else {
-		imageRepositoryName = imageRepository.Namespace + "/" + imageRepository.Spec.Image.Name
+		imageRepositoryName = strings.TrimPrefix(imageRepository.Spec.Image.Name, "/")
+		if !strings.HasPrefix(imageRepositoryName, imageRepository.Namespace+"/") {
+			imageRepositoryName = imageRepository.Namespace + "/" + imageRepositoryName
+		}
 	}
 	imageRepository.Spec.Image.Name = imageRepositoryName
 

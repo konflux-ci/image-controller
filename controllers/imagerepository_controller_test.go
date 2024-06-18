@@ -46,6 +46,10 @@ var _ = Describe("Image repository controller", func() {
 		expectedImage              string
 	)
 
+	BeforeEach(func() {
+		createNamespace(defaultNamespace)
+	})
+
 	Context("Image repository provision", func() {
 
 		BeforeEach(func() {
@@ -53,8 +57,6 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		It("should prepare environment", func() {
-			createNamespace(defaultNamespace)
-
 			pushToken = "push-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, defaultImageRepositoryName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
@@ -563,6 +565,33 @@ var _ = Describe("Image repository controller", func() {
 			imageRepository := getImageRepository(resourceKey)
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
 		})
+
+		It("should create image repository with requested name that already includes namespace", func() {
+			customImageName := defaultNamespace + "/" + "my-image-with-namespace"
+			expectedImageName = customImageName
+
+			isCreateRepositoryInvoked := false
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				isCreateRepositoryInvoked = true
+				Expect(repository.Repository).To(Equal(expectedImageName))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
+				Expect(repository.Visibility).To(Equal("public"))
+				Expect(repository.Description).ToNot(BeEmpty())
+				return &quay.Repository{Name: expectedImageName}, nil
+			}
+
+			createImageRepository(imageRepositoryConfig{ImageName: customImageName})
+			defer deleteImageRepository(resourceKey)
+
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+
+			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+
+			imageRepository := getImageRepository(resourceKey)
+			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
+		})
+
 	})
 
 	Context("Image repository error scenarios", func() {
