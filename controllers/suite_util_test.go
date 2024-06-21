@@ -52,12 +52,13 @@ const (
 )
 
 type imageRepositoryConfig struct {
-	ResourceKey   *types.NamespacedName
-	ImageName     string
-	Visibility    string
-	Labels        map[string]string
-	Annotations   map[string]string
-	Notifications []imagerepositoryv1alpha1.Notifications
+	ResourceKey     *types.NamespacedName
+	ImageName       string
+	Visibility      string
+	Labels          map[string]string
+	Annotations     map[string]string
+	Notifications   []imagerepositoryv1alpha1.Notifications
+	OwnerReferences []metav1.OwnerReference
 }
 
 func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1alpha1.ImageRepository {
@@ -80,10 +81,11 @@ func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1al
 
 	return &imagerepositoryv1alpha1.ImageRepository{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   namespace,
-			Labels:      config.Labels,
-			Annotations: annotations,
+			Name:            name,
+			Namespace:       namespace,
+			Labels:          config.Labels,
+			Annotations:     annotations,
+			OwnerReferences: config.OwnerReferences,
 		},
 		Spec: imagerepositoryv1alpha1.ImageRepositorySpec{
 			Image: imagerepositoryv1alpha1.ImageParameters{
@@ -222,39 +224,6 @@ func waitComponentAnnotation(componentKey types.NamespacedName, annotationName s
 	}, timeout, interval).Should(BeTrue())
 }
 
-// waitComponentAnnotationWithValue waits for a component have had an annotation with a specific value.
-func waitComponentAnnotationWithValue(componentKey types.NamespacedName, annotationName, value string) {
-	Eventually(func() bool {
-		component := getComponent(componentKey)
-		annotations := component.GetAnnotations()
-		if annotations == nil {
-			return false
-		}
-		val, exists := annotations[annotationName]
-		if exists {
-			return val == value
-		} else {
-			return false
-		}
-	}, timeout, interval).Should(BeTrue())
-}
-
-func ensureComponentAnnotationUnchangedWithValue(componentKey types.NamespacedName, annotationName, value string) {
-	Consistently(func() bool {
-		component := getComponent(componentKey)
-		annotations := component.GetAnnotations()
-		if annotations == nil {
-			return false
-		}
-		val, exists := annotations[annotationName]
-		if exists {
-			return val == value
-		} else {
-			return false
-		}
-	}, timeout, interval).Should(BeTrue())
-}
-
 func waitComponentAnnotationGone(componentKey types.NamespacedName, annotationName string) {
 	Eventually(func() bool {
 		component := getComponent(componentKey)
@@ -265,25 +234,6 @@ func waitComponentAnnotationGone(componentKey types.NamespacedName, annotationNa
 		_, exists := annotations[annotationName]
 		return !exists
 	}, timeout, interval).Should(BeTrue())
-}
-
-func waitFinalizerOnComponent(componentKey types.NamespacedName, finalizerName string, finalizerShouldBePresent bool) {
-	component := &appstudioapiv1alpha1.Component{}
-	Eventually(func() bool {
-		if err := k8sClient.Get(ctx, componentKey, component); err != nil {
-			return false
-		}
-
-		if finalizerShouldBePresent {
-			return controllerutil.ContainsFinalizer(component, finalizerName)
-		} else {
-			return !controllerutil.ContainsFinalizer(component, finalizerName)
-		}
-	}, timeout, interval).Should(BeTrue())
-}
-
-func waitImageRepositoryFinalizerOnComponent(componentKey types.NamespacedName) {
-	waitFinalizerOnComponent(componentKey, ImageRepositoryComponentFinalizer, true)
 }
 
 func waitImageRepositoryFinalizerOnImageRepository(imageRepositoryKey types.NamespacedName) {
