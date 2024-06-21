@@ -18,13 +18,10 @@ package controllers
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,8 +32,8 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/go-logr/logr"
+	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	l "github.com/konflux-ci/image-controller/pkg/logs"
-	"github.com/konflux-ci/image-controller/pkg/metrics"
 	"github.com/konflux-ci/image-controller/pkg/quay"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 )
@@ -59,10 +56,6 @@ type GenerateRepositoryOpts struct {
 
 // ImageRepositoryStatus defines the structure of the Repository information being exposed to external systems.
 type ImageRepositoryStatus struct {
-	Image      string `json:"image,omitempty"`
-	Visibility string `json:"visibility,omitempty"`
-	Secret     string `json:"secret,omitempty"`
-
 	Message string `json:"message,omitempty"`
 }
 
@@ -90,7 +83,6 @@ func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx).WithName("ComponentImageRepository")
 	ctx = ctrllog.IntoContext(ctx, log)
-	reconcileStartTime := time.Now()
 
 	// Fetch the Component instance
 	component := &appstudioredhatcomv1alpha1.Component{}
@@ -106,60 +98,19 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("error reading component: %w", err)
 	}
 
-	componentIdForMetrics := getComponentIdForMetrics(component)
-
 	if !component.ObjectMeta.DeletionTimestamp.IsZero() {
-		// remove component from metrics map
-		delete(metrics.RepositoryTimesForMetrics, componentIdForMetrics)
-
 		if controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer) {
-			pushRobotAccountName, pullRobotAccountName := generateRobotAccountsNames(component)
-
-			quayClient := r.BuildQuayClient(log)
-			isPushRobotAccountDeleted, err := quayClient.DeleteRobotAccount(r.QuayOrganization, pushRobotAccountName)
-			if err != nil {
-				log.Error(err, "failed to delete push robot account", l.Action, l.ActionDelete, l.Audit, "true")
-				// Do not block Component deletion if failed to delete robot account
-			}
-			if isPushRobotAccountDeleted {
-				log.Info(fmt.Sprintf("Deleted push robot account %s", pushRobotAccountName), l.Action, l.ActionDelete)
-			}
-
-			isPullRobotAccountDeleted, err := quayClient.DeleteRobotAccount(r.QuayOrganization, pullRobotAccountName)
-			if err != nil {
-				log.Error(err, "failed to delete pull robot account", l.Action, l.ActionDelete, l.Audit, "true")
-				// Do not block Component deletion if failed to delete robot account
-			}
-			if isPullRobotAccountDeleted {
-				log.Info(fmt.Sprintf("Deleted pull robot account %s", pullRobotAccountName), l.Action, l.ActionDelete)
-			}
-
-			imageRepo := generateRepositoryName(component)
-			isRepoDeleted, err := quayClient.DeleteRepository(r.QuayOrganization, imageRepo)
-			if err != nil {
-				log.Error(err, "failed to delete image repository", l.Action, l.ActionDelete, l.Audit, "true")
-				// Do not block Component deletion if failed to delete image repository
-			}
-			if isRepoDeleted {
-				log.Info(fmt.Sprintf("Deleted image repository %s", imageRepo), l.Action, l.ActionDelete)
-			}
-
-			if err := r.Client.Get(ctx, req.NamespacedName, component); err != nil {
-				log.Error(err, "failed to get Component", l.Action, l.ActionView)
-				return ctrl.Result{}, err
-			}
 			controllerutil.RemoveFinalizer(component, ImageRepositoryComponentFinalizer)
 			if err := r.Client.Update(ctx, component); err != nil {
-				log.Error(err, "failed to remove image repository finalizer", l.Action, l.ActionUpdate)
+				log.Error(err, "failed to remove image repository finalizer", l.Action, l.ActionUpdate, "componentName", component.Name)
 				return ctrl.Result{}, err
 			}
-			log.Info("Image repository finalizer removed from the Component", l.Action, l.ActionDelete)
+			log.Info("Image repository finalizer removed from the Component", l.Action, l.ActionDelete, "componentName", component.Name)
 
 			r.waitComponentUpdateInCache(ctx, req.NamespacedName, func(component *appstudioredhatcomv1alpha1.Component) bool {
 				return !controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer)
 			})
 		}
-
 		return ctrl.Result{}, nil
 	}
 
@@ -187,122 +138,75 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, r.reportError(ctx, component, message)
 	}
 
-	setMetricsTime(componentIdForMetrics, reconcileStartTime)
-
-	imageRepositoryExists := false
-	repositoryInfo := ImageRepositoryStatus{}
-	repositoryInfoStr, imageAnnotationExist := component.Annotations[ImageAnnotationName]
-	if imageAnnotationExist {
-		if err := json.Unmarshal([]byte(repositoryInfoStr), &repositoryInfo); err == nil {
-			imageRepositoryExists = repositoryInfo.Image != "" && repositoryInfo.Secret != ""
-			repositoryInfo.Message = ""
-		} else {
-			// Image repository info annotation contains invalid JSON.
-			// This means that the annotation was edited manually.
-			repositoryInfo.Message = "Invalid image status annotation"
-		}
+	// Search if imageRepository for the component exists already
+	imageRepositoriesList := &imagerepositoryv1alpha1.ImageRepositoryList{}
+	if err := r.Client.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: component.Namespace}); err != nil {
+		log.Error(err, "failed to list image repositories")
+		return ctrl.Result{}, err
 	}
 
-	// Do something only if no error has been detected before
-	if repositoryInfo.Message == "" {
-		if imageRepositoryExists {
-			// Check if need to change image repository  visibility
-			if repositoryInfo.Visibility != requestRepositoryOpts.Visibility {
-				// quay.io/org/reposito/ryName
-				imageUrlParts := strings.SplitN(repositoryInfo.Image, "/", 3)
-				if len(imageUrlParts) > 2 {
-					repositoryName := imageUrlParts[2]
-					quayClient := r.BuildQuayClient(log)
-					if err := quayClient.ChangeRepositoryVisibility(r.QuayOrganization, repositoryName, requestRepositoryOpts.Visibility); err == nil {
-						repositoryInfo.Visibility = requestRepositoryOpts.Visibility
-					} else {
-						if err.Error() == "payment required" {
-							log.Info("failed to make image repository private due to quay plan limit", l.Audit, "true")
-							repositoryInfo.Message = "Quay organization plan doesn't allow private image repositories"
-						} else {
-							log.Error(err, "failed to change image repository visibility")
-							return ctrl.Result{}, err
-						}
-					}
-				} else {
-					repositoryInfo.Message = "Invalid image url"
-				}
-			}
-		} else {
-			// Image repository doesn't exist, create it.
-			quayClient := r.BuildQuayClient(log)
-			repo, pushRobotAccount, pullRobotAccount, err := r.generateImageRepository(ctx, quayClient, component, requestRepositoryOpts)
-			if err != nil {
-				if err.Error() == "payment required" {
-					log.Info("failed to create private image repository due to quay plan limit", l.Audit, "true")
-					repositoryInfo.Message = "Quay organization plan doesn't allow private image repositories"
-				} else {
-					log.Error(err, "Error in the repository generation process", l.Audit, "true")
-					return ctrl.Result{}, r.reportError(ctx, component, "failed to generate image repository")
-				}
-			} else {
-				if repo == nil || pushRobotAccount == nil || pullRobotAccount == nil {
-					log.Error(nil, "Unknown error in the repository generation process", l.Audit, "true")
-					return ctrl.Result{}, r.reportError(ctx, component, "failed to generate image repository: unknown error")
-				}
-				log.Info(fmt.Sprintf("Prepared image repository %s for Component", repo.Name), l.Action, l.ActionAdd)
-
-				imageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, repo.Name)
-
-				// Create secrets with the repository credentials
-				pushSecretName := component.Name
-				_, err := r.ensureRobotAccountSecret(ctx, component, pushRobotAccount, pushSecretName, imageURL)
-				if err != nil {
-					return ctrl.Result{}, err
-				}
-				log.Info(fmt.Sprintf("Prepared image registry push secret %s for Component", pushRobotAccount.Name), l.Action, l.ActionUpdate)
-
-				// Propagate the pull secret into all environments
-				pullSecretName := pushSecretName + "-pull"
-				if err := r.ensureComponentPullSecret(ctx, component, pullSecretName, pullRobotAccount, imageURL); err != nil {
-					return ctrl.Result{}, err
-				}
-				log.Info(fmt.Sprintf("Prepared remote secret %s for Component", pullSecretName), l.Action, l.ActionUpdate)
-
-				// Prepare data to update the component with
-				repositoryInfo = ImageRepositoryStatus{
-					Image:      imageURL,
-					Visibility: requestRepositoryOpts.Visibility,
-					Secret:     pushSecretName,
-				}
+	imageRepositoryFound := ""
+	for _, imageRepository := range imageRepositoriesList.Items {
+		for _, owner := range imageRepository.ObjectMeta.OwnerReferences {
+			if owner.UID == component.UID {
+				imageRepositoryFound = imageRepository.Name
+				break
 			}
 		}
 	}
-	repositoryInfoBytes, _ := json.Marshal(repositoryInfo)
 
-	// Update component with the generated data and add finalizer
+	if imageRepositoryFound == "" {
+		imageRepositoryName := fmt.Sprintf("imagerepository-for-%s-%s", component.Spec.Application, component.Name)
+		log.Info("Will create image repository", "ImageRepositoryName", imageRepositoryName, "ComponentName", component.Name)
+
+		imageRepository := &imagerepositoryv1alpha1.ImageRepository{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "ImageRepository",
+				APIVersion: "pipelinesascode.tekton.dev/v1alpha1",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      imageRepositoryName,
+				Namespace: component.Namespace,
+				Labels: map[string]string{
+					ApplicationNameLabelName: component.Spec.Application,
+					ComponentNameLabelName:   component.Name,
+				},
+				Annotations: map[string]string{
+					updateComponentAnnotationName: "true",
+				},
+			},
+			Spec: imagerepositoryv1alpha1.ImageRepositorySpec{
+				Image: imagerepositoryv1alpha1.ImageParameters{
+					Visibility: imagerepositoryv1alpha1.ImageVisibility(requestRepositoryOpts.Visibility),
+				},
+			},
+		}
+
+		if err := r.Client.Create(ctx, imageRepository); err != nil {
+			log.Error(err, "failed to create image repository", "ImageRepositoryName", imageRepositoryName, "ComponentName", component.Name)
+			return ctrl.Result{}, err
+		}
+		log.Info("Image repository created", "ImageRepositoryName", imageRepositoryName, "ComponentName", component.Name)
+	} else {
+		log.Info("Image repository already exists", "ImageRepositoryName", imageRepositoryFound, "ComponentName", component.Name)
+	}
+
 	err = r.Client.Get(ctx, req.NamespacedName, component)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("error reading component: %w", err)
 	}
-	if component.ObjectMeta.DeletionTimestamp.IsZero() {
-		component.Annotations[ImageAnnotationName] = string(repositoryInfoBytes)
-		delete(component.Annotations, GenerateImageAnnotationName)
+	delete(component.Annotations, GenerateImageAnnotationName)
 
-		if repositoryInfo.Image != "" && !controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer) {
-			controllerutil.AddFinalizer(component, ImageRepositoryComponentFinalizer)
-			log.Info("Image repository finalizer added to the Component update", l.Action, l.ActionUpdate)
-		}
-
-		if err := r.Client.Update(ctx, component); err != nil {
-			return ctrl.Result{}, fmt.Errorf("error updating the component: %w", err)
-		}
-		log.Info("Component updated successfully", l.Action, l.ActionUpdate)
-
-		r.waitComponentUpdateInCache(ctx, req.NamespacedName, func(component *appstudioredhatcomv1alpha1.Component) bool {
-			_, exists := component.Annotations[GenerateImageAnnotationName]
-			return !exists
-		})
+	if err := r.Client.Update(ctx, component); err != nil {
+		log.Error(err, "failed to update Component after 'generate' annotation removal", "ComponentName", component.Name)
+		return ctrl.Result{}, fmt.Errorf("error updating the component: %w", err)
 	}
+	log.Info("Component updated successfully, 'generate' annotation removed", "ComponentName", component.Name)
 
-	metrics.ImageRepositoryProvisionTimeMetric.Observe(time.Since(metrics.RepositoryTimesForMetrics[componentIdForMetrics]).Seconds())
-	// remove component from metrics map
-	delete(metrics.RepositoryTimesForMetrics, componentIdForMetrics)
+	r.waitComponentUpdateInCache(ctx, req.NamespacedName, func(component *appstudioredhatcomv1alpha1.Component) bool {
+		_, exists := component.Annotations[GenerateImageAnnotationName]
+		return !exists
+	})
 
 	return ctrl.Result{}, nil
 }
@@ -315,10 +219,6 @@ func (r *ComponentReconciler) reportError(ctx context.Context, component *appstu
 	messageBytes, _ := json.Marshal(&ImageRepositoryStatus{Message: messsage})
 	component.Annotations[ImageAnnotationName] = string(messageBytes)
 	delete(component.Annotations, GenerateImageAnnotationName)
-
-	componentIdForMetrics := getComponentIdForMetrics(component)
-	// remove component from metrics map, permanent error
-	delete(metrics.RepositoryTimesForMetrics, componentIdForMetrics)
 
 	return r.Client.Update(ctx, component)
 }
@@ -356,167 +256,4 @@ func (r *ComponentReconciler) waitComponentUpdateInCache(ctx context.Context, co
 	if !isComponentInCacheUpToDate {
 		log.Info("failed to wait for updated cache. Requested action could be repeated.", l.Audit, "true")
 	}
-}
-
-// ensureRobotAccountSecret creates or updates robot account secret.
-// Returns secret string data.
-func (r *ComponentReconciler) ensureRobotAccountSecret(ctx context.Context, component *appstudioredhatcomv1alpha1.Component, robotAccount *quay.RobotAccount, secretName, imageURL string) (map[string]string, error) {
-	log := ctrllog.FromContext(ctx)
-
-	robotAccountSecret := generateSecret(component, robotAccount, secretName, imageURL)
-	secretData := robotAccountSecret.StringData
-
-	robotAccountSecretKey := types.NamespacedName{Namespace: robotAccountSecret.Namespace, Name: robotAccountSecret.Name}
-	existingRobotAccountSecret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, robotAccountSecretKey, existingRobotAccountSecret); err == nil {
-		existingRobotAccountSecret.StringData = secretData
-		if err := r.Client.Update(ctx, existingRobotAccountSecret); err != nil {
-			log.Error(err, fmt.Sprintf("failed to update robot account secret %v", robotAccountSecretKey), l.Action, l.ActionUpdate)
-			return nil, err
-		}
-	} else {
-		if !errors.IsNotFound(err) {
-			log.Error(err, fmt.Sprintf("failed to read robot account secret %v", robotAccountSecretKey), l.Action, l.ActionView)
-			return nil, err
-		}
-		if err := r.Client.Create(ctx, robotAccountSecret); err != nil {
-			log.Error(err, fmt.Sprintf("error writing robot account token into Secret: %v", robotAccountSecretKey), l.Action, l.ActionAdd)
-			return nil, err
-		}
-	}
-
-	return secretData, nil
-}
-
-// ensureComponentPullSecret creates secret for component image repository pull token.
-func (r *ComponentReconciler) ensureComponentPullSecret(ctx context.Context, component *appstudioredhatcomv1alpha1.Component, secretName string, robotAccount *quay.RobotAccount, imageURL string) error {
-	log := ctrllog.FromContext(ctx)
-
-	pullSecret := &corev1.Secret{}
-	pullSecretKey := types.NamespacedName{Namespace: component.Namespace, Name: secretName}
-	if err := r.Client.Get(ctx, pullSecretKey, pullSecret); err != nil {
-		if !errors.IsNotFound(err) {
-			log.Error(err, fmt.Sprintf("failed to get pull secret: %v", pullSecretKey), l.Action, l.ActionView)
-			return err
-		}
-
-		pullSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretName,
-				Namespace: component.Namespace,
-				Labels: map[string]string{
-					InternalSecretLabelName: "true",
-				},
-			},
-			Type:       corev1.SecretTypeDockerConfigJson,
-			StringData: generateDockerconfigSecretData(imageURL, robotAccount),
-		}
-
-		if err := controllerutil.SetOwnerReference(component, pullSecret, r.Scheme); err != nil {
-			log.Error(err, "failed to set owner for pull secret")
-			return err
-		}
-
-		if err := r.Client.Create(ctx, pullSecret); err != nil {
-			log.Error(err, fmt.Sprintf("failed to create pull secret: %v", pullSecretKey), l.Action, l.ActionAdd, l.Audit, "true")
-			return err
-		}
-
-	}
-	return nil
-}
-
-// generateRobotAccountsNames returns push and pull robot account names for the given Component
-func generateRobotAccountsNames(component *appstudioredhatcomv1alpha1.Component) (string, string) {
-	pushRobotAccountName := component.Namespace + component.Spec.Application + component.Name
-	pullRobotAccountName := pushRobotAccountName + "-pull"
-	return pushRobotAccountName, pullRobotAccountName
-}
-
-func generateRepositoryName(component *appstudioredhatcomv1alpha1.Component) string {
-	return component.Namespace + "/" + component.Spec.Application + "/" + component.Name
-}
-
-func (r *ComponentReconciler) generateImageRepository(
-	ctx context.Context,
-	quayClient quay.QuayService,
-	component *appstudioredhatcomv1alpha1.Component,
-	opts *GenerateRepositoryOpts,
-) (
-	*quay.Repository,
-	*quay.RobotAccount,
-	*quay.RobotAccount,
-	error,
-) {
-	log := ctrllog.FromContext(ctx)
-
-	imageRepositoryName := generateRepositoryName(component)
-	repo, err := quayClient.CreateRepository(quay.RepositoryRequest{
-		Namespace:   r.QuayOrganization,
-		Visibility:  opts.Visibility,
-		Description: "AppStudio repository for the user",
-		Repository:  imageRepositoryName,
-	})
-	if err != nil {
-		log.Error(err, fmt.Sprintf("failed to create image repository %s", imageRepositoryName), l.Action, l.ActionAdd, l.Audit, "true")
-		return nil, nil, nil, err
-	}
-
-	pushRobotAccountName, pullRobotAccountName := generateRobotAccountsNames(component)
-
-	pushRobotAccount, err := quayClient.CreateRobotAccount(r.QuayOrganization, pushRobotAccountName)
-	if err != nil {
-		log.Error(err, fmt.Sprintf("failed to create robot account %s", pushRobotAccountName), l.Action, l.ActionAdd, l.Audit, "true")
-		return nil, nil, nil, err
-	}
-	err = quayClient.AddPermissionsForRepositoryToRobotAccount(r.QuayOrganization, repo.Name, pushRobotAccount.Name, true)
-	if err != nil {
-		log.Error(err, fmt.Sprintf("failed to add permissions to robot account %s", pushRobotAccount.Name), l.Action, l.ActionUpdate, l.Audit, "true")
-		return nil, nil, nil, err
-	}
-
-	pullRobotAccount, err := quayClient.CreateRobotAccount(r.QuayOrganization, pullRobotAccountName)
-	if err != nil {
-		log.Error(err, fmt.Sprintf("failed to create robot account %s", pullRobotAccountName), l.Action, l.ActionAdd, l.Audit, "true")
-		return nil, nil, nil, err
-	}
-	err = quayClient.AddPermissionsForRepositoryToRobotAccount(r.QuayOrganization, repo.Name, pullRobotAccount.Name, false)
-	if err != nil {
-		log.Error(err, fmt.Sprintf("failed to add permissions to robot account %s", pullRobotAccount.Name), l.Action, l.ActionUpdate, l.Audit, "true")
-		return nil, nil, nil, err
-	}
-
-	return repo, pushRobotAccount, pullRobotAccount, nil
-}
-
-// generateSecret dumps the robot account token into a Secret for future consumption.
-func generateSecret(c *appstudioredhatcomv1alpha1.Component, robotAccount *quay.RobotAccount, secretName, quayImageURL string) *corev1.Secret {
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: c.Namespace,
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					Name:       c.Name,
-					APIVersion: c.APIVersion,
-					Kind:       c.Kind,
-					UID:        c.UID,
-				},
-			},
-		},
-		Type:       corev1.SecretTypeDockerConfigJson,
-		StringData: generateDockerconfigSecretData(quayImageURL, robotAccount),
-	}
-}
-
-func generateDockerconfigSecretData(quayImageURL string, robotAccount *quay.RobotAccount) map[string]string {
-	secretData := map[string]string{}
-	authString := fmt.Sprintf("%s:%s", robotAccount.Name, robotAccount.Token)
-	secretData[corev1.DockerConfigJsonKey] = fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`,
-		quayImageURL, base64.StdEncoding.EncodeToString([]byte(authString)))
-	return secretData
-}
-
-func getComponentIdForMetrics(component *appstudioredhatcomv1alpha1.Component) string {
-	return component.Name + "=" + component.Namespace
 }
