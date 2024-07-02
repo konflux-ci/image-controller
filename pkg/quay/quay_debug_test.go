@@ -30,6 +30,16 @@ var (
 	quayOrgName          = "test-org"
 	quayImageRepoName    = "namespace/application/component"
 	quayRobotAccountName = "test-robot-account"
+
+	notification = Notification{
+		Title:  "Test notification",
+		Event:  "repo_push",
+		Method: "webhook",
+		Config: NotificationConfig{
+			Url: "https://example.com",
+		},
+	}
+	quayNotificationUUID = "1234"
 )
 
 func TestCreateRepository(t *testing.T) {
@@ -193,14 +203,6 @@ func TestCreateNotification(t *testing.T) {
 	}
 
 	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
-	notification := Notification{
-		Title:  "Test notification",
-		Event:  "repo_push",
-		Method: "webhook",
-		Config: NotificationConfig{
-			Url: "https://example.com",
-		},
-	}
 
 	quayNotification, err := quayClient.CreateNotification(quayOrgName, quayImageRepoName, notification)
 	if err != nil {
@@ -231,5 +233,79 @@ func TestCreateNotification(t *testing.T) {
 	if !found {
 		t.Fatalf("Notification %s not found", quayNotification.UUID)
 	}
+}
 
+func TestDeleteNotification(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+
+	res, err := quayClient.DeleteNotification(quayOrgName, quayImageRepoName, quayNotificationUUID)
+	if err != nil || res == false {
+		t.Fatal(err)
+	}
+
+	allNotifications, err := quayClient.GetNotifications(quayOrgName, quayImageRepoName)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, n := range allNotifications {
+		if n.UUID == quayNotificationUUID {
+			found = true
+			break
+		}
+	}
+	if found {
+		t.Fatalf("Notification %s found", quayNotificationUUID)
+	}
+}
+
+func TestUpdateNotification(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+
+	notification.Config.Url = "https://example_new.com"
+	updatedNotification, err := quayClient.UpdateNotification(quayOrgName, quayImageRepoName, quayNotificationUUID, notification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedNotification == nil {
+		t.Fatal("Notification should not be nil")
+	}
+	if updatedNotification.UUID == "" {
+		t.Fatal("Notification UUID should not be empty")
+	}
+
+	allNotifications, err := quayClient.GetNotifications(quayOrgName, quayImageRepoName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(allNotifications) == 0 {
+		t.Fatal("No notifications found")
+	}
+
+	found := false
+	updated := false
+	for _, n := range allNotifications {
+		if n.UUID == updatedNotification.UUID {
+			found = true
+			if n.Config.Url == updatedNotification.Config.Url {
+				updated = true
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Notification %s not found", updatedNotification.UUID)
+	}
+	if !updated {
+		t.Fatalf("Notification %s not updated", updatedNotification.UUID)
+	}
 }
