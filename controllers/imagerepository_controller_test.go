@@ -590,28 +590,11 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
 
-			isCreateNotificationInvoked := false
-			quay.CreateNotificationFunc = func(organization, repository string, notification quay.Notification) (*quay.Notification, error) {
-				isCreateNotificationInvoked = true
-				Expect(organization).To(Equal(quay.TestQuayOrg))
-				return &quay.Notification{UUID: "uuid"}, nil
-			}
-
 			createImageRepository(imageRepositoryConfig{
-				Notifications: []imagerepositoryv1alpha1.Notifications{
-					{
-						Title:  "test-notification",
-						Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
-						Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
-						Config: imagerepositoryv1alpha1.NotificationConfig{
-							Url: "http://test-url",
-						},
-					},
-				},
+				Notifications: []imagerepositoryv1alpha1.Notifications{},
 			})
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeTrue())
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
 
@@ -626,27 +609,17 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
-			Expect(imageRepository.Status.Notifications).To(HaveLen(1))
+			Expect(imageRepository.Status.Notifications).To(HaveLen(0))
 		})
 
 		It("should add notification", func() {
-			notifications := []quay.Notification{
-				{
-					UUID:   "uuid",
-					Title:  "test-notification",
-					Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
-					Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
-					Config: quay.NotificationConfig{
-						Url: "http://test-url",
-					},
-				},
-			}
+			notifications := []quay.Notification{}
 			isCreateNotificationInvoked := false
 			quay.CreateNotificationFunc = func(organization, repository string, notification quay.Notification) (*quay.Notification, error) {
 				notifications = append(
 					notifications,
 					quay.Notification{
-						UUID:   "uuid2",
+						UUID:   "uuid",
 						Title:  notification.Title,
 						Event:  notification.Event,
 						Method: notification.Method,
@@ -655,7 +628,7 @@ var _ = Describe("Image repository controller", func() {
 				)
 				isCreateNotificationInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
-				return &quay.Notification{UUID: "uuid2", Title: notification.Title}, nil
+				return &quay.Notification{UUID: "uuid", Title: notification.Title}, nil
 			}
 			isGetNotificationsInvoked := false
 			quay.GetNotificationsFunc = func(organization, repository string) ([]quay.Notification, error) {
@@ -665,11 +638,11 @@ var _ = Describe("Image repository controller", func() {
 			}
 
 			newNotification := imagerepositoryv1alpha1.Notifications{
-				Title:  "test-notification-2",
+				Title:  "test-notification",
 				Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
 				Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
 				Config: imagerepositoryv1alpha1.NotificationConfig{
-					Url: "http://test-url-2",
+					Url: "http://test-url",
 				},
 			}
 			imageRepository := getImageRepository(resourceKey)
@@ -677,54 +650,6 @@ var _ = Describe("Image repository controller", func() {
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isGetNotificationsInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
-				return len(imageRepository.Status.Notifications) == 2
-			}, timeout, interval).Should(BeTrue())
-		})
-
-		It("should delete notification", func() {
-			notifications := []quay.Notification{
-				{
-					UUID:   "uuid",
-					Title:  "test-notification",
-					Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
-					Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
-					Config: quay.NotificationConfig{
-						Url: "http://test-url",
-					},
-				},
-				{
-					UUID:   "uuid2",
-					Title:  "test-notification-2",
-					Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
-					Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
-					Config: quay.NotificationConfig{
-						Url: "http://test-url-2",
-					},
-				},
-			}
-			isDeleteNotificationInvoked := false
-			quay.DeleteNotificationFunc = func(organization, repository string, notificationUuid string) (bool, error) {
-				isDeleteNotificationInvoked = true
-				notifications = notifications[:1]
-				Expect(organization).To(Equal(quay.TestQuayOrg))
-				return true, nil
-			}
-			isGetNotificationsInvoked := false
-			quay.GetNotificationsFunc = func(organization, repository string) ([]quay.Notification, error) {
-				isGetNotificationsInvoked = true
-				Expect(organization).To(Equal(quay.TestQuayOrg))
-				return notifications, nil
-			}
-
-			imageRepository := getImageRepository(resourceKey)
-			Expect(imageRepository.Status.Notifications).To(HaveLen(2))
-			imageRepository.Spec.Notifications = imageRepository.Spec.Notifications[:len(imageRepository.Spec.Notifications)-1]
-			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
-
-			Eventually(func() bool { return isDeleteNotificationInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isGetNotificationsInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
 				imageRepository := getImageRepository(resourceKey)
@@ -775,6 +700,83 @@ var _ = Describe("Image repository controller", func() {
 				imageRepository := getImageRepository(resourceKey)
 				return len(imageRepository.Status.Notifications) == 1 && imageRepository.Spec.Notifications[0].Config.Url == updatedUrl && imageRepository.Status.Notifications[0].UUID == "uuid_new"
 			}, timeout, interval).Should(BeTrue())
+		})
+
+		It("should delete notification", func() {
+			notifications := []quay.Notification{
+				{
+					UUID:   "uuid_new",
+					Title:  "test-notification",
+					Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
+					Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
+					Config: quay.NotificationConfig{
+						Url: "http://test-url_new",
+					},
+				},
+			}
+			isDeleteNotificationInvoked := false
+			quay.DeleteNotificationFunc = func(organization, repository string, notificationUuid string) (bool, error) {
+				isDeleteNotificationInvoked = true
+				notifications = notifications[:1]
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				return true, nil
+			}
+			isGetNotificationsInvoked := false
+			quay.GetNotificationsFunc = func(organization, repository string) ([]quay.Notification, error) {
+				isGetNotificationsInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				return notifications, nil
+			}
+
+			imageRepository := getImageRepository(resourceKey)
+			Expect(imageRepository.Status.Notifications).To(HaveLen(1))
+			imageRepository.Spec.Notifications = imageRepository.Spec.Notifications[:len(imageRepository.Spec.Notifications)-1]
+			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+
+			Eventually(func() bool { return isDeleteNotificationInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isGetNotificationsInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool {
+				imageRepository := getImageRepository(resourceKey)
+				return len(imageRepository.Status.Notifications) == 0
+			}, timeout, interval).Should(BeTrue())
+		})
+
+		It("should provision image repository with some notifications to create", func() {
+			deleteImageRepository(resourceKey)
+			isCreateNotificationInvoked := false
+			quay.CreateNotificationFunc = func(organization, repository string, notification quay.Notification) (*quay.Notification, error) {
+				isCreateNotificationInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				return &quay.Notification{UUID: "uuid"}, nil
+			}
+			createImageRepository(imageRepositoryConfig{
+				Notifications: []imagerepositoryv1alpha1.Notifications{
+					{
+						Title:  "test-notification",
+						Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+						Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+						Config: imagerepositoryv1alpha1.NotificationConfig{
+							Url: "http://test-url",
+						},
+					},
+					{
+						Title:  "test-notification-2",
+						Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+						Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+						Config: imagerepositoryv1alpha1.NotificationConfig{
+							Url: "http://test-url-2",
+						},
+					},
+				},
+			})
+			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeTrue())
+
+			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+
+			imageRepository := getImageRepository(resourceKey)
+			Expect(imageRepository.Status.Notifications).To(HaveLen(2))
+			Expect(imageRepository.Status.Notifications[0].Title).To(Equal("test-notification"))
+			Expect(imageRepository.Status.Notifications[1].Title).To(Equal("test-notification-2"))
 		})
 	})
 

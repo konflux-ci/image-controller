@@ -67,12 +67,14 @@ func (r *ImageRepositoryReconciler) HandleNotifications(ctx context.Context, ima
 	if !r.checkNotificationChangesExists(imageRepository, allNotifications) {
 		return nil
 	}
-	for index := 0; index < len(imageRepository.Status.Notifications); index++ {
-		statusNotification := &imageRepository.Status.Notifications[index] // This way we can update the UUID if notification gets updated
-		existsInSpec := false
-		for _, notification := range imageRepository.Spec.Notifications {
+
+	log.Info("Starting to handle notifications")
+	for _, notification := range imageRepository.Spec.Notifications {
+		existsInStatus := false
+		for index := 0; index < len(imageRepository.Status.Notifications); index++ {
+			statusNotification := &imageRepository.Status.Notifications[index] // This way we can update the UUID if notification gets updated
 			if notification.Title == statusNotification.Title {
-				existsInSpec = true
+				existsInStatus = true
 				quayNotification, err := r.notificationExistsInQuayByUUID(statusNotification.UUID, imageRepository)
 				if err != nil {
 					return r.handleError(ctx, imageRepository, err, "Couldn't retrieve all Quay notifications")
@@ -101,46 +103,50 @@ func (r *ImageRepositoryReconciler) HandleNotifications(ctx context.Context, ima
 					statusNotification.Title = updatedNotification.Title
 					break
 				}
-			} else {
-				exists, err := r.notificationExistsInQuayByTitle(notification.Title, imageRepository)
-				if err != nil {
-					return r.handleError(ctx, imageRepository, err, "Couldn't retrieve all Quay notifications")
-				}
-				if !exists {
-					// New item in Spec.Notifications: add notification to Quay and Status.Notifications
-					log.Info("Adding new notification to Quay", "Title", notification.Title, "Event", notification.Event, "Method", notification.Method)
-					resStatusNotification, err := r.AddNotification(notification, imageRepository)
-					if err != nil {
-						log.Error(err, "failed to add notification", "Title", notification.Title, "Event", notification.Event, "Method", notification.Method)
-						return r.handleError(ctx, imageRepository, err, "Error while adding a notification ("+notification.Title+") to Quay")
-					}
-					existsInStatus := false
-					for _, statusNotificationAux := range imageRepository.Status.Notifications {
-						if resStatusNotification.UUID == statusNotificationAux.UUID {
-							existsInStatus = true
-							break
-						}
-					}
-					if !existsInStatus {
-						imageRepository.Status.Notifications = append(imageRepository.Status.Notifications, resStatusNotification)
-					}
-				}
 			}
 		}
-		if !existsInSpec {
-			// Deleted item from Spec.Notifications: delete notification from Quay and Status.Notifications
-			log.Info("Deleting notification in Quay", "Title", statusNotification.Title, "UUID", statusNotification.UUID)
-			_, err := r.QuayClient.DeleteNotification(
-				r.QuayOrganization,
-				imageRepository.Spec.Image.Name,
-				statusNotification.UUID)
+		if !existsInStatus {
+			log.Info("Adding new notification to Quay", "Title", notification.Title, "Event", notification.Event, "Method", notification.Method)
+			resStatusNotification, err := r.AddNotification(notification, imageRepository)
 			if err != nil {
-				log.Error(err, "failed to delete notification", "Title", statusNotification.Title, "UUID", statusNotification.UUID)
-				return r.handleError(ctx, imageRepository, err, "Error while deleting a notification ("+statusNotification.Title+") to Quay")
+				log.Error(err, "failed to add notification", "Title", notification.Title, "Event", notification.Event, "Method", notification.Method)
+				return r.handleError(ctx, imageRepository, err, "Error while adding a notification ("+notification.Title+") to Quay")
 			}
-			// Remove notification from CR status
-			imageRepository.Status.Notifications = append(imageRepository.Status.Notifications[:index], imageRepository.Status.Notifications[index+1:]...)
-			index--
+			alreadyInStatus := false
+			for _, statusNotificationAux := range imageRepository.Status.Notifications {
+				if resStatusNotification.UUID == statusNotificationAux.UUID {
+					alreadyInStatus = true
+					break
+				}
+			}
+			if !alreadyInStatus {
+				imageRepository.Status.Notifications = append(imageRepository.Status.Notifications, resStatusNotification)
+			}
+		}
+	}
+	if len(imageRepository.Status.Notifications) > len(imageRepository.Spec.Notifications) {
+		// There are notifications to be deleted
+		for index, statusNotification := range imageRepository.Status.Notifications {
+			existsInSpec := false
+			for _, notification := range imageRepository.Spec.Notifications {
+				if notification.Title == statusNotification.Title {
+					existsInSpec = true
+					break
+				}
+			}
+			if !existsInSpec {
+				log.Info("Deleting notification in Quay", "Title", statusNotification.Title, "UUID", statusNotification.UUID)
+				_, err := r.QuayClient.DeleteNotification(
+					r.QuayOrganization,
+					imageRepository.Spec.Image.Name,
+					statusNotification.UUID)
+				if err != nil {
+					log.Error(err, "failed to delete notification", "Title", statusNotification.Title, "UUID", statusNotification.UUID)
+					return r.handleError(ctx, imageRepository, err, "Error while deleting a notification ("+statusNotification.Title+") to Quay")
+				}
+				// Remove notification from CR status
+				imageRepository.Status.Notifications = append(imageRepository.Status.Notifications[:index], imageRepository.Status.Notifications[index+1:]...)
+			}
 		}
 	}
 
@@ -191,22 +197,6 @@ func (r *ImageRepositoryReconciler) notificationExistsInQuayByUUID(UUID string, 
 	}
 
 	return notification, nil
-}
-
-func (r *ImageRepositoryReconciler) notificationExistsInQuayByTitle(title string, imageRepository *imagerepositoryv1alpha1.ImageRepository) (bool, error) {
-	exists := false
-	allNotifications, err := r.QuayClient.GetNotifications(r.QuayOrganization, imageRepository.Spec.Image.Name)
-	if err != nil {
-		return exists, err
-	}
-	for _, quayNotification := range allNotifications {
-		if quayNotification.Title == title {
-			exists = true
-			break
-		}
-	}
-
-	return exists, nil
 }
 
 func isNotificationChanged(notification imagerepositoryv1alpha1.Notifications, quayNotification quay.Notification) bool {
