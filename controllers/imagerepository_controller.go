@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -661,4 +662,12 @@ func (r *ImageRepositoryReconciler) UpdateImageRepositoryStatusMessage(ctx conte
 	}
 
 	return nil
+}
+
+func generateDockerconfigSecretData(quayImageURL string, robotAccount *quay.RobotAccount) map[string]string {
+	secretData := map[string]string{}
+	authString := fmt.Sprintf("%s:%s", robotAccount.Name, robotAccount.Token)
+	secretData[corev1.DockerConfigJsonKey] = fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`,
+		quayImageURL, base64.StdEncoding.EncodeToString([]byte(authString)))
+	return secretData
 }
