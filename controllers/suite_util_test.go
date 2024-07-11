@@ -246,6 +246,27 @@ func waitImageRepositoryFinalizerOnImageRepository(imageRepositoryKey types.Name
 	}, timeout, interval).Should(BeTrue())
 }
 
+// waitImageRepositoryCredentialSectionRequestGone waits until Spec.Credentials section is gone
+func waitImageRepositoryCredentialSectionRequestGone(imageRepositoryKey types.NamespacedName, operationName string) {
+	Eventually(func() bool {
+		imageRepository := getImageRepository(imageRepositoryKey)
+		switch operationName {
+		case "regenerate":
+			if imageRepository.Spec.Credentials.RegenerateToken == nil {
+				return true
+			}
+			return false
+		case "verify":
+			if imageRepository.Spec.Credentials.VerifyLinking == nil {
+				return true
+			}
+			return false
+		default:
+			return true
+		}
+	}, timeout, interval).Should(BeTrue())
+}
+
 func createNamespace(name string) {
 	namespace := corev1.Namespace{
 		TypeMeta: metav1.TypeMeta{
@@ -312,4 +333,18 @@ func getServiceAccount(namespace string, name string) corev1.ServiceAccount {
 		return sa.ResourceVersion != ""
 	}, timeout, interval).Should(BeTrue())
 	return sa
+}
+
+func deleteServiceAccount(serviceAccountKey types.NamespacedName) {
+	serviceAccount := &corev1.ServiceAccount{}
+	if err := k8sClient.Get(ctx, serviceAccountKey, serviceAccount); err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return
+		}
+		Fail("Failed to get service account")
+	}
+	Expect(k8sClient.Delete(ctx, serviceAccount)).To(Succeed())
+	Eventually(func() bool {
+		return k8sErrors.IsNotFound(k8sClient.Get(ctx, serviceAccountKey, serviceAccount))
+	}, timeout, interval).Should(BeTrue())
 }

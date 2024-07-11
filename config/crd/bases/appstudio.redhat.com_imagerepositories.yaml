@@ -50,6 +50,11 @@ spec:
                       accessing credentials. Refreshes both, push and pull tokens.
                       The field gets cleared after the refresh.
                     type: boolean
+                  verify-linking:
+                    description: VerifyLinking defines a request to verify and fix
+                      secret linking in pipeline service account. The field gets cleared
+                      after fixing.
+                    type: boolean
                 type: object
               image:
                 description: Requested image repository configuration.

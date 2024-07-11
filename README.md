@@ -111,7 +111,28 @@ spec:
     regenerate-token: true
   ...
 ```
-After token rotation, the `spec.credentials` section will be deleted and `status.credentials.generationTimestamp` updated.
+After token rotation, the `spec.credentials.regenerate-token` section will be deleted and `status.credentials.generationTimestamp` updated.
+
+---
+
+### Verify and fix secrets links
+
+It will link secret to service account if link is missing.
+It will remove duplicate links of secret in service account.
+It will remove secret from imagePullSecrets in service account.
+It will unlink secret from service account, if secret doesn't exist (you can recreate secret using 'regenerate-token').
+It's possible to request verification and fixing of secrets linking to service account by adding:
+```yaml
+...
+spec:
+  ...
+  credentials:
+    verify-linking: true
+  ...
+```
+After verification, the `spec.credentials.verify-linking` section will be deleted.
+
+---
 
 ### Error handling
 
