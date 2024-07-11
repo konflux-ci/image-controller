@@ -103,7 +103,7 @@ def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -
 def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
     image_digests = [image["manifest_digest"] for image in tags]
     tags_map = {tag_info["name"]: tag_info for tag_info in tags}
-    tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src|\.sig)$")
+    tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src|\.sig|\.dockerfile)$")
     manifests_checked = {}
     for tag in tags:
         # attestation or sbom image
