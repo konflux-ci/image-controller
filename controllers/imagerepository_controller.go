@@ -108,6 +108,11 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		// Reread quay token
 		r.QuayClient = r.BuildQuayClient(log)
 
+		if err := r.unlinkSecretFromServiceAccount(ctx, imageRepository.Status.Credentials.PushSecretName, imageRepository.Namespace); err != nil {
+			log.Error(err, "failed to unlink secret from service account", "SecretName", imageRepository.Status.Credentials.PushSecretName, l.Action, l.ActionUpdate)
+			return ctrl.Result{}, err
+		}
+
 		if controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {
 			// Do not block deletion on failures
 			r.CleanupImageRepository(ctx, imageRepository)
@@ -161,21 +166,21 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 					return ctrl.Result{}, nil
 				}
 
-				log.Error(err, "failed to get component", "ComponentName", componentName)
+				log.Error(err, "failed to get component", "ComponentName", componentName, l.Action, l.ActionView)
 				return ctrl.Result{}, err
 			}
 
 			component.Spec.ContainerImage = imageRepository.Status.Image.URL
 
 			if err := r.Client.Update(ctx, component); err != nil {
-				log.Error(err, "failed to update Component after provision", "ComponentName", componentName)
+				log.Error(err, "failed to update Component after provision", "ComponentName", componentName, l.Action, l.ActionUpdate)
 				return ctrl.Result{}, err
 			}
 			log.Info("Updated component's ContainerImage", "ComponentName", componentName)
 			delete(imageRepository.Annotations, updateComponentAnnotationName)
 
 			if err := r.Client.Update(ctx, imageRepository); err != nil {
-				log.Error(err, "failed to update imageRepository annotation")
+				log.Error(err, "failed to update imageRepository annotation", l.Action, l.ActionUpdate)
 				return ctrl.Result{}, err
 			}
 			log.Info("Updated image repository annotation")
@@ -217,6 +222,15 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			}
 			return ctrl.Result{}, nil
 		}
+
+		// Check and fix linking is requested
+		verifyLinking := imageRepository.Spec.Credentials.VerifyLinking
+		if verifyLinking != nil && *verifyLinking {
+			if err := r.VerifyAndFixSecretsLinking(ctx, imageRepository); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
 	}
 
 	if err = r.HandleNotifications(ctx, imageRepository); err != nil {
@@ -224,7 +238,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
-		log.Error(err, "failed to update image repository status")
+		log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 		return ctrl.Result{}, err
 	}
 
@@ -242,7 +256,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 // ProvisionImageRepository creates image repository, robot account(s) and secret(s) to access the image repository.
 // If labels with Application and Component name are present, robot account with pull only access
-// will be created and pull token will be propagated to all environments via Remote Secret.
+// will be created and pull token will be propagated Secret.
 func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
 	log := ctrllog.FromContext(ctx).WithName("ImageRepositoryProvision")
 	ctx = ctrllog.IntoContext(ctx, log)
@@ -257,13 +271,13 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 				imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateFailed
 				imageRepository.Status.Message = fmt.Sprintf("Component '%s' does not exist", componentName)
 				if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
-					log.Error(err, "failed to update image repository status")
+					log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 					return err
 				}
 				log.Info("attempt to create image repository related to non existing component", "Component", componentName)
 				return nil
 			}
-			log.Error(err, "failed to get component", "ComponentName", componentName)
+			log.Error(err, "failed to get component", "ComponentName", componentName, l.Action, l.ActionView)
 			return err
 		}
 	}
@@ -308,7 +322,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 			imageRepository.Status.Message = err.Error()
 		}
 		if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
-			log.Error(err, "failed to update image repository status")
+			log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 		}
 		return nil
 	}
@@ -354,20 +368,19 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	if isComponentLinked(imageRepository) {
 		if err := controllerutil.SetOwnerReference(component, imageRepository, r.Scheme); err != nil {
 			log.Error(err, "failed to set component as owner", "ComponentName", component.Name)
-			// Do not brake provision because of failed owner reference
+			// Do not fail provision because of failed owner reference
 		}
 	}
 
 	if err := r.Client.Update(ctx, imageRepository); err != nil {
-		log.Error(err, "failed to update CR after provision")
+		log.Error(err, "failed to update imageRepository after provision", l.Action, l.ActionUpdate)
 		return err
-	} else {
-		log.Info("Finished provision of image repository and added finalizer")
 	}
+	log.Info("Finished provision of image repository and added finalizer")
 
 	imageRepository.Status = status
 	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
-		log.Error(err, "failed to update CR status after provision")
+		log.Error(err, "failed to update imageRepository status after provision", l.Action, l.ActionUpdate)
 		return err
 	}
 
@@ -380,7 +393,7 @@ type imageRepositoryAccessData struct {
 }
 
 // ProvisionImageRepositoryAccess makes existing quay image repository accessible
-// by creating robot account and storing its token in a RemoteSecret.
+// by creating robot account and storing its token in a Secret.
 func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, isPullOnly bool) (*imageRepositoryAccessData, error) {
 	log := ctrllog.FromContext(ctx).WithName("ProvisionImageRepositoryAccess").WithValues("IsPullOnly", isPullOnly)
 	ctx = ctrllog.IntoContext(ctx, log)
@@ -434,20 +447,20 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx con
 
 	imageRepository.Spec.Credentials.RegenerateToken = nil
 	if err := r.Client.Update(ctx, imageRepository); err != nil {
-		log.Error(err, "failed to update image repository", l.Action, l.ActionUpdate)
+		log.Error(err, "failed to update imageRepository", l.Action, l.ActionUpdate)
 		return err
 	}
 
 	imageRepository.Status.Credentials.GenerationTimestamp = &metav1.Time{Time: time.Now()}
 	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
-		log.Error(err, "failed to update image repository status", l.Action, l.ActionUpdate)
+		log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 		return err
 	}
 
 	return nil
 }
 
-// RegenerateImageRepositoryAccessToken rotates robot account token and updates new one to the corresponding Remote Secret.
+// RegenerateImageRepositoryAccessToken rotates robot account token and updates new one to the corresponding Secret.
 func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, isPullOnly bool) error {
 	log := ctrllog.FromContext(ctx).WithName("RegenerateImageRepositoryAccessToken").WithValues("IsPullOnly", isPullOnly)
 	ctx = ctrllog.IntoContext(ctx, log)
@@ -524,7 +537,7 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 		imageRepository.Status.Image.Visibility = imageRepository.Spec.Image.Visibility
 		imageRepository.Status.Message = ""
 		if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
-			log.Error(err, "failed to update image repository name", l.Action, l.ActionUpdate)
+			log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 			return err
 		}
 		log.Info("changed image repository visibility", "visibility", imageRepository.Spec.Image.Visibility)
@@ -536,13 +549,13 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 
 		imageRepository.Spec.Image.Visibility = imageRepository.Status.Image.Visibility
 		if err := r.Client.Update(ctx, imageRepository); err != nil {
-			log.Error(err, "failed to update image repository", l.Action, l.ActionUpdate)
+			log.Error(err, "failed to update imageRepository", l.Action, l.ActionUpdate)
 			return err
 		}
 
 		imageRepository.Status.Message = "Quay organization plan private repositories limit exceeded"
 		if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
-			log.Error(err, "failed to update image repository", l.Action, l.ActionUpdate)
+			log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 			return err
 		}
 
@@ -561,7 +574,7 @@ func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepos
 	secretKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: secretName}
 	if err := r.Client.Get(ctx, secretKey, secret); err != nil {
 		if !errors.IsNotFound(err) {
-			log.Error(err, "failed to get remote secret", l.Action, l.ActionView)
+			log.Error(err, "failed to get secret", "SecretName", secretName, l.Action, l.ActionView)
 			return err
 		}
 
@@ -590,20 +603,202 @@ func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepos
 		}
 
 		if !isPull {
-			serviceAccount := &corev1.ServiceAccount{}
-			serviceAccountKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: buildPipelineServiceAccountName}
-			if err := r.Client.Get(ctx, serviceAccountKey, serviceAccount); err != nil {
-				log.Error(err, "failed to get service account", l.Action, l.ActionView)
-				return err
-			}
-			serviceAccount.Secrets = append(serviceAccount.Secrets, corev1.ObjectReference{Name: secretName})
-			serviceAccount.ImagePullSecrets = append(serviceAccount.ImagePullSecrets, corev1.LocalObjectReference{Name: secretName})
-			if err := r.Client.Update(ctx, serviceAccount); err != nil {
-				log.Error(err, "failed to update service account", l.Action, l.ActionUpdate)
+			if err := r.linkSecretToServiceAccount(ctx, secretName, imageRepository.Namespace); err != nil {
+				log.Error(err, "failed to link secret to service account", "SecretName", secretName, l.Action, l.ActionUpdate)
 				return err
 			}
 		}
 	}
+	return nil
+}
+
+// linkSecretToServiceAccount ensures that the given secret is linked with the provided service account.
+func (r *ImageRepositoryReconciler) linkSecretToServiceAccount(ctx context.Context, secretNameToAdd, namespace string) error {
+	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", buildPipelineServiceAccountName)
+
+	serviceAccount := &corev1.ServiceAccount{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: namespace}, serviceAccount)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		log.Error(err, "failed to read pipeline service account", l.Action, l.ActionView)
+		return err
+	}
+
+	// check if secret is already linked and add it only if it isn't to avoid duplication
+	secretLinked := false
+	for _, serviceAccountSecret := range serviceAccount.Secrets {
+		if serviceAccountSecret.Name == secretNameToAdd {
+			secretLinked = true
+			break
+		}
+	}
+	if !secretLinked {
+		// add it only to Secrets and not in imagePullSecrets which is used only for the image pod itself needs to run
+		serviceAccount.Secrets = append(serviceAccount.Secrets, corev1.ObjectReference{Name: secretNameToAdd})
+
+		if err := r.Client.Update(ctx, serviceAccount); err != nil {
+			log.Error(err, "failed to update pipeline service account", l.Action, l.ActionUpdate)
+			return err
+		}
+		log.Info("Added secret link to pipeline service account", "SecretName", secretNameToAdd, l.Action, l.ActionUpdate)
+	}
+	return nil
+}
+
+// unlinkSecretFromServiceAccount ensures that the given secret is not linked with the provided service account.
+func (r *ImageRepositoryReconciler) unlinkSecretFromServiceAccount(ctx context.Context, secretNameToRemove, namespace string) error {
+	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", buildPipelineServiceAccountName)
+
+	serviceAccount := &corev1.ServiceAccount{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: namespace}, serviceAccount)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		log.Error(err, "failed to read pipeline service account", l.Action, l.ActionView)
+		return err
+	}
+
+	unlinkSecret := false
+	// Remove secret from secrets list
+	pushSecrets := []corev1.ObjectReference{}
+	for _, credentialSecret := range serviceAccount.Secrets {
+		// don't break and search for duplicities
+		if credentialSecret.Name == secretNameToRemove {
+			unlinkSecret = true
+			continue
+		}
+		pushSecrets = append(pushSecrets, credentialSecret)
+	}
+	serviceAccount.Secrets = pushSecrets
+
+	// Remove secret from pull secrets list
+	// we aren't adding them anymore in imagePullSecrets but just to be sure check and remove them from there
+	imagePullSecrets := []corev1.LocalObjectReference{}
+	for _, pullSecret := range serviceAccount.ImagePullSecrets {
+		// don't break and search for duplicities
+		if pullSecret.Name == secretNameToRemove {
+			unlinkSecret = true
+			continue
+		}
+		imagePullSecrets = append(imagePullSecrets, pullSecret)
+	}
+	serviceAccount.ImagePullSecrets = imagePullSecrets
+
+	if unlinkSecret {
+		if err := r.Client.Update(ctx, serviceAccount); err != nil {
+			log.Error(err, "failed to update pipeline service account", l.Action, l.ActionUpdate)
+			return err
+		}
+		log.Info("Removed secret link from pipeline service account", "SecretName", secretNameToRemove, l.Action, l.ActionUpdate)
+	}
+	return nil
+}
+
+// cleanUpSecretInServiceAccount ensures that the given secret is linked with the provided service account just once
+// and remove the secret from ImagePullSecrets
+func (r *ImageRepositoryReconciler) cleanUpSecretInServiceAccount(ctx context.Context, secretName, namespace string) error {
+	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", buildPipelineServiceAccountName)
+
+	serviceAccount := &corev1.ServiceAccount{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: namespace}, serviceAccount)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		log.Error(err, "failed to read pipeline service account", l.Action, l.ActionView)
+		return err
+	}
+
+	linksModified := false
+
+	// Check for duplicates for the secret and remove them
+	pushSecrets := []corev1.ObjectReference{}
+	foundSecret := false
+	for _, credentialSecret := range serviceAccount.Secrets {
+		if credentialSecret.Name == secretName {
+			if !foundSecret {
+				pushSecrets = append(pushSecrets, credentialSecret)
+				foundSecret = true
+			} else {
+				linksModified = true
+			}
+		} else {
+			pushSecrets = append(pushSecrets, credentialSecret)
+		}
+	}
+	serviceAccount.Secrets = pushSecrets
+
+	// Remove secret from pull secrets list
+	imagePullSecrets := []corev1.LocalObjectReference{}
+	for _, pullSecret := range serviceAccount.ImagePullSecrets {
+		// don't break and search for duplicities
+		if pullSecret.Name == secretName {
+			linksModified = true
+			continue
+		}
+		imagePullSecrets = append(imagePullSecrets, pullSecret)
+	}
+	serviceAccount.ImagePullSecrets = imagePullSecrets
+
+	if linksModified {
+		if err := r.Client.Update(ctx, serviceAccount); err != nil {
+			log.Error(err, "failed to update pipeline service account", l.Action, l.ActionUpdate)
+			return err
+		}
+		log.Info("Cleaned up secret links in pipeline service account", "SecretName", secretName, l.Action, l.ActionUpdate)
+	}
+	return nil
+}
+
+// VerifyAndFixSecretsLinking ensures that the given secret is linked to the provided service account, and also removes duplicated link for the secret.
+// when secret doesn't exist unlink it from service account
+func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
+	secretName := imageRepository.Status.Credentials.PushSecretName
+	log := ctrllog.FromContext(ctx).WithValues("SecretName", secretName)
+
+	// check secret existence and if secret doesn't exist unlink it from service account
+	// users can recreate it by using regenerate-token
+	secret := &corev1.Secret{}
+	secretKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: secretName}
+	secretExists := true
+	if err := r.Client.Get(ctx, secretKey, secret); err != nil {
+		if !errors.IsNotFound(err) {
+			log.Error(err, "failed to get secret", l.Action, l.ActionView)
+			return err
+		}
+
+		secretExists = false
+		log.Info("Secret doesn't exist, will unlink secret from service account")
+
+		if err := r.unlinkSecretFromServiceAccount(ctx, secretName, imageRepository.Namespace); err != nil {
+			log.Error(err, "failed to unlink secret from service account", l.Action, l.ActionUpdate)
+			return err
+		}
+	}
+
+	if secretExists {
+		// link secret to service account if isn't linked already
+		if err := r.linkSecretToServiceAccount(ctx, secretName, imageRepository.Namespace); err != nil {
+			log.Error(err, "failed to link secret to service account", l.Action, l.ActionUpdate)
+			return err
+		}
+
+		// clean duplicate secret links and remove secret from ImagePullSecrets
+		if err := r.cleanUpSecretInServiceAccount(ctx, secretName, imageRepository.Namespace); err != nil {
+			log.Error(err, "failed to clean up secret in service account", l.Action, l.ActionUpdate)
+			return err
+		}
+	}
+
+	imageRepository.Spec.Credentials.VerifyLinking = nil
+	if err := r.Client.Update(ctx, imageRepository); err != nil {
+		log.Error(err, "failed to update imageRepository", l.Action, l.ActionUpdate)
+		return err
+	}
+
 	return nil
 }
 
@@ -648,7 +843,7 @@ func isComponentLinked(imageRepository *imagerepositoryv1alpha1.ImageRepository)
 func getRandomString(length int) string {
 	bytes := make([]byte, length/2+1)
 	if _, err := rand.Read(bytes); err != nil {
-		panic("Failed to read from random generator")
+		panic("failed to read from random generator")
 	}
 	return hex.EncodeToString(bytes)[0:length]
 }
@@ -657,7 +852,7 @@ func (r *ImageRepositoryReconciler) UpdateImageRepositoryStatusMessage(ctx conte
 	log := ctrllog.FromContext(ctx)
 	imageRepository.Status.Message = statusMessage
 	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
-		log.Error(err, "failed to update image repository status")
+		log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 		return err
 	}
 
