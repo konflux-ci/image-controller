@@ -268,14 +268,12 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
 		if err := r.Client.Get(ctx, componentKey, component); err != nil {
 			if errors.IsNotFound(err) {
-				imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateFailed
 				imageRepository.Status.Message = fmt.Sprintf("Component '%s' does not exist", componentName)
 				if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
 					log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 					return err
 				}
 				log.Info("attempt to create image repository related to non existing component", "Component", componentName)
-				return nil
 			}
 			log.Error(err, "failed to get component", "ComponentName", componentName, l.Action, l.ActionView)
 			return err
