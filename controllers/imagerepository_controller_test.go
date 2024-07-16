@@ -1175,10 +1175,10 @@ var _ = Describe("Image repository controller", func() {
 			})
 			defer deleteImageRepository(resourceKey)
 
+			errorMessage := fmt.Sprintf("Component '%s' does not exist", defaultComponentName)
 			Eventually(func() bool {
 				imageRepository := getImageRepository(resourceKey)
-				return imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateFailed &&
-					imageRepository.Status.Message != ""
+				return imageRepository.Status.Message == errorMessage
 			}, timeout, interval).Should(BeTrue())
 		})
 
