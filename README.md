@@ -5,7 +5,7 @@ The Image Controller operator helps set up container image repositories on Quay.
 ### Image Controller operator installation
 
 1. Install the project on your cluster by running `make deploy`.
-2. Set up the Quay.io token that would be used by the controller to setup image repositories under the `quay.io/redhat-user-workloads` organization.
+2. Set up the Quay.io token that would be used by the controller to set up image repositories under the `quay.io/redhat-user-workloads` organization.
 
 ```
 kind: Secret
@@ -63,7 +63,7 @@ status:
   state: ready
 ```
 where:
-  - `push-robot-account` is the name of quay robot account in the configured quay organization with write premissions to the repository.
+  - `push-robot-account` is the name of quay robot account in the configured quay organization with write permissions to the repository.
   - `push-remote-secret` is an instance of `RemoteSecret` that manages the `Secret` specified in `push-secret`.
   - `push-secret` is a `Secret` of dockerconfigjson type that contains image repository push robot account token with write permissions.
 
@@ -139,7 +139,7 @@ After verification, the `spec.credentials.verify-linking` section will be delete
 If a critical error happens on image repository creation, then `status.state` is set to `failed` along with `status.message` field.
 To retry image repository provision, one should recreate `ImageRepository` object.
 
-If a non critical error happens, then `status,message` is set and corresponding `spec` fields are reverted.
+If a non-critical error happens, then `status.message` is set and corresponding `spec` fields are reverted.
 
 ---
 **NOTE**
@@ -218,9 +218,9 @@ status:
 
 ## Legacy (deprecated) Component image repository
 
-To request the controller to setup an image repository for a component, annotate the `Component` with `image.redhat.com/generate: '{"visibility": "public"}'` or `image.redhat.com/generate: '{"visibility": "private"}'` depending on desired repository visibility.
+To request the controller to set up an image repository for a component, annotate the `Component` with `image.redhat.com/generate: '{"visibility": "public"}'` or `image.redhat.com/generate: '{"visibility": "private"}'` depending on desired repository visibility.
 
-```
+```yaml
 apiVersion: appstudio.redhat.com/v1alpha1
 kind: Component
 metadata:
@@ -235,7 +235,7 @@ spec:
 
 The `image.redhat.com/generate` annotation will be deleted after processing. The visibility status will be shown in `visibility` field of `image.redhat.com/image` annotation.
 
-Subsequently, the visiblity of the image repository could be changed by toggling the value of "visibilty".
+Subsequently, the visibility of the image repository could be changed by toggling the value of "visibility".
 
 ---
 **NOTE**
@@ -253,17 +253,17 @@ The `Image controller` would create the necessary resources on Quay.io and write
 
 * The image repository URL.
 * The image repository visibility.
-* The name of the Kubernets `Secret` in which the robot account token was written out to.
+* The name of the Kubernetes `Secret` in which the robot account token was written out to.
 
-```
+```json
 {
    "image":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing",
    "visibility":"public",
-   "secret":"billing",
+   "secret":"billing"
 }
 ```
 
-```
+```yaml
 apiVersion: appstudio.redhat.com/v1alpha1
 kind: Component
 metadata:
