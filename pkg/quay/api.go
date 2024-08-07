@@ -44,6 +44,13 @@ type RobotAccount struct {
 	Message      string `json:"message"`
 }
 
+type UserAccount struct {
+	Name        string `json:"name"`
+	Role        string `json:"role"`
+	IsRobot     bool   `json:"is_robot"`
+	IsOrgMember bool   `json:"is_org_member"`
+}
+
 // Quay API can sometimes return {"error": "..."} and sometimes {"error_message": "..."} without the field error
 // In some cases the error is send alongside the response in the {"message": "..."} field.
 type QuayError struct {

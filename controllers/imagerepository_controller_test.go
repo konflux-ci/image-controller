@@ -83,14 +83,14 @@ var _ = Describe("Image repository controller", func() {
 				Expect(strings.HasPrefix(robotName, expectedRobotAccountPrefix)).To(BeTrue())
 				return &quay.RobotAccount{Name: robotName, Token: pushToken}, nil
 			}
-			isAddPushPermissionsToRobotAccountInvoked := false
-			quay.AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error {
+			isAddPushPermissionsToAccountInvoked := false
+			quay.AddPermissionsForRepositoryToAccountFunc = func(organization, imageRepository, accountName string, isRobot, isWrite bool) error {
 				defer GinkgoRecover()
-				isAddPushPermissionsToRobotAccountInvoked = true
+				isAddPushPermissionsToAccountInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
 				Expect(isWrite).To(BeTrue())
-				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
+				Expect(strings.HasPrefix(accountName, expectedRobotAccountPrefix)).To(BeTrue())
 				return nil
 			}
 
@@ -105,7 +105,7 @@ var _ = Describe("Image repository controller", func() {
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreateRobotAccountInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isAddPushPermissionsToRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isAddPushPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeFalse())
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
@@ -356,14 +356,14 @@ var _ = Describe("Image repository controller", func() {
 				Expect(strings.HasPrefix(robotName, expectedRobotAccountPrefix)).To(BeTrue())
 				return &quay.RobotAccount{Name: robotName, Token: pushToken}, nil
 			}
-			isAddPushPermissionsToRobotAccountInvoked := false
-			quay.AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error {
+			isAddPushPermissionsToAccountInvoked := false
+			quay.AddPermissionsForRepositoryToAccountFunc = func(organization, imageRepository, accountName string, isRobot, isWrite bool) error {
 				defer GinkgoRecover()
-				isAddPushPermissionsToRobotAccountInvoked = true
+				isAddPushPermissionsToAccountInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
 				Expect(isWrite).To(BeTrue())
-				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
+				Expect(strings.HasPrefix(accountName, expectedRobotAccountPrefix)).To(BeTrue())
 				return nil
 			}
 
@@ -377,7 +377,7 @@ var _ = Describe("Image repository controller", func() {
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreateRobotAccountInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isAddPushPermissionsToRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isAddPushPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeFalse())
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
@@ -476,7 +476,7 @@ var _ = Describe("Image repository controller", func() {
 			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 		})
 
-		assertProvisionRepository := func(updateComponentAnnotation bool) {
+		assertProvisionRepository := func(updateComponentAnnotation bool, additionalUser string) {
 			isCreateRepositoryInvoked := false
 			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				defer GinkgoRecover()
@@ -500,19 +500,25 @@ var _ = Describe("Image repository controller", func() {
 				isCreatePushRobotAccountInvoked = true
 				return &quay.RobotAccount{Name: robotName, Token: pushToken}, nil
 			}
-			isAddPushPermissionsToRobotAccountInvoked := false
-			isAddPullPermissionsToRobotAccountInvoked := false
-			quay.AddPermissionsForRepositoryToRobotAccountFunc = func(organization, imageRepository, robotAccountName string, isWrite bool) error {
+			isAddPushPermissionsToAccountInvoked := false
+			isAddPullPermissionsToAccountInvoked := false
+			quay.AddPermissionsForRepositoryToAccountFunc = func(organization, imageRepository, accountName string, isRobot, isWrite bool) error {
 				defer GinkgoRecover()
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
-				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
-				if strings.HasSuffix(robotAccountName, "_pull") {
-					Expect(isWrite).To(BeFalse())
-					isAddPullPermissionsToRobotAccountInvoked = true
+
+				if isRobot {
+					Expect(strings.HasPrefix(accountName, expectedRobotAccountPrefix)).To(BeTrue())
+					if strings.HasSuffix(accountName, "_pull") {
+						Expect(isWrite).To(BeFalse())
+						isAddPullPermissionsToAccountInvoked = true
+					} else {
+						Expect(isWrite).To(BeTrue())
+						isAddPushPermissionsToAccountInvoked = true
+					}
 				} else {
-					Expect(isWrite).To(BeTrue())
-					isAddPushPermissionsToRobotAccountInvoked = true
+					Expect(accountName).To(Equal(additionalUser))
+					Expect(isWrite).To(BeFalse())
 				}
 				return nil
 			}
@@ -565,8 +571,8 @@ var _ = Describe("Image repository controller", func() {
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreatePushRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreatePullRobotAccountInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isAddPushPermissionsToRobotAccountInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isAddPullPermissionsToRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isAddPushPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isAddPullPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeTrue())
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
@@ -648,7 +654,7 @@ var _ = Describe("Image repository controller", func() {
 		}
 
 		It("should provision image repository for component, without update component annotation", func() {
-			assertProvisionRepository(false)
+			assertProvisionRepository(false, "")
 
 			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
 				return true, nil
@@ -660,8 +666,24 @@ var _ = Describe("Image repository controller", func() {
 			deleteImageRepository(resourceKey)
 		})
 
+		It("should provision image repository for component, with update component annotation and add additional user from config map", func() {
+			usersConfigMapKey := types.NamespacedName{Name: additionalUsersConfigMapName, Namespace: resourceKey.Namespace}
+			createUsersConfigMap(usersConfigMapKey, []string{"user1"})
+			assertProvisionRepository(true, "user1")
+
+			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+				return true, nil
+			}
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				return true, nil
+			}
+
+			deleteUsersConfigMap(usersConfigMapKey)
+			deleteImageRepository(resourceKey)
+		})
+
 		It("should provision image repository for component, with update component annotation", func() {
-			assertProvisionRepository(true)
+			assertProvisionRepository(true, "")
 		})
 
 		It("should regenerate tokens and update secrets", func() {

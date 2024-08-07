@@ -335,7 +335,7 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 			robotName:    robotName,
 			statusCode:   400,
 			responseData: "{\"name: \"info\"}",
-			expectedErr:  "failed to add permissions to the robot account",
+			expectedErr:  "failed to add permissions to the account",
 		},
 		{
 			name:        "stop if http request fails",
@@ -357,7 +357,7 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 			}
 
 			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
-			err := quayClient.AddPermissionsForRepositoryToRobotAccount("org", "repository", tc.robotName, true)
+			err := quayClient.AddPermissionsForRepositoryToAccount("org", "repository", tc.robotName, true, true)
 
 			if tc.expectedErr == "" {
 				assert.NilError(t, err)
@@ -527,6 +527,72 @@ func TestQuayClient_GetAllRobotAccounts(t *testing.T) {
 			}
 
 			assert.DeepEqual(t, tc.expectedRobots, robots)
+		})
+	}
+}
+
+func TestQuayClient_ListPermisssionsForRepository(t *testing.T) {
+	testCases := []struct {
+		name                string
+		statusCode          int
+		responseData        interface{}
+		expectedPermissions map[string]UserAccount
+		expectedErr         string
+	}{
+		{
+			name:                "list permissions for repository normally",
+			statusCode:          200,
+			responseData:        "{\"permissions\": {\"user1\": {\"name\": \"user1\", \"role\": \"read\", \"is_robot\": false, \"is_org_member\": true}}}",
+			expectedPermissions: map[string]UserAccount{"user1": UserAccount{Name: "user1", Role: "read", IsRobot: false, IsOrgMember: true}},
+			expectedErr:         "",
+		},
+		{
+			name:                "server does not respond 200",
+			statusCode:          400,
+			expectedErr:         "error getting permissions",
+			responseData:        "",
+			expectedPermissions: nil,
+		},
+		{
+			name:                "server does not respond invalid a JSON string",
+			statusCode:          200,
+			responseData:        "{\"permissions\": {\"user1\": {\"name}}}",
+			expectedPermissions: nil,
+			expectedErr:         "failed to unmarshal response body",
+		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req := gock.New(testQuayApiUrl).
+				MatchHeader("Content-Type", "application/json").
+				MatchHeader("Authorization", "Bearer authtoken").
+				Get("/repository/test_org/test_repository/permissions/user/")
+			req.Reply(tc.statusCode).JSON(tc.responseData)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Get("another-path")
+			}
+
+			client := &http.Client{Transport: &http.Transport{}}
+			gock.InterceptClient(client)
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			permissions, err := quayClient.ListPermissionsForRepository("test_org", "test_repository")
+
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+
+			assert.DeepEqual(t, tc.expectedPermissions, permissions)
 		})
 	}
 }
