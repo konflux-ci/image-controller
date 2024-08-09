@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -347,4 +348,31 @@ func deleteServiceAccount(serviceAccountKey types.NamespacedName) {
 	Eventually(func() bool {
 		return k8sErrors.IsNotFound(k8sClient.Get(ctx, serviceAccountKey, serviceAccount))
 	}, timeout, interval).Should(BeTrue())
+}
+
+func createUsersConfigMap(configMapKey types.NamespacedName, users []string) {
+	configMapData := map[string]string{}
+	configMapData[additionalUsersConfigMapKey] = strings.Join(users, " ")
+
+	usersConfigMap := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: configMapKey.Name, Namespace: configMapKey.Namespace},
+		Data:       configMapData,
+	}
+
+	if err := k8sClient.Create(ctx, &usersConfigMap); err != nil && !k8sErrors.IsAlreadyExists(err) {
+		Fail(err.Error())
+	}
+}
+
+func deleteUsersConfigMap(configMapKey types.NamespacedName) {
+	usersConfigMap := corev1.ConfigMap{}
+	if err := k8sClient.Get(ctx, configMapKey, &usersConfigMap); err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return
+		}
+		Fail(err.Error())
+	}
+	if err := k8sClient.Delete(ctx, &usersConfigMap); err != nil && !k8sErrors.IsNotFound(err) {
+		Fail(err.Error())
+	}
 }

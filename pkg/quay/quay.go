@@ -34,7 +34,8 @@ type QuayService interface {
 	GetRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
-	AddPermissionsForRepositoryToRobotAccount(organization, imageRepository, robotAccountName string, isWrite bool) error
+	AddPermissionsForRepositoryToAccount(organization, imageRepository, accountName string, isRobot, isWrite bool) error
+	ListPermissionsForRepository(organization, imageRepository string) (map[string]UserAccount, error)
 	RegenerateRobotAccountToken(organization string, robotName string) (*RobotAccount, error)
 	GetAllRepositories(organization string) ([]Repository, error)
 	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
@@ -359,18 +360,46 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 	return false, errors.New(data.ErrorMessage)
 }
 
-// AddPermissionsForRepositoryToRobotAccount allows given robot account to access to the given repository.
+// ListPermissionsForRepository list permissions for the given repository.
+func (c *QuayClient) ListPermissionsForRepository(organization, imageRepository string) (map[string]UserAccount, error) {
+	url := fmt.Sprintf("%s/repository/%s/%s/permissions/user/", c.url, organization, imageRepository)
+
+	resp, err := c.doRequest(url, http.MethodGet, nil)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to Do request, error: %s", err)
+	}
+	if resp.GetStatusCode() != 200 {
+		return nil, fmt.Errorf("error getting permissions, got status code %d", resp.GetStatusCode())
+	}
+
+	type Response struct {
+		Permissions map[string]UserAccount `json:"permissions"`
+	}
+	var response Response
+	if err := resp.GetJson(&response); err != nil {
+		return nil, err
+	}
+
+	return response.Permissions, nil
+}
+
+// AddPermissionsForRepositoryToAccount allows given account to access to the given repository.
 // If isWrite is true, then pull and push permissions are added, otherwise - pull access only.
-func (c *QuayClient) AddPermissionsForRepositoryToRobotAccount(organization, imageRepository, robotAccountName string, isWrite bool) error {
-	var robotAccountFullName string
-	if robotName, err := handleRobotName(robotAccountName); err == nil {
-		robotAccountFullName = organization + "+" + robotName
+func (c *QuayClient) AddPermissionsForRepositoryToAccount(organization, imageRepository, accountName string, isRobot, isWrite bool) error {
+	var accountFullName string
+	if isRobot {
+		if robotName, err := handleRobotName(accountName); err == nil {
+			accountFullName = organization + "+" + robotName
+		} else {
+			return err
+		}
 	} else {
-		return err
+		accountFullName = accountName
 	}
 
 	// url := "https://quay.io/api/v1/repository/redhat-appstudio/test-repo-using-api/permissions/user/redhat-appstudio+createdbysbose"
-	url := fmt.Sprintf("%s/repository/%s/%s/permissions/user/%s", c.url, organization, imageRepository, robotAccountFullName)
+	url := fmt.Sprintf("%s/repository/%s/%s/permissions/user/%s", c.url, organization, imageRepository, accountFullName)
 
 	role := "read"
 	if isWrite {
@@ -392,7 +421,7 @@ func (c *QuayClient) AddPermissionsForRepositoryToRobotAccount(organization, ima
 				message = data.Error
 			}
 		}
-		return fmt.Errorf("failed to add permissions to the robot account. Status code: %d, message: %s", resp.GetStatusCode(), message)
+		return fmt.Errorf("failed to add permissions to the account: %s. Status code: %d, message: %s", accountFullName, resp.GetStatusCode(), message)
 	}
 	return nil
 }

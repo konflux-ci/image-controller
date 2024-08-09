@@ -49,6 +49,8 @@ const (
 
 	buildPipelineServiceAccountName = "appstudio-pipeline"
 	updateComponentAnnotationName   = "image-controller.appstudio.redhat.com/update-component-image"
+	additionalUsersConfigMapName    = "image-controller-additional-users"
+	additionalUsersConfigMapKey     = "quay.io"
 )
 
 // ImageRepositoryReconciler reconciles a ImageRepository object
@@ -79,6 +81,7 @@ func setMetricsTime(idForMetrics string, reconcileStartTime time.Time) {
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories/finalizers,verbs=update
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;update;patch
 
@@ -343,6 +346,10 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		}
 	}
 
+	if err = r.GrantAdditionalRepositoryAccess(ctx, imageRepository); err != nil {
+		return err
+	}
+
 	var notificationStatus []imagerepositoryv1alpha1.NotificationStatus
 	if notificationStatus, err = r.SetNotifications(ctx, imageRepository); err != nil {
 		return err
@@ -411,7 +418,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 		return nil, err
 	}
 
-	err = r.QuayClient.AddPermissionsForRepositoryToRobotAccount(r.QuayOrganization, imageRepositoryName, robotAccount.Name, !isPullOnly)
+	err = r.QuayClient.AddPermissionsForRepositoryToAccount(r.QuayOrganization, imageRepositoryName, robotAccount.Name, true, !isPullOnly)
 	if err != nil {
 		log.Error(err, "failed to add permissions to robot account", "RobotAccountName", robotAccountName, l.Action, l.ActionUpdate, l.Audit, "true")
 		return nil, err
@@ -427,6 +434,45 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 		SecretName:       secretName,
 	}
 	return data, nil
+}
+
+func (r *ImageRepositoryReconciler) GrantAdditionalRepositoryAccess(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
+	log := ctrllog.FromContext(ctx).WithName("GrantAdditionalRepositoryAccess")
+
+	additionalUsersConfigMap := &corev1.ConfigMap{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: additionalUsersConfigMapName, Namespace: imageRepository.Namespace}, additionalUsersConfigMap); err != nil {
+		if errors.IsNotFound(err) {
+			log.Info("Config map with additional users doesn't exist", "ConfigMapName", additionalUsersConfigMapName, l.Action, l.ActionView)
+			return nil
+		}
+		log.Error(err, "failed to read config map with additional users", "ConfigMapName", additionalUsersConfigMapName, l.Action, l.ActionView)
+		return err
+	}
+	additionalUsersStr, usersExist := additionalUsersConfigMap.Data[additionalUsersConfigMapKey]
+	if !usersExist {
+		log.Info("Config map with additional users doesn't have the key", "ConfigMapName", additionalUsersConfigMapName, "ConfigMapKey", additionalUsersConfigMapKey, l.Action, l.ActionView)
+		return nil
+	}
+
+	additionalUsers := strings.Fields(strings.TrimSpace(additionalUsersStr))
+	log.Info("Additional users configured in config map", "AdditionalUsers", additionalUsers)
+
+	imageRepositoryName := imageRepository.Spec.Image.Name
+
+	for _, user := range additionalUsers {
+		err := r.QuayClient.AddPermissionsForRepositoryToAccount(r.QuayOrganization, imageRepositoryName, user, false, false)
+		if err != nil {
+			if strings.Contains(err.Error(), "Invalid username:") {
+				log.Info("failed to add permissions for account, because it doesn't exist", "AccountName", user)
+				continue
+			}
+
+			log.Error(err, "failed to add permissions for account", "AccountName", user, l.Action, l.ActionUpdate, l.Audit, "true")
+			return err
+		}
+		log.Info("Additional user access was granted for", "UserName", user)
+	}
+	return nil
 }
 
 // RegenerateImageRepositoryCredentials rotates robot account(s) token and updates corresponding secret(s)
