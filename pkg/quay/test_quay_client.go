@@ -30,19 +30,26 @@ type TestQuayClient struct{}
 var _ QuayService = (*TestQuayClient)(nil)
 
 var (
-	CreateRepositoryFunc                     func(repository RepositoryRequest) (*Repository, error)
-	DeleteRepositoryFunc                     func(organization, imageRepository string) (bool, error)
-	ChangeRepositoryVisibilityFunc           func(organization, imageRepository string, visibility string) error
-	GetRobotAccountFunc                      func(organization string, robotName string) (*RobotAccount, error)
-	CreateRobotAccountFunc                   func(organization string, robotName string) (*RobotAccount, error)
-	DeleteRobotAccountFunc                   func(organization string, robotName string) (bool, error)
-	AddPermissionsForRepositoryToAccountFunc func(organization, imageRepository, accountName string, isRobot, isWrite bool) error
-	ListPermissionsForRepositoryFunc         func(organization, imageRepository string) (map[string]UserAccount, error)
-	RegenerateRobotAccountTokenFunc          func(organization string, robotName string) (*RobotAccount, error)
-	GetNotificationsFunc                     func(organization, repository string) ([]Notification, error)
-	CreateNotificationFunc                   func(organization, repository string, notification Notification) (*Notification, error)
-	UpdateNotificationFunc                   func(organization, repository string, notificationUuid string, notification Notification) (*Notification, error)
-	DeleteNotificationFunc                   func(organization, repository string, notificationUuid string) (bool, error)
+	CreateRepositoryFunc                      func(repository RepositoryRequest) (*Repository, error)
+	DeleteRepositoryFunc                      func(organization, imageRepository string) (bool, error)
+	ChangeRepositoryVisibilityFunc            func(organization, imageRepository string, visibility string) error
+	GetRobotAccountFunc                       func(organization string, robotName string) (*RobotAccount, error)
+	CreateRobotAccountFunc                    func(organization string, robotName string) (*RobotAccount, error)
+	DeleteRobotAccountFunc                    func(organization string, robotName string) (bool, error)
+	AddPermissionsForRepositoryToAccountFunc  func(organization, imageRepository, accountName string, isRobot, isWrite bool) error
+	ListPermissionsForRepositoryFunc          func(organization, imageRepository string) (map[string]UserAccount, error)
+	AddReadPermissionsForRepositoryToTeamFunc func(organization, imageRepository, teamName string) error
+	ListRepositoryPermissionsForTeamFunc      func(organization, teamName string) ([]TeamPermission, error)
+	AddUserToTeamFunc                         func(organization, teamName, userName string) (bool, error)
+	RemoveUserFromTeamFunc                    func(organization, teamName, userName string) error
+	DeleteTeamFunc                            func(organization, teamName string) error
+	EnsureTeamFunc                            func(organization, teamName string) ([]Member, error)
+	GetTeamMembersFunc                        func(organization, teamName string) ([]Member, error)
+	RegenerateRobotAccountTokenFunc           func(organization string, robotName string) (*RobotAccount, error)
+	GetNotificationsFunc                      func(organization, repository string) ([]Notification, error)
+	CreateNotificationFunc                    func(organization, repository string, notification Notification) (*Notification, error)
+	UpdateNotificationFunc                    func(organization, repository string, notificationUuid string, notification Notification) (*Notification, error)
+	DeleteNotificationFunc                    func(organization, repository string, notificationUuid string) (bool, error)
 )
 
 func ResetTestQuayClient() {
@@ -54,6 +61,13 @@ func ResetTestQuayClient() {
 	DeleteRobotAccountFunc = func(organization, robotName string) (bool, error) { return true, nil }
 	AddPermissionsForRepositoryToAccountFunc = func(organization, imageRepository, accountName string, isRobot, isWrite bool) error { return nil }
 	ListPermissionsForRepositoryFunc = func(organization, imageRepository string) (map[string]UserAccount, error) { return nil, nil }
+	AddReadPermissionsForRepositoryToTeamFunc = func(organization, imageRepository, teamName string) error { return nil }
+	ListRepositoryPermissionsForTeamFunc = func(organization, teamName string) ([]TeamPermission, error) { return []TeamPermission{}, nil }
+	AddUserToTeamFunc = func(organization, teamName, userName string) (bool, error) { return false, nil }
+	RemoveUserFromTeamFunc = func(organization, teamName, userName string) error { return nil }
+	DeleteTeamFunc = func(organization, teamName string) error { return nil }
+	EnsureTeamFunc = func(organization, teamName string) ([]Member, error) { return []Member{}, nil }
+	GetTeamMembersFunc = func(organization, teamName string) ([]Member, error) { return []Member{}, nil }
 	RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*RobotAccount, error) { return &RobotAccount{}, nil }
 	GetNotificationsFunc = func(organization, repository string) ([]Notification, error) { return []Notification{}, nil }
 	CreateNotificationFunc = func(organization, repository string, notification Notification) (*Notification, error) {
@@ -108,6 +122,41 @@ func ResetTestQuayClientToFails() {
 		Fail("ListPermissionsForRepository invoked")
 		return nil, nil
 	}
+	AddReadPermissionsForRepositoryToTeamFunc = func(organization, imageRepository, teamName string) error {
+		defer GinkgoRecover()
+		Fail("AddPermissionsForRepositoryToTeam invoked")
+		return nil
+	}
+	ListRepositoryPermissionsForTeamFunc = func(organization, teamName string) ([]TeamPermission, error) {
+		defer GinkgoRecover()
+		Fail("ListRepositoryPermissionsForTeam invoked")
+		return nil, nil
+	}
+	AddUserToTeamFunc = func(organization, teamName, userName string) (bool, error) {
+		defer GinkgoRecover()
+		Fail("AddUserToTeam invoked")
+		return false, nil
+	}
+	RemoveUserFromTeamFunc = func(organization, teamName, userName string) error {
+		defer GinkgoRecover()
+		Fail("RemoveUserFromTeam invoked")
+		return nil
+	}
+	DeleteTeamFunc = func(organization, teamName string) error {
+		defer GinkgoRecover()
+		Fail("DeleteTeam invoked")
+		return nil
+	}
+	EnsureTeamFunc = func(organization, teamName string) ([]Member, error) {
+		defer GinkgoRecover()
+		Fail("EnsureTeam invoked")
+		return nil, nil
+	}
+	GetTeamMembersFunc = func(organization, teamName string) ([]Member, error) {
+		defer GinkgoRecover()
+		Fail("GetTeamMembers invoked")
+		return nil, nil
+	}
 	RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*RobotAccount, error) {
 		defer GinkgoRecover()
 		Fail("RegenerateRobotAccountToken invoked")
@@ -158,6 +207,27 @@ func (c TestQuayClient) AddPermissionsForRepositoryToAccount(organization, image
 }
 func (c TestQuayClient) ListPermissionsForRepository(organization, imageRepository string) (map[string]UserAccount, error) {
 	return ListPermissionsForRepositoryFunc(organization, imageRepository)
+}
+func (c TestQuayClient) AddReadPermissionsForRepositoryToTeam(organization, imageRepository, teamName string) error {
+	return AddReadPermissionsForRepositoryToTeamFunc(organization, imageRepository, teamName)
+}
+func (c TestQuayClient) ListRepositoryPermissionsForTeam(organization, teamName string) ([]TeamPermission, error) {
+	return ListRepositoryPermissionsForTeamFunc(organization, teamName)
+}
+func (c TestQuayClient) AddUserToTeam(organization, teamName, userName string) (bool, error) {
+	return AddUserToTeamFunc(organization, teamName, userName)
+}
+func (c TestQuayClient) RemoveUserFromTeam(organization, teamName, userName string) error {
+	return RemoveUserFromTeamFunc(organization, teamName, userName)
+}
+func (c TestQuayClient) DeleteTeam(organization, teamName string) error {
+	return DeleteTeamFunc(organization, teamName)
+}
+func (c TestQuayClient) EnsureTeam(organization, teamName string) ([]Member, error) {
+	return EnsureTeamFunc(organization, teamName)
+}
+func (c TestQuayClient) GetTeamMembers(organization, teamName string) ([]Member, error) {
+	return GetTeamMembersFunc(organization, teamName)
 }
 func (c TestQuayClient) RegenerateRobotAccountToken(organization string, robotName string) (*RobotAccount, error) {
 	return RegenerateRobotAccountTokenFunc(organization, robotName)

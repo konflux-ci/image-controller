@@ -476,7 +476,7 @@ var _ = Describe("Image repository controller", func() {
 			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 		})
 
-		assertProvisionRepository := func(updateComponentAnnotation bool, additionalUser string) {
+		assertProvisionRepository := func(updateComponentAnnotation, grantRepoPermission bool) {
 			isCreateRepositoryInvoked := false
 			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				defer GinkgoRecover()
@@ -506,21 +506,36 @@ var _ = Describe("Image repository controller", func() {
 				defer GinkgoRecover()
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
-
-				if isRobot {
-					Expect(strings.HasPrefix(accountName, expectedRobotAccountPrefix)).To(BeTrue())
-					if strings.HasSuffix(accountName, "_pull") {
-						Expect(isWrite).To(BeFalse())
-						isAddPullPermissionsToAccountInvoked = true
-					} else {
-						Expect(isWrite).To(BeTrue())
-						isAddPushPermissionsToAccountInvoked = true
-					}
-				} else {
-					Expect(accountName).To(Equal(additionalUser))
+				Expect(strings.HasPrefix(accountName, expectedRobotAccountPrefix)).To(BeTrue())
+				if strings.HasSuffix(accountName, "_pull") {
 					Expect(isWrite).To(BeFalse())
+					isAddPullPermissionsToAccountInvoked = true
+				} else {
+					Expect(isWrite).To(BeTrue())
+					isAddPushPermissionsToAccountInvoked = true
 				}
 				return nil
+			}
+			isEnsureTeamInvoked := false
+			isAddReadPermissionsForRepositoryToTeamInvoked := false
+			if grantRepoPermission {
+				quay.EnsureTeamFunc = func(organization, teamName string) ([]quay.Member, error) {
+					defer GinkgoRecover()
+					Expect(organization).To(Equal(quay.TestQuayOrg))
+					expectedTeamName := getQuayTeamName(resourceKey.Namespace)
+					Expect(teamName).To(Equal(expectedTeamName))
+					isEnsureTeamInvoked = true
+					return nil, nil
+				}
+				quay.AddReadPermissionsForRepositoryToTeamFunc = func(organization, imageRepository, teamName string) error {
+					defer GinkgoRecover()
+					Expect(organization).To(Equal(quay.TestQuayOrg))
+					Expect(imageRepository).To(Equal(expectedImageName))
+					expectedTeamName := getQuayTeamName(resourceKey.Namespace)
+					Expect(teamName).To(Equal(expectedTeamName))
+					isAddReadPermissionsForRepositoryToTeamInvoked = true
+					return nil
+				}
 			}
 			isCreateNotificationInvoked := false
 			quay.CreateNotificationFunc = func(organization, repository string, notification quay.Notification) (*quay.Notification, error) {
@@ -574,6 +589,10 @@ var _ = Describe("Image repository controller", func() {
 			Eventually(func() bool { return isAddPushPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isAddPullPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeTrue())
+			if grantRepoPermission {
+				Eventually(func() bool { return isEnsureTeamInvoked }, timeout, interval).Should(BeTrue())
+				Eventually(func() bool { return isAddReadPermissionsForRepositoryToTeamInvoked }, timeout, interval).Should(BeTrue())
+			}
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
 
@@ -654,7 +673,7 @@ var _ = Describe("Image repository controller", func() {
 		}
 
 		It("should provision image repository for component, without update component annotation", func() {
-			assertProvisionRepository(false, "")
+			assertProvisionRepository(false, false)
 
 			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
 				return true, nil
@@ -666,10 +685,54 @@ var _ = Describe("Image repository controller", func() {
 			deleteImageRepository(resourceKey)
 		})
 
-		It("should provision image repository for component, with update component annotation and add additional user from config map", func() {
+		It("should provision image repository for component, with update component annotation and grant permission to team", func() {
 			usersConfigMapKey := types.NamespacedName{Name: additionalUsersConfigMapName, Namespace: resourceKey.Namespace}
-			createUsersConfigMap(usersConfigMapKey, []string{"user1"})
-			assertProvisionRepository(true, "user1")
+			expectedTeamName := getQuayTeamName(resourceKey.Namespace)
+			isEnsureTeamInvoked := false
+			isListRepositoryPermissionsForTeamInvoked := false
+			countAddUserToTeamInvoked := 0
+			isDeleteTeamInvoked := false
+
+			quay.EnsureTeamFunc = func(organization, teamName string) ([]quay.Member, error) {
+				defer GinkgoRecover()
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(teamName).To(Equal(expectedTeamName))
+				isEnsureTeamInvoked = true
+				return []quay.Member{}, nil
+			}
+			quay.ListRepositoryPermissionsForTeamFunc = func(organization, teamName string) ([]quay.TeamPermission, error) {
+				defer GinkgoRecover()
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(teamName).To(Equal(expectedTeamName))
+				isListRepositoryPermissionsForTeamInvoked = true
+				return []quay.TeamPermission{}, nil
+			}
+			quay.AddUserToTeamFunc = func(organization, teamName, userName string) (bool, error) {
+				defer GinkgoRecover()
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(teamName).To(Equal(expectedTeamName))
+				Expect(userName).To(BeElementOf([]string{"user1", "user2"}))
+				countAddUserToTeamInvoked++
+				return false, nil
+			}
+
+			createUsersConfigMap(usersConfigMapKey, []string{"user1", "user2"})
+			Eventually(func() bool { return isEnsureTeamInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isListRepositoryPermissionsForTeamInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() int { return countAddUserToTeamInvoked }, timeout, interval).Should(Equal(2))
+			waitQuayTeamUsersFinalizerOnConfigMap(usersConfigMapKey)
+
+			assertProvisionRepository(true, true)
+
+			quay.DeleteTeamFunc = func(organization, teamName string) error {
+				defer GinkgoRecover()
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(teamName).To(Equal(expectedTeamName))
+				isDeleteTeamInvoked = true
+				return nil
+			}
+			deleteUsersConfigMap(usersConfigMapKey)
+			Eventually(func() bool { return isDeleteTeamInvoked }, timeout, interval).Should(BeTrue())
 
 			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
 				return true, nil
@@ -677,13 +740,11 @@ var _ = Describe("Image repository controller", func() {
 			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
 				return true, nil
 			}
-
-			deleteUsersConfigMap(usersConfigMapKey)
 			deleteImageRepository(resourceKey)
 		})
 
 		It("should provision image repository for component, with update component annotation", func() {
-			assertProvisionRepository(true, "")
+			assertProvisionRepository(true, false)
 		})
 
 		It("should regenerate tokens and update secrets", func() {

@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -284,6 +285,22 @@ func createNamespace(name string) {
 	}
 }
 
+func deleteNamespace(name string) {
+	namespace := corev1.Namespace{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Namespace",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+
+	if err := k8sClient.Delete(ctx, &namespace); err != nil && !k8sErrors.IsNotFound(err) {
+		Fail(err.Error())
+	}
+}
+
 func waitSecretExist(secretKey types.NamespacedName) *corev1.Secret {
 	secret := &corev1.Secret{}
 	Eventually(func() bool {
@@ -375,4 +392,36 @@ func deleteUsersConfigMap(configMapKey types.NamespacedName) {
 	if err := k8sClient.Delete(ctx, &usersConfigMap); err != nil && !k8sErrors.IsNotFound(err) {
 		Fail(err.Error())
 	}
+	Eventually(func() bool {
+		return k8sErrors.IsNotFound(k8sClient.Get(ctx, configMapKey, &usersConfigMap))
+	}, timeout, interval).Should(BeTrue())
+}
+
+func addUsersToUsersConfigMap(configMapKey types.NamespacedName, addUsers []string) {
+	usersConfigMap := corev1.ConfigMap{}
+	Eventually(func() bool {
+		Expect(k8sClient.Get(ctx, configMapKey, &usersConfigMap)).Should(Succeed())
+		return usersConfigMap.ResourceVersion != ""
+	}, timeout, interval).Should(BeTrue())
+
+	currentUsers, usersExist := usersConfigMap.Data[additionalUsersConfigMapKey]
+	if !usersExist {
+		Fail("users config map is missing key")
+	}
+
+	newUsers := strings.Join(addUsers, " ")
+	allUsers := fmt.Sprintf("%s %s", currentUsers, newUsers)
+	usersConfigMap.Data[additionalUsersConfigMapKey] = allUsers
+
+	Expect(k8sClient.Update(ctx, &usersConfigMap)).Should(Succeed())
+}
+
+func waitQuayTeamUsersFinalizerOnConfigMap(usersConfigMapKey types.NamespacedName) {
+	usersConfigMap := &corev1.ConfigMap{}
+	Eventually(func() bool {
+		if err := k8sClient.Get(ctx, usersConfigMapKey, usersConfigMap); err != nil {
+			return false
+		}
+		return controllerutil.ContainsFinalizer(usersConfigMap, ConfigMapFinalizer)
+	}, timeout, interval).Should(BeTrue())
 }

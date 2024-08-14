@@ -34,6 +34,7 @@ type RepositoryRequest struct {
 	Description string `json:"description"`
 	//Kind        string `json:"repo_kind"`
 }
+
 type RobotAccount struct {
 	Description string `json:"description"`
 	Created     string `json:"created"`
@@ -49,6 +50,23 @@ type UserAccount struct {
 	Role        string `json:"role"`
 	IsRobot     bool   `json:"is_robot"`
 	IsOrgMember bool   `json:"is_org_member"`
+}
+
+type TeamPermission struct {
+	Repository TeamPermissionRepository `json:"repository"`
+	Role       string                   `json:"role"`
+}
+
+type TeamPermissionRepository struct {
+	Name     string `json:"name"`
+	IsPublic bool   `json:"is_public"`
+}
+
+type Member struct {
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	IsRobot bool   `json:"is_robot"`
+	Invited bool   `json:"invited"`
 }
 
 // Quay API can sometimes return {"error": "..."} and sometimes {"error_message": "..."} without the field error

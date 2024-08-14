@@ -36,6 +36,13 @@ type QuayService interface {
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
 	AddPermissionsForRepositoryToAccount(organization, imageRepository, accountName string, isRobot, isWrite bool) error
 	ListPermissionsForRepository(organization, imageRepository string) (map[string]UserAccount, error)
+	AddReadPermissionsForRepositoryToTeam(organization, imageRepository, teamName string) error
+	ListRepositoryPermissionsForTeam(organization, teamName string) ([]TeamPermission, error)
+	AddUserToTeam(organization, teamName, userName string) (bool, error)
+	RemoveUserFromTeam(organization, teamName, userName string) error
+	DeleteTeam(organization, teamName string) error
+	EnsureTeam(organization, teamName string) ([]Member, error)
+	GetTeamMembers(organization, teamName string) ([]Member, error)
 	RegenerateRobotAccountToken(organization string, robotName string) (*RobotAccount, error)
 	GetAllRepositories(organization string) ([]Repository, error)
 	GetAllRobotAccounts(organization string) ([]RobotAccount, error)
@@ -362,15 +369,25 @@ func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (
 
 // ListPermissionsForRepository list permissions for the given repository.
 func (c *QuayClient) ListPermissionsForRepository(organization, imageRepository string) (map[string]UserAccount, error) {
-	url := fmt.Sprintf("%s/repository/%s/%s/permissions/user/", c.url, organization, imageRepository)
+	url := fmt.Sprintf("%s/repository/%s/%s/permissions/user", c.url, organization, imageRepository)
 
 	resp, err := c.doRequest(url, http.MethodGet, nil)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to Do request, error: %s", err)
 	}
+
 	if resp.GetStatusCode() != 200 {
-		return nil, fmt.Errorf("error getting permissions, got status code %d", resp.GetStatusCode())
+		var message string
+		data := &QuayError{}
+		if err := resp.GetJson(data); err == nil {
+			if data.ErrorMessage != "" {
+				message = data.ErrorMessage
+			} else {
+				message = data.Error
+			}
+		}
+		return nil, fmt.Errorf("failed to get permissions for repository: %s, got status code %d, message: %s", imageRepository, resp.GetStatusCode(), message)
 	}
 
 	type Response struct {
@@ -378,10 +395,219 @@ func (c *QuayClient) ListPermissionsForRepository(organization, imageRepository 
 	}
 	var response Response
 	if err := resp.GetJson(&response); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get permissions for repository: %s, got status code %d, message: %s", imageRepository, resp.GetStatusCode(), err.Error())
 	}
 
 	return response.Permissions, nil
+}
+
+// ListRepositoryPermissionsForTeam list permissions for the given team
+func (c *QuayClient) ListRepositoryPermissionsForTeam(organization, teamName string) ([]TeamPermission, error) {
+	url := fmt.Sprintf("%s/organization/%s/team/%s/permissions", c.url, organization, teamName)
+
+	resp, err := c.doRequest(url, http.MethodGet, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to Do request, error: %s", err)
+	}
+
+	if resp.GetStatusCode() != 200 {
+		var message string
+		data := &QuayError{}
+		if err := resp.GetJson(data); err == nil {
+			if data.ErrorMessage != "" {
+				message = data.ErrorMessage
+			} else {
+				message = data.Error
+			}
+		} else {
+			message = err.Error()
+		}
+		return nil, fmt.Errorf("failed to get permissions for team: %s, got status code %d, message: %s", teamName, resp.GetStatusCode(), message)
+	}
+
+	type Response struct {
+		Permissions []TeamPermission `json:"permissions"`
+	}
+	var response Response
+	if err := resp.GetJson(&response); err != nil {
+		return nil, fmt.Errorf("failed to get permissions for team: %s, got status code %d, message: %s", teamName, resp.GetStatusCode(), err.Error())
+	}
+
+	return response.Permissions, nil
+}
+
+// AddUserToTeam adds user to the given team
+// bool return value is indicating if it is permanent error (user doesn't exist)
+func (c *QuayClient) AddUserToTeam(organization, teamName, userName string) (bool, error) {
+	url := fmt.Sprintf("%s/organization/%s/team/%s/members/%s", c.url, organization, teamName, userName)
+
+	resp, err := c.doRequest(url, http.MethodPut, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to Do request, error: %s", err)
+	}
+
+	if resp.GetStatusCode() != 200 {
+		// 400 is returned when user doesn't exist
+		// 404 just in case
+		if resp.GetStatusCode() == 400 || resp.GetStatusCode() == 404 {
+			return true, fmt.Errorf("failed to add user: %s, to the team team: %s, user doesn't exist", userName, teamName)
+		}
+
+		var message string
+		data := &QuayError{}
+		if err := resp.GetJson(data); err == nil {
+			if data.ErrorMessage != "" {
+				message = data.ErrorMessage
+			} else {
+				message = data.Error
+			}
+		} else {
+			message = err.Error()
+		}
+		return false, fmt.Errorf("failed to add user: %s, to the team team: %s, got status code %d, message: %s", userName, teamName, resp.GetStatusCode(), message)
+	}
+	return false, nil
+}
+
+// RemoveUserToTeam remove user from the given team
+func (c *QuayClient) RemoveUserFromTeam(organization, teamName, userName string) error {
+	url := fmt.Sprintf("%s/organization/%s/team/%s/members/%s", c.url, organization, teamName, userName)
+
+	resp, err := c.doRequest(url, http.MethodDelete, nil)
+	if err != nil {
+		return fmt.Errorf("failed to Do request, error: %s", err)
+	}
+
+	// 400 is returned when user isn't anymore in the team
+	// 404 is returned when user doesn't exist
+	if resp.GetStatusCode() == 204 || resp.GetStatusCode() == 404 || resp.GetStatusCode() == 400 {
+		return nil
+	}
+
+	var message string
+	data := &QuayError{}
+	if err := resp.GetJson(data); err == nil {
+		if data.ErrorMessage != "" {
+			message = data.ErrorMessage
+		} else {
+			message = data.Error
+		}
+	} else {
+		message = err.Error()
+	}
+	return fmt.Errorf("failed to remove user: %s, from the team team: %s, got status code %d, message: %s", userName, teamName, resp.GetStatusCode(), message)
+}
+
+func (c *QuayClient) DeleteTeam(organization, teamName string) error {
+	url := fmt.Sprintf("%s/organization/%s/team/%s", c.url, organization, teamName)
+
+	resp, err := c.doRequest(url, http.MethodDelete, nil)
+	if err != nil {
+		return fmt.Errorf("failed to Do request, error: %s", err)
+	}
+
+	// 400 is returned when team doesn't exist
+	// 404 just in case
+	if resp.GetStatusCode() == 204 || resp.GetStatusCode() == 404 || resp.GetStatusCode() == 400 {
+		return nil
+	}
+
+	var message string
+	data := &QuayError{}
+	if err := resp.GetJson(data); err == nil {
+		if data.ErrorMessage != "" {
+			message = data.ErrorMessage
+		} else {
+			message = data.Error
+		}
+	} else {
+		message = err.Error()
+	}
+	return fmt.Errorf("failed to remove team: %s, got status code %d, message: %s", teamName, resp.GetStatusCode(), message)
+}
+
+// EnsureTeam ensures that team exists, if it doesn't it will create it
+// returns list of team members
+func (c *QuayClient) EnsureTeam(organization, teamName string) ([]Member, error) {
+	members, err := c.GetTeamMembers(organization, teamName)
+	if err != nil {
+		return nil, err
+	}
+	// team exists
+	if members != nil {
+		return members, nil
+	}
+
+	// create team
+	url := fmt.Sprintf("%s/organization/%s/team/%s", c.url, organization, teamName)
+	body := strings.NewReader(`{"role": "member"}`)
+
+	resp, err := c.doRequest(url, http.MethodPut, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to Do request, error: %s", err)
+	}
+
+	if resp.GetStatusCode() != 200 {
+		var message string
+		data := &QuayError{}
+		if err := resp.GetJson(data); err == nil {
+			if data.ErrorMessage != "" {
+				message = data.ErrorMessage
+			} else {
+				message = data.Error
+			}
+		} else {
+			message = err.Error()
+		}
+		return nil, fmt.Errorf("failed to create team: %s, got status code %d, message: %s", teamName, resp.GetStatusCode(), message)
+	}
+
+	members, err = c.GetTeamMembers(organization, teamName)
+	if err != nil {
+		return nil, err
+	}
+	return members, nil
+}
+
+// GetTeamMembers gets members of the team, when nil is returned that means that team doesn't exist
+func (c *QuayClient) GetTeamMembers(organization, teamName string) ([]Member, error) {
+	url := fmt.Sprintf("%s/organization/%s/team/%s/members", c.url, organization, teamName)
+
+	resp, err := c.doRequest(url, http.MethodGet, nil)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to Do request, error: %s", err)
+	}
+	if resp.GetStatusCode() != 200 {
+		// team doesn't exist
+		if resp.GetStatusCode() == 404 {
+			return nil, nil
+		}
+
+		var message string
+		data := &QuayError{}
+		if err := resp.GetJson(data); err == nil {
+			if data.ErrorMessage != "" {
+				message = data.ErrorMessage
+			} else {
+				message = data.Error
+			}
+		} else {
+			message = err.Error()
+		}
+		return nil, fmt.Errorf("failed to get team members for team: %s, got status code %d, message: %s", teamName, resp.GetStatusCode(), message)
+	}
+
+	type Response struct {
+		Members []Member `json:"members"`
+	}
+	var response Response
+
+	if err := resp.GetJson(&response); err != nil {
+		return nil, err
+	}
+
+	return response.Members, nil
 }
 
 // AddPermissionsForRepositoryToAccount allows given account to access to the given repository.
@@ -422,6 +648,33 @@ func (c *QuayClient) AddPermissionsForRepositoryToAccount(organization, imageRep
 			}
 		}
 		return fmt.Errorf("failed to add permissions to the account: %s. Status code: %d, message: %s", accountFullName, resp.GetStatusCode(), message)
+	}
+	return nil
+}
+
+// AddReadPermissionsForRepositoryToTeam allows given team read access to the given repository.
+func (c *QuayClient) AddReadPermissionsForRepositoryToTeam(organization, imageRepository, teamName string) error {
+	url := fmt.Sprintf("%s/repository/%s/%s/permissions/team/%s", c.url, organization, imageRepository, teamName)
+	body := strings.NewReader(`{"role": "read"}`)
+
+	resp, err := c.doRequest(url, http.MethodPut, body)
+	if err != nil {
+		return err
+	}
+
+	if resp.GetStatusCode() != 200 {
+		var message string
+		data := &QuayError{}
+		if err := resp.GetJson(data); err == nil {
+			if data.ErrorMessage != "" {
+				message = data.ErrorMessage
+			} else {
+				message = data.Error
+			}
+		} else {
+			message = err.Error()
+		}
+		return fmt.Errorf("failed to add permissions to the team: %s. Status code: %d, message: %s", teamName, resp.GetStatusCode(), message)
 	}
 	return nil
 }
