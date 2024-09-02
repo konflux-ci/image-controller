@@ -368,6 +368,71 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 	}
 }
 
+func TestQuayClient_AddReadPermissionsForRepositoryToTeam(t *testing.T) {
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	testCases := []struct {
+		name         string
+		statusCode   int
+		responseData interface{}
+		expectedErr  string // Empty string means that no error is expected
+	}{
+		{
+			name:         "add permissions normally",
+			statusCode:   200,
+			responseData: "",
+			expectedErr:  "",
+		},
+		// The following test cases are for testing non-200 response code from server
+		{
+			name:         "return error got from error field within response",
+			statusCode:   400,
+			responseData: map[string]string{"error": "something is wrong"},
+			expectedErr:  "something is wrong",
+		},
+		{
+			name:         "return error got from error_message field within response",
+			statusCode:   400,
+			responseData: map[string]string{"error_message": "something is wrong"},
+			expectedErr:  "something is wrong",
+		},
+		{
+			name:         "server responds an invalid JSON string",
+			statusCode:   400,
+			responseData: "{\"name: \"info\"}",
+			expectedErr:  "failed to unmarshal response body",
+		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req := gock.New(testQuayApiUrl).
+				Put("/repository/org/repository/permissions/team/teamname")
+			req.Reply(tc.statusCode).JSON(tc.responseData)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Put("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			err := quayClient.AddReadPermissionsForRepositoryToTeam("org", "repository", "teamname")
+
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+		})
+	}
+}
+
 func TestQuayClient_GetAllRepositories(t *testing.T) {
 	type Response struct {
 		Repositories []Repository `json:"repositories"`
@@ -549,7 +614,7 @@ func TestQuayClient_ListPermisssionsForRepository(t *testing.T) {
 		{
 			name:                "server does not respond 200",
 			statusCode:          400,
-			expectedErr:         "error getting permissions",
+			expectedErr:         "failed to get permissions for repository",
 			responseData:        "",
 			expectedPermissions: nil,
 		},
@@ -573,7 +638,7 @@ func TestQuayClient_ListPermisssionsForRepository(t *testing.T) {
 			req := gock.New(testQuayApiUrl).
 				MatchHeader("Content-Type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
-				Get("/repository/test_org/test_repository/permissions/user/")
+				Get("/repository/test_org/test_repository/permissions/user")
 			req.Reply(tc.statusCode).JSON(tc.responseData)
 
 			if tc.name == "stop if http request fails" {
@@ -593,6 +658,299 @@ func TestQuayClient_ListPermisssionsForRepository(t *testing.T) {
 			}
 
 			assert.DeepEqual(t, tc.expectedPermissions, permissions)
+		})
+	}
+}
+
+func TestQuayClient_ListPermisssionsForTeam(t *testing.T) {
+	testCases := []struct {
+		name                string
+		statusCode          int
+		responseData        interface{}
+		expectedPermissions []TeamPermission
+		expectedErr         string
+	}{
+		{
+			name:                "list permissions for repository normally",
+			statusCode:          200,
+			responseData:        "{\"permissions\": [{\"repository\": {\"name\": \"repository1\", \"is_public\": true}, \"role\": \"read\"}, {\"repository\": {\"name\": \"repository2\", \"is_public\": false}, \"role\": \"read\"}]}",
+			expectedPermissions: []TeamPermission{{Repository: TeamPermissionRepository{Name: "repository1", IsPublic: true}, Role: "read"}, {Repository: TeamPermissionRepository{Name: "repository2", IsPublic: false}, Role: "read"}},
+			expectedErr:         "",
+		},
+		{
+			name:                "server does not respond 200",
+			statusCode:          400,
+			expectedErr:         "failed to get permissions for team",
+			responseData:        "",
+			expectedPermissions: nil,
+		},
+		{
+			name:                "server does not respond invalid a JSON string 200",
+			statusCode:          200,
+			responseData:        "{\"permissions\": {\"repository\": {\"name}}}",
+			expectedPermissions: nil,
+			expectedErr:         "failed to unmarshal response body",
+		},
+		{
+			name:                "server does not respond invalid a JSON string 400",
+			statusCode:          200,
+			responseData:        "{\"}",
+			expectedPermissions: nil,
+			expectedErr:         "failed to unmarshal response body",
+		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req := gock.New(testQuayApiUrl).
+				MatchHeader("Content-Type", "application/json").
+				MatchHeader("Authorization", "Bearer authtoken").
+				Get("/organization/test_org/team/test_team/permissions")
+			req.Reply(tc.statusCode).JSON(tc.responseData)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Get("another-path")
+			}
+
+			client := &http.Client{Transport: &http.Transport{}}
+			gock.InterceptClient(client)
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			permissions, err := quayClient.ListRepositoryPermissionsForTeam("test_org", "test_team")
+
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+
+			assert.DeepEqual(t, tc.expectedPermissions, permissions)
+		})
+	}
+}
+
+func TestQuayClient_EnsureTeam(t *testing.T) {
+	testCases := []struct {
+		name            string
+		statusCode1     int
+		responseData1   interface{}
+		statusCode2     int
+		responseData2   interface{}
+		statusCode3     int
+		responseData3   interface{}
+		expectedMembers []Member
+		expectedErr     string
+		requestCalls    int
+	}{
+		{
+			name:            "team already exists and has members",
+			statusCode1:     200,
+			responseData1:   "{\"members\": [{\"name\": \"user1\", \"kind\": \"user\", \"is_robot\": false, \"invited\": false}, {\"name\": \"user2\", \"kind\": \"user\", \"is_robot\": true, \"invited\": false}]}",
+			expectedMembers: []Member{{Name: "user1", Kind: "user", IsRobot: false, Invited: false}, {Name: "user2", Kind: "user", IsRobot: true, Invited: false}},
+			expectedErr:     "",
+			requestCalls:    1,
+		},
+		{
+			name:            "team already exists and has no members",
+			statusCode1:     200,
+			responseData1:   "{\"members\": []}",
+			expectedMembers: []Member{},
+			expectedErr:     "",
+			requestCalls:    1,
+		},
+		{
+			name:            "get members fails 200",
+			statusCode1:     400,
+			responseData1:   "",
+			expectedErr:     "failed to get team members for team",
+			expectedMembers: nil,
+			requestCalls:    1,
+		},
+		{
+			name:            "team doesn't exist, will be created",
+			statusCode1:     404,
+			responseData1:   "",
+			statusCode2:     200,
+			responseData2:   "",
+			statusCode3:     200,
+			responseData3:   "{\"members\": [{\"name\": \"user1\", \"kind\": \"user\", \"is_robot\": false, \"invited\": false}, {\"name\": \"user2\", \"kind\": \"user\", \"is_robot\": true, \"invited\": false}]}",
+			expectedMembers: []Member{{Name: "user1", Kind: "user", IsRobot: false, Invited: false}, {Name: "user2", Kind: "user", IsRobot: true, Invited: false}},
+			expectedErr:     "",
+			requestCalls:    3,
+		},
+		{
+			name:            "team doesn't exist, create fails, error in error field",
+			statusCode1:     404,
+			responseData1:   "",
+			statusCode2:     400,
+			responseData2:   "{\"error\": \"something is wrong in the server\"}",
+			expectedMembers: nil,
+			expectedErr:     "something is wrong in the server",
+			requestCalls:    2,
+		},
+		{
+			name:            "team doesn't exist, create fails, error in error_message field",
+			statusCode1:     404,
+			responseData1:   "",
+			statusCode2:     400,
+			responseData2:   "{\"error_message\": \"something is wrong\"}",
+			expectedMembers: nil,
+			expectedErr:     "something is wrong",
+			requestCalls:    2,
+		},
+		{
+			name:            "team doesn't exist, create fails, invalid a JSON string",
+			statusCode1:     404,
+			responseData1:   "",
+			statusCode2:     400,
+			responseData2:   "{\"error_message\": \"}",
+			expectedMembers: nil,
+			expectedErr:     "failed to unmarshal response body",
+			requestCalls:    2,
+		},
+		{
+			name:          "stop if http request fails",
+			statusCode1:   404,
+			responseData1: "",
+			expectedErr:   "failed to Do request:",
+			requestCalls:  2,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req1 := gock.New(testQuayApiUrl).
+				MatchHeader("Content-Type", "application/json").
+				MatchHeader("Authorization", "Bearer authtoken").
+				Get("/organization/test_org/team/test_team/members")
+			req1.Reply(tc.statusCode1).JSON(tc.responseData1)
+
+			if tc.requestCalls >= 1 {
+				req2 := gock.New(testQuayApiUrl).
+					Put("/organization/test_org/team/test_team")
+				req2.Reply(tc.statusCode2).JSON(tc.responseData2)
+
+				if tc.name == "stop if http request fails" {
+					req2.AddMatcher(gock.MatchPath).Get("another-path")
+				}
+			}
+			if tc.requestCalls >= 2 {
+				req3 := gock.New(testQuayApiUrl).
+					MatchHeader("Content-Type", "application/json").
+					MatchHeader("Authorization", "Bearer authtoken").
+					Get("/organization/test_org/team/test_team/members")
+				req3.Reply(tc.statusCode3).JSON(tc.responseData3)
+			}
+
+			client := &http.Client{Transport: &http.Transport{}}
+			gock.InterceptClient(client)
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			members, err := quayClient.EnsureTeam("test_org", "test_team")
+
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+
+			assert.DeepEqual(t, tc.expectedMembers, members)
+		})
+	}
+}
+
+func TestQuayClient_GetTeamMembers(t *testing.T) {
+	testCases := []struct {
+		name            string
+		statusCode      int
+		responseData    interface{}
+		expectedMembers []Member
+		expectedErr     string
+	}{
+		{
+			name:            "list members for team normally",
+			statusCode:      200,
+			responseData:    "{\"members\": [{\"name\": \"user1\", \"kind\": \"user\", \"is_robot\": false, \"invited\": false}, {\"name\": \"user2\", \"kind\": \"user\", \"is_robot\": true, \"invited\": false}]}",
+			expectedMembers: []Member{{Name: "user1", Kind: "user", IsRobot: false, Invited: false}, {Name: "user2", Kind: "user", IsRobot: true, Invited: false}},
+			expectedErr:     "",
+		},
+		{
+			name:            "list members for team normally, no members",
+			statusCode:      200,
+			responseData:    "{\"members\": []}",
+			expectedMembers: []Member{},
+			expectedErr:     "",
+		},
+		{
+			name:            "team doesn't exist responds 404",
+			statusCode:      404,
+			responseData:    "",
+			expectedMembers: nil,
+			expectedErr:     "",
+		},
+		{
+			name:            "server does not respond 200",
+			statusCode:      400,
+			expectedErr:     "failed to get team members for team",
+			responseData:    "",
+			expectedMembers: nil,
+		},
+		{
+			name:            "server does not respond invalid a JSON string 200",
+			statusCode:      200,
+			responseData:    "{\"members\": [{\"name\": \"}}]",
+			expectedMembers: nil,
+			expectedErr:     "failed to unmarshal response body",
+		},
+		{
+			name:            "server does not respond invalid a JSON string 400",
+			statusCode:      500,
+			responseData:    "{\"]",
+			expectedMembers: nil,
+			expectedErr:     "failed to unmarshal response body",
+		},
+
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req := gock.New(testQuayApiUrl).
+				MatchHeader("Content-Type", "application/json").
+				MatchHeader("Authorization", "Bearer authtoken").
+				Get("/organization/test_org/team/test_team/members")
+			req.Reply(tc.statusCode).JSON(tc.responseData)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Get("another-path")
+			}
+
+			client := &http.Client{Transport: &http.Transport{}}
+			gock.InterceptClient(client)
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			members, err := quayClient.GetTeamMembers("test_org", "test_team")
+
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+
+			assert.DeepEqual(t, tc.expectedMembers, members)
 		})
 	}
 }
@@ -1773,6 +2131,259 @@ func TestDoRequest(t *testing.T) {
 				assert.Assert(t, resp == nil, fmt.Sprintf("expected nil QuayResponse object, got %v", resp))
 				re := regexp.MustCompile(tc.expectErr)
 				assert.Assert(t, re.MatchString(err.Error()), fmt.Sprintf("got %s", err))
+			}
+		})
+	}
+}
+
+func TestQuayClient_DeleteTeam(t *testing.T) {
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	testCases := []struct {
+		name        string
+		expectedErr string
+		statusCode  int
+		response    interface{}
+	}{
+		{
+			name:        "Delete existing robot account",
+			expectedErr: "",
+			statusCode:  204,
+			response:    nil,
+		},
+		{
+			name:        "Unauthorized access",
+			expectedErr: "Unauthorized",
+			statusCode:  403,
+			response:    responseUnauthorized,
+		},
+		{
+			name:        "team doesn't exist 400",
+			expectedErr: "",
+			statusCode:  400,
+			response:    "",
+		},
+		{
+			name:        "team doesn't exist 404",
+			expectedErr: "",
+			statusCode:  404,
+			response:    nil,
+		},
+		{
+			name:        "server responds error in error field",
+			expectedErr: "something is wrong in the server",
+			statusCode:  500, // can be any status code except 204 and 404
+			response:    "{\"error\": \"something is wrong in the server\"}",
+		},
+		{
+			name:        "return error got from error_message field within response",
+			expectedErr: "something is wrong",
+			statusCode:  500,
+			response:    "{\"error_message\": \"something is wrong\"}",
+		},
+
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
+		{
+			name:        "server responds an invalid JSON string",
+			expectedErr: "failed to unmarshal response body",
+			response:    "{\"error\": \"something is wrong}",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req := gock.New(testQuayApiUrl).
+				MatchHeader("Content-Type", "application/json").
+				MatchHeader("Authorization", "Bearer authtoken").
+				Delete(fmt.Sprintf("organization/%s/team/%s", org, "teamname"))
+			req.Reply(tc.statusCode).JSON(tc.response)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Delete("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			err := quayClient.DeleteTeam(org, "teamname")
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+		})
+	}
+}
+
+func TestQuayClient_AddUserToTeam(t *testing.T) {
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	testCases := []struct {
+		name              string
+		statusCode        int
+		responseData      interface{}
+		expectedErr       string // Empty string means that no error is expected
+		expectedPermanent bool
+	}{
+		{
+			name:              "add user normally",
+			statusCode:        200,
+			responseData:      "",
+			expectedErr:       "",
+			expectedPermanent: false,
+		},
+		// The following test cases are for testing non-200 response code from server
+		{
+			name:              "user doesn't exist 400",
+			statusCode:        400,
+			responseData:      "",
+			expectedErr:       "user doesn't exist",
+			expectedPermanent: true,
+		},
+		{
+			name:              "user doesn't exist 404",
+			statusCode:        404,
+			responseData:      "",
+			expectedErr:       "user doesn't exist",
+			expectedPermanent: true,
+		},
+		{
+			name:              "return error got from error field within response",
+			statusCode:        500,
+			responseData:      map[string]string{"error": "something is wrong"},
+			expectedErr:       "something is wrong",
+			expectedPermanent: false,
+		},
+		{
+			name:              "return error got from error_message field within response",
+			statusCode:        500,
+			responseData:      map[string]string{"error_message": "something is wrong"},
+			expectedErr:       "something is wrong",
+			expectedPermanent: false,
+		},
+
+		{
+			name:              "server responds an invalid JSON string",
+			statusCode:        500,
+			responseData:      "{\"name: \"info}",
+			expectedErr:       "failed to unmarshal response",
+			expectedPermanent: false,
+		},
+		{
+			name:              "stop if http request fails",
+			expectedErr:       "failed to Do request:",
+			expectedPermanent: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req := gock.New(testQuayApiUrl).
+				Put("/organization/org/team/teamname/members/user1")
+			req.Reply(tc.statusCode).JSON(tc.responseData)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Put("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			permanent, err := quayClient.AddUserToTeam("org", "teamname", "user1")
+
+			assert.DeepEqual(t, tc.expectedPermanent, permanent)
+
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+		})
+	}
+}
+
+func TestQuayClient_RemoveUserFromTeam(t *testing.T) {
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	testCases := []struct {
+		name        string
+		expectedErr string
+		statusCode  int
+		response    interface{}
+	}{
+		{
+			name:        "Delete user from team",
+			expectedErr: "",
+			statusCode:  204,
+			response:    nil,
+		},
+		{
+			name:        "Unauthorized access",
+			expectedErr: "Unauthorized",
+			statusCode:  403,
+			response:    responseUnauthorized,
+		},
+		{
+			name:        "user isn't anymore in the team 400",
+			expectedErr: "",
+			statusCode:  400,
+			response:    "",
+		},
+		{
+			name:        "user doesn't exist 404",
+			expectedErr: "",
+			statusCode:  404,
+			response:    nil,
+		},
+		{
+			name:        "server responds error in error field",
+			expectedErr: "something is wrong in the server",
+			statusCode:  500, // can be any status code except 204 and 404
+			response:    "{\"error\": \"something is wrong in the server\"}",
+		},
+		{
+			name:        "return error got from error_message field within response",
+			expectedErr: "something is wrong",
+			statusCode:  500,
+			response:    "{\"error_message\": \"something is wrong\"}",
+		},
+		{
+			name:        "stop if http request fails",
+			expectedErr: "failed to Do request:",
+		},
+		{
+			name:        "server responds an invalid JSON string",
+			expectedErr: "failed to unmarshal response body",
+			response:    "{\"error\": \"something is wrong}",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req := gock.New(testQuayApiUrl).
+				MatchHeader("Content-Type", "application/json").
+				MatchHeader("Authorization", "Bearer authtoken").
+				Delete(fmt.Sprintf("organization/%s/team/%s/members/%s", org, "teamname", "user1"))
+			req.Reply(tc.statusCode).JSON(tc.response)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Delete("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			err := quayClient.RemoveUserFromTeam(org, "teamname", "user1")
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
 			}
 		})
 	}
