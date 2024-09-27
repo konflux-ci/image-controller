@@ -3,8 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.9.2
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.16.3
   name: imagerepositories.appstudio.redhat.com
 spec:
   group: appstudio.redhat.com
@@ -28,14 +27,19 @@ spec:
         description: ImageRepository is the Schema for the imagerepositories API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
@@ -46,29 +50,33 @@ spec:
                 description: Credentials management.
                 properties:
                   regenerate-token:
-                    description: RegenerateToken defines a request to refresh image
-                      accessing credentials. Refreshes both, push and pull tokens.
+                    description: |-
+                      RegenerateToken defines a request to refresh image accessing credentials.
+                      Refreshes both, push and pull tokens.
                       The field gets cleared after the refresh.
                     type: boolean
                   verify-linking:
-                    description: VerifyLinking defines a request to verify and fix
-                      secret linking in pipeline service account. The field gets cleared
-                      after fixing.
+                    description: |-
+                      VerifyLinking defines a request to verify and fix
+                      secret linking in pipeline service account.
+                      The field gets cleared after fixing.
                     type: boolean
                 type: object
               image:
                 description: Requested image repository configuration.
                 properties:
                   name:
-                    description: Name of the image within configured Quay organization.
-                      If ommited, then defaults to "cr-namespace/cr-name". This field
-                      cannot be changed after the resource creation.
+                    description: |-
+                      Name of the image within configured Quay organization.
+                      If ommited, then defaults to "cr-namespace/cr-name".
+                      This field cannot be changed after the resource creation.
                     pattern: ^[a-z0-9][.a-z0-9_-]*(/[a-z0-9][.a-z0-9_-]*)*$
                     type: string
                   visibility:
-                    description: Visibility defines whether the image is publicly
-                      visible. Allowed values are public and private. "public" is
-                      the default.
+                    description: |-
+                      Visibility defines whether the image is publicly visible.
+                      Allowed values are public and private.
+                      "public" is the default.
                     enum:
                     - public
                     - private
@@ -116,18 +124,15 @@ spec:
                     format: date-time
                     type: string
                   pull-robot-account:
-                    description: PullRobotAccountName is present only if ImageRepository
-                      has labels that connect it to Application and Component. Holds
-                      name of the quay robot account with real (pull only) permissions
-                      from the generated repository.
+                    description: |-
+                      PullRobotAccountName is present only if ImageRepository has labels that connect it to Application and Component.
+                      Holds name of the quay robot account with real (pull only) permissions from the generated repository.
                     type: string
                   pull-secret:
-                    description: PullSecretName is present only if ImageRepository
-                      has labels that connect it to Application and Component. Holds
-                      name of the dockerconfig secret with credentials to pull only
-                      from the generated repository. The secret might not be present
-                      in the same namespace as ImageRepository, but created in other
-                      environments.
+                    description: |-
+                      PullSecretName is present only if ImageRepository has labels that connect it to Application and Component.
+                      Holds name of the dockerconfig secret with credentials to pull only from the generated repository.
+                      The secret might not be present in the same namespace as ImageRepository, but created in other environments.
                     type: string
                   push-robot-account:
                     description: PushRobotAccountName holds name of the quay robot
@@ -159,8 +164,9 @@ spec:
                     type: string
                 type: object
               message:
-                description: Message shows error information for the request. It could
-                  contain non critical error, like failed to change image visibility,
+                description: |-
+                  Message shows error information for the request.
+                  It could contain non critical error, like failed to change image visibility,
                   while the state is ready and image resitory could be used.
                 type: string
               notifications:
@@ -176,9 +182,10 @@ spec:
                   type: object
                 type: array
               state:
-                description: State shows if image repository could be used. "ready"
-                  means repository was created and usable, "failed" means that the
-                  image repository creation request failed.
+                description: |-
+                  State shows if image repository could be used.
+                  "ready" means repository was created and usable,
+                  "failed" means that the image repository creation request failed.
                 type: string
             type: object
         type: object
