@@ -286,9 +286,8 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	imageRepositoryName := ""
 	if imageRepository.Spec.Image.Name == "" {
 		if isComponentLinked(imageRepository) {
-			applicationName := imageRepository.Labels[ApplicationNameLabelName]
 			componentName := imageRepository.Labels[ComponentNameLabelName]
-			imageRepositoryName = imageRepository.Namespace + "/" + applicationName + "/" + componentName
+			imageRepositoryName = imageRepository.Namespace + "/" + componentName
 		} else {
 			imageRepositoryName = imageRepository.Namespace + "/" + imageRepository.Name
 		}
