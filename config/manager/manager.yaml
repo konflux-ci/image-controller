@@ -43,6 +43,10 @@ spec:
         - --leader-elect
         image: controller:latest
         name: manager
+        ports:
+        - containerPort: 8081
+          name: probes
+          protocol: TCP
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
