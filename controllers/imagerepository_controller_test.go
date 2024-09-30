@@ -469,7 +469,7 @@ var _ = Describe("Image repository controller", func() {
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
-			expectedImageName = fmt.Sprintf("%s/%s/%s", defaultNamespace, defaultComponentApplication, defaultComponentName)
+			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, defaultComponentName)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 
