@@ -645,12 +645,11 @@ func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepos
 		} else {
 			log.Info("Image repository secret created")
 		}
-
-		if !isPull {
-			if err := r.linkSecretToServiceAccount(ctx, secretName, imageRepository.Namespace); err != nil {
-				log.Error(err, "failed to link secret to service account", "SecretName", secretName, l.Action, l.ActionUpdate)
-				return err
-			}
+	}
+	if !isPull {
+		if err := r.linkSecretToServiceAccount(ctx, secretName, imageRepository.Namespace); err != nil {
+			log.Error(err, "failed to link secret to service account", "SecretName", secretName, l.Action, l.ActionUpdate)
+			return err
 		}
 	}
 	return nil
@@ -664,7 +663,8 @@ func (r *ImageRepositoryReconciler) linkSecretToServiceAccount(ctx context.Conte
 	err := r.Client.Get(ctx, types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: namespace}, serviceAccount)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			return nil
+			log.Error(err, "pipeline service account doesn't exist yet", l.Action, l.ActionView)
+			return err
 		}
 		log.Error(err, "failed to read pipeline service account", l.Action, l.ActionView)
 		return err
