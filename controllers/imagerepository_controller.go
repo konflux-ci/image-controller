@@ -850,7 +850,7 @@ func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Conte
 func generateQuayRobotAccountName(imageRepositoryName string, isPullOnly bool) string {
 	// Robot account name must match ^[a-z][a-z0-9_]{1,254}$
 
-	imageNamePrefix := imageRepositoryName
+	imageNamePrefix := removeDuplicateUnderscores(imageRepositoryName)
 	if len(imageNamePrefix) > 220 {
 		imageNamePrefix = imageNamePrefix[:220]
 	}
@@ -865,6 +865,26 @@ func generateQuayRobotAccountName(imageRepositoryName string, isPullOnly bool) s
 		robotAccountName += "_pull"
 	}
 	return robotAccountName
+}
+
+// removeDuplicateUnderscores replaces sequence of underscores with only one.
+// Example: ab__cd___e => ab_cd_e
+func removeDuplicateUnderscores(s string) string {
+	var result strings.Builder
+
+	runes := []rune(s)
+	if len(runes) > 0 {
+		result.WriteRune(runes[0])
+	}
+	for i := 1; i < len(runes); i++ {
+		char := runes[i]
+		prevChar := runes[i-1]
+		if char != '_' || prevChar != '_' {
+			result.WriteRune(char)
+		}
+	}
+
+	return result.String()
 }
 
 func getSecretName(imageRepository *imagerepositoryv1alpha1.ImageRepository, isPullOnly bool) string {
