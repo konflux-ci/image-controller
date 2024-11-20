@@ -64,6 +64,12 @@ func TestGenerateQuayRobotAccountName(t *testing.T) {
 			isPull:                         false,
 			expectedRobotAccountNamePrefix: "my_app_tenant_component_name",
 		},
+		{
+			name:                           "Should prevent multiple underscores in Quay robot account name cause be other symbols replacement",
+			imageRepositoryName:            "my_._image_/_repository_-_name_",
+			isPull:                         true,
+			expectedRobotAccountNamePrefix: "my_image_repository_name",
+		},
 	}
 
 	for _, tc := range testCases {

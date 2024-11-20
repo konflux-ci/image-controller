@@ -851,7 +851,7 @@ func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Conte
 func generateQuayRobotAccountName(imageRepositoryName string, isPullOnly bool) string {
 	// Robot account name must match ^[a-z][a-z0-9_]{1,254}$
 
-	imageNamePrefix := removeDuplicateUnderscores(imageRepositoryName)
+	imageNamePrefix := imageRepositoryName
 	if len(imageNamePrefix) > 220 {
 		imageNamePrefix = imageNamePrefix[:220]
 	}
@@ -865,6 +865,7 @@ func generateQuayRobotAccountName(imageRepositoryName string, isPullOnly bool) s
 	if isPullOnly {
 		robotAccountName += "_pull"
 	}
+	robotAccountName = removeDuplicateUnderscores(robotAccountName)
 	return robotAccountName
 }
 
