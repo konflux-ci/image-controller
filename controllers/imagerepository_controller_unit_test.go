@@ -58,6 +58,18 @@ func TestGenerateQuayRobotAccountName(t *testing.T) {
 			isPull:                         true,
 			expectedRobotAccountNamePrefix: expectedRobotAccountLongPrefix,
 		},
+		{
+			name:                           "Should prevent multiple underscores in Quay robot account name",
+			imageRepositoryName:            "my__app_tenant_component____name",
+			isPull:                         false,
+			expectedRobotAccountNamePrefix: "my_app_tenant_component_name",
+		},
+		{
+			name:                           "Should prevent multiple underscores in Quay robot account name cause be other symbols replacement",
+			imageRepositoryName:            "my_._image_/_repository_-_name_",
+			isPull:                         true,
+			expectedRobotAccountNamePrefix: "my_image_repository_name",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -74,6 +86,55 @@ func TestGenerateQuayRobotAccountName(t *testing.T) {
 				if !strings.HasSuffix(robotAccountName, "_pull") {
 					t.Error("Expecting '_pull' suffix for pull robot account name")
 				}
+			}
+		})
+	}
+}
+
+func TestRemoveDuplicateUnderscores(t *testing.T) {
+	testCases := []struct {
+		name     string
+		arg      string
+		expected string
+	}{
+		{
+			name:     "Should not modify string without repeating underscores",
+			arg:      "my_test_string",
+			expected: "my_test_string",
+		},
+		{
+			name:     "Should handle double underscores",
+			arg:      "my_test__string",
+			expected: "my_test_string",
+		},
+		{
+			name:     "Should handle multiple underscores",
+			arg:      "my_test____________string",
+			expected: "my_test_string",
+		},
+		{
+			name:     "Should handle underscores in many places",
+			arg:      "my____test__string",
+			expected: "my_test_string",
+		},
+		{
+			name:     "Should handle underscores at the beginning and end",
+			arg:      "__my_test__string__",
+			expected: "_my_test_string_",
+		},
+		{
+			name:     "Should handle empty string",
+			arg:      "",
+			expected: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := removeDuplicateUnderscores(tc.arg)
+
+			if got != tc.expected {
+				t.Errorf("Expected %s, but got %s", tc.expected, got)
 			}
 		})
 	}

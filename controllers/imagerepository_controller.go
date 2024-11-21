@@ -22,6 +22,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -864,7 +865,14 @@ func generateQuayRobotAccountName(imageRepositoryName string, isPullOnly bool) s
 	if isPullOnly {
 		robotAccountName += "_pull"
 	}
+	robotAccountName = removeDuplicateUnderscores(robotAccountName)
 	return robotAccountName
+}
+
+// removeDuplicateUnderscores replaces sequence of underscores with only one.
+// Example: ab__cd___e => ab_cd_e
+func removeDuplicateUnderscores(s string) string {
+	return regexp.MustCompile("_+").ReplaceAllString(s, "_")
 }
 
 func getSecretName(imageRepository *imagerepositoryv1alpha1.ImageRepository, isPullOnly bool) string {
