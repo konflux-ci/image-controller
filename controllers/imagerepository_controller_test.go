@@ -1153,6 +1153,74 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
 		})
 
+		It("don't remove repository if 2 imageRepositories use the same repo and one is removed", func() {
+			customImageName := defaultNamespace + "/" + "my-image-used-by-multiple-imagerepositories"
+			expectedImageName = customImageName
+			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
+
+			isCreateRepositoryInvoked := false
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				isCreateRepositoryInvoked = true
+				Expect(repository.Repository).To(Equal(expectedImageName))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
+				return &quay.Repository{Name: expectedImageName}, nil
+			}
+
+			createImageRepository(imageRepositoryConfig{ImageName: customImageName, ResourceKey: &resourceKey})
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+
+			anotherImageRepositoryKey := types.NamespacedName{Name: defaultImageRepositoryName + "-other2", Namespace: defaultNamespace}
+			isCreateRepositoryInvoked = false
+
+			createImageRepository(imageRepositoryConfig{ImageName: customImageName, ResourceKey: &anotherImageRepositoryKey})
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+			waitImageRepositoryFinalizerOnImageRepository(anotherImageRepositoryKey)
+
+			imageRepository1 := getImageRepository(resourceKey)
+			Expect(imageRepository1.Spec.Image.Name).To(Equal(expectedImageName))
+			imageRepository2 := getImageRepository(anotherImageRepositoryKey)
+			Expect(imageRepository2.Spec.Image.Name).To(Equal(expectedImageName))
+			Expect(imageRepository1.Status.Image.URL).To(Equal(imageRepository2.Status.Image.URL))
+
+			isDeleteRobotAccountInvoked := false
+			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRobotAccountInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
+				return true, nil
+			}
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				defer GinkgoRecover()
+				if imageRepository == expectedImage {
+					Fail("Delete repository should not be invoked")
+				}
+				return true, nil
+			}
+
+			deleteImageRepository(resourceKey)
+			// should not delete repository, because it is used by other ImageRepository
+			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			waitImageRepositoryGone(resourceKey)
+
+			isDeleteRepositoryInvoked := false
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRepositoryInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(imageRepository).To(Equal(customImageName))
+				return true, nil
+			}
+
+			isDeleteRobotAccountInvoked = false
+			deleteImageRepository(anotherImageRepositoryKey)
+			// should delete repository, because no other ImageRepository uses the repository
+			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
+		})
+
 		It("should clean environment", func() {
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
 		})

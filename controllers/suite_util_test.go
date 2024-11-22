@@ -122,8 +122,13 @@ func deleteImageRepository(imageRepositoryKey types.NamespacedName) {
 		Fail("Failed to get image repository")
 	}
 	Expect(k8sClient.Delete(ctx, imageRepository)).To(Succeed())
+	waitImageRepositoryGone(imageRepositoryKey)
+}
+
+func waitImageRepositoryGone(resourceKey types.NamespacedName) {
+	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
 	Eventually(func() bool {
-		return k8sErrors.IsNotFound(k8sClient.Get(ctx, imageRepositoryKey, imageRepository))
+		return k8sErrors.IsNotFound(k8sClient.Get(ctx, resourceKey, imageRepository))
 	}, timeout, interval).Should(BeTrue())
 }
 

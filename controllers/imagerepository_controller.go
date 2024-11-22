@@ -118,8 +118,13 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 
 		if controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {
+			// Check if there isn't other ImageRepository for the same repository from other component
+			imageRepositoryFound, err := r.ImageRepositoryForSameUrlExists(ctx, imageRepository)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
 			// Do not block deletion on failures
-			r.CleanupImageRepository(ctx, imageRepository)
+			r.CleanupImageRepository(ctx, imageRepository, !imageRepositoryFound)
 
 			controllerutil.RemoveFinalizer(imageRepository, ImageRepositoryFinalizer)
 			if err := r.Client.Update(ctx, imageRepository); err != nil {
@@ -535,7 +540,7 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx con
 }
 
 // CleanupImageRepository deletes image repository and corresponding robot account(s).
-func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) {
+func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, removeRepository bool) {
 	log := ctrllog.FromContext(ctx).WithName("RepositoryCleanup")
 
 	robotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
@@ -556,6 +561,11 @@ func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, 
 		if isPullRobotAccountDeleted {
 			log.Info("Deleted pull robot account", "RobotAccountName", pullRobotAccountName, l.Action, l.ActionDelete)
 		}
+	}
+
+	if !removeRepository {
+		log.Info("Won't remove image repository, because other ImageRepository is using it", "RepoName", imageRepository.Status.Image.URL)
+		return
 	}
 
 	imageRepositoryName := imageRepository.Spec.Image.Name
@@ -917,4 +927,27 @@ func generateDockerconfigSecretData(quayImageURL string, robotAccount *quay.Robo
 	secretData[corev1.DockerConfigJsonKey] = fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`,
 		quayImageURL, base64.StdEncoding.EncodeToString([]byte(authString)))
 	return secretData
+}
+
+func (r *ImageRepositoryReconciler) ImageRepositoryForSameUrlExists(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) (bool, error) {
+	log := ctrllog.FromContext(ctx)
+	imageRepositoriesList := &imagerepositoryv1alpha1.ImageRepositoryList{}
+	if err := r.Client.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: imageRepository.Namespace}); err != nil {
+		log.Error(err, "failed to list image repositories")
+		return false, err
+	}
+
+	imageRepositoryUrl := imageRepository.Status.Image.URL
+	imageRepositoryName := imageRepository.ObjectMeta.Name
+	for _, imageRepo := range imageRepositoriesList.Items {
+		if imageRepositoryUrl == imageRepo.Status.Image.URL {
+			// skipping the original ImageRepository which is in the list as well
+			if imageRepositoryName == imageRepo.ObjectMeta.Name {
+				continue
+			}
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
