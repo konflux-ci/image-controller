@@ -148,6 +148,13 @@ After any successful operation, `status.message` is cleared.
 
 ---
 
+### Skip repository deletion
+
+By default, if the ImageRepository resource is deleted, the repository it created
+in Quay will get deleted as well.
+
+In order to skip the deletion of the repository in Quay, the `image-controller.appstudio.redhat.com/skip-repository-deletion` annotation should be set to "true".
+
 ## AppStudio Component image repository
 
 ### Image repository for Component builds

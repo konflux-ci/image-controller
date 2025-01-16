@@ -48,10 +48,11 @@ const (
 
 	ImageRepositoryFinalizer = "appstudio.openshift.io/image-repository"
 
-	buildPipelineServiceAccountName = "appstudio-pipeline"
-	updateComponentAnnotationName   = "image-controller.appstudio.redhat.com/update-component-image"
-	additionalUsersConfigMapName    = "image-controller-additional-users"
-	additionalUsersConfigMapKey     = "quay.io"
+	buildPipelineServiceAccountName      = "appstudio-pipeline"
+	updateComponentAnnotationName        = "image-controller.appstudio.redhat.com/update-component-image"
+	additionalUsersConfigMapName         = "image-controller-additional-users"
+	additionalUsersConfigMapKey          = "quay.io"
+	skipRepositoryDeletionAnnotationName = "image-controller.appstudio.redhat.com/skip-repository-deletion"
 )
 
 // ImageRepositoryReconciler reconciles a ImageRepository object
@@ -123,8 +124,17 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			if err != nil {
 				return ctrl.Result{}, err
 			}
+
+			if imageRepositoryFound {
+				log.Info("Found another image repository for", "RepoURL", imageRepository.Status.Image.URL)
+			}
+
+			skipDeletion := imageRepository.Annotations[skipRepositoryDeletionAnnotationName] == "true"
+			if skipDeletion {
+				log.Info("Skip deletion was configured for image repository", "ImageRepository", imageRepository.Name)
+			}
 			// Do not block deletion on failures
-			r.CleanupImageRepository(ctx, imageRepository, !imageRepositoryFound)
+			r.CleanupImageRepository(ctx, imageRepository, !(imageRepositoryFound || skipDeletion))
 
 			controllerutil.RemoveFinalizer(imageRepository, ImageRepositoryFinalizer)
 			if err := r.Client.Update(ctx, imageRepository); err != nil {
@@ -564,7 +574,7 @@ func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, 
 	}
 
 	if !removeRepository {
-		log.Info("Won't remove image repository, because other ImageRepository is using it", "RepoName", imageRepository.Status.Image.URL)
+		log.Info("Skipping the removal of image repository", "RepoName", imageRepository.Status.Image.URL)
 		return
 	}
 
