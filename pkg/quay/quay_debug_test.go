@@ -63,12 +63,12 @@ func TestCreateRepository(t *testing.T) {
 	}
 }
 
-func TestDoesRepositoryExist(t *testing.T) {
+func TestRepositoryExists(t *testing.T) {
 	if quayToken == "" {
 		return
 	}
 	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
-	exists, err := quayClient.DoesRepositoryExist(quayOrgName, quayImageRepoName)
+	exists, err := quayClient.RepositoryExists(quayOrgName, quayImageRepoName)
 	if exists == true && err == nil {
 		t.Log("Repository exists")
 	} else if exists == false && strings.Contains(err.Error(), "does not exist") {
