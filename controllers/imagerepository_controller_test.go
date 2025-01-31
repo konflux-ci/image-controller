@@ -477,6 +477,9 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		assertProvisionRepository := func(updateComponentAnnotation, grantRepoPermission bool) {
+			quay.RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) {
+				return true, nil
+			}
 			isCreateRepositoryInvoked := false
 			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
 				defer GinkgoRecover()
@@ -754,6 +757,9 @@ var _ = Describe("Image repository controller", func() {
 			// Wait just for case it takes less than a second to regenerate credentials
 			time.Sleep(time.Second)
 
+			quay.RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) {
+				return true, nil
+			}
 			isRegenerateRobotAccountTokenForPushInvoked := false
 			isRegenerateRobotAccountTokenForPullInvoked := false
 			quay.RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*quay.RobotAccount, error) {

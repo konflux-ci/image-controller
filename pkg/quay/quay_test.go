@@ -1228,7 +1228,7 @@ func TestQuayClient_DeleteTag(t *testing.T) {
 	}
 }
 
-func TestQuayClient_DoesRepositoryExist(t *testing.T) {
+func TestQuayClient_RepositoryExists(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
 
@@ -1302,7 +1302,7 @@ func TestQuayClient_DoesRepositoryExist(t *testing.T) {
 			}
 
 			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
-			exists, err := quayClient.DoesRepositoryExist(org, repo)
+			exists, err := quayClient.RepositoryExists(org, repo)
 			assert.Equal(t, tc.shouldExist, exists)
 			if tc.expectedErr == "" {
 				assert.NilError(t, err)

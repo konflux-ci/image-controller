@@ -30,6 +30,7 @@ import (
 type QuayService interface {
 	CreateRepository(repositoryRequest RepositoryRequest) (*Repository, error)
 	DeleteRepository(organization, imageRepository string) (bool, error)
+	RepositoryExists(organization, imageRepository string) (bool, error)
 	ChangeRepositoryVisibility(organization, imageRepository, visibility string) error
 	GetRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
@@ -148,8 +149,8 @@ func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Rep
 	return data, nil
 }
 
-// DoesRepositoryExist checks if the specified image repository exists in quay.
-func (c *QuayClient) DoesRepositoryExist(organization, imageRepository string) (bool, error) {
+// RepositoryExists checks if the specified image repository exists in quay.
+func (c *QuayClient) RepositoryExists(organization, imageRepository string) (bool, error) {
 	url := fmt.Sprintf("%s/repository/%s/%s", c.url, organization, imageRepository)
 
 	resp, err := c.doRequest(url, http.MethodGet, nil)

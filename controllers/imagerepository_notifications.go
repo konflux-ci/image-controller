@@ -68,6 +68,12 @@ func (r *ImageRepositoryReconciler) HandleNotifications(ctx context.Context, ima
 		return nil
 	}
 
+	repositoryExists, _ := r.QuayClient.RepositoryExists(r.QuayOrganization, imageRepository.Spec.Image.Name)
+	if !repositoryExists {
+		log.Info("repository does not exist, skipping handling notifications", "organization", r.QuayOrganization, "repository", imageRepository.Spec.Image.Name)
+		return nil
+	}
+
 	log.Info("Starting to handle notifications")
 	for _, notification := range imageRepository.Spec.Notifications {
 		existsInStatus := false

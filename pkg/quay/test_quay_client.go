@@ -32,6 +32,7 @@ var _ QuayService = (*TestQuayClient)(nil)
 var (
 	CreateRepositoryFunc                      func(repository RepositoryRequest) (*Repository, error)
 	DeleteRepositoryFunc                      func(organization, imageRepository string) (bool, error)
+	RepositoryExistsFunc                      func(organization, imageRepository string) (bool, error)
 	ChangeRepositoryVisibilityFunc            func(organization, imageRepository string, visibility string) error
 	GetRobotAccountFunc                       func(organization string, robotName string) (*RobotAccount, error)
 	CreateRobotAccountFunc                    func(organization string, robotName string) (*RobotAccount, error)
@@ -55,6 +56,7 @@ var (
 func ResetTestQuayClient() {
 	CreateRepositoryFunc = func(repository RepositoryRequest) (*Repository, error) { return &Repository{}, nil }
 	DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) { return true, nil }
+	RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) { return true, nil }
 	ChangeRepositoryVisibilityFunc = func(organization, imageRepository string, visibility string) error { return nil }
 	GetRobotAccountFunc = func(organization, robotName string) (*RobotAccount, error) { return &RobotAccount{}, nil }
 	CreateRobotAccountFunc = func(organization, robotName string) (*RobotAccount, error) { return &RobotAccount{}, nil }
@@ -90,6 +92,11 @@ func ResetTestQuayClientToFails() {
 	DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
 		defer GinkgoRecover()
 		Fail("DeleteRepository invoked")
+		return true, nil
+	}
+	RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) {
+		defer GinkgoRecover()
+		Fail("RepositoryExists invoked")
 		return true, nil
 	}
 	ChangeRepositoryVisibilityFunc = func(organization, imageRepository string, visibility string) error {
@@ -189,6 +196,9 @@ func (c TestQuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*
 }
 func (c TestQuayClient) DeleteRepository(organization, imageRepository string) (bool, error) {
 	return DeleteRepositoryFunc(organization, imageRepository)
+}
+func (c TestQuayClient) RepositoryExists(organization, imageRepository string) (bool, error) {
+	return RepositoryExistsFunc(organization, imageRepository)
 }
 func (TestQuayClient) ChangeRepositoryVisibility(organization, imageRepository string, visibility string) error {
 	return ChangeRepositoryVisibilityFunc(organization, imageRepository, visibility)
