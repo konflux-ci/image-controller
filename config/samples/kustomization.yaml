@@ -1,5 +1,4 @@
-## Append samples you want in your CSV to this file as resources ##
+## Append samples of your project ##
 resources:
-- appstudio.redhat.com_v1alpha1_controller.yaml
 - appstudio.redhat.com_v1alpha1_imagerepository.yaml
-#+kubebuilder:scaffold:manifestskustomizesamples
+# +kubebuilder:scaffold:manifestskustomizesamples

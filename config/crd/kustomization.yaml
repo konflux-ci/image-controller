@@ -3,15 +3,14 @@
 # It should be run by config/default
 resources:
 - bases/appstudio.redhat.com_imagerepositories.yaml
-#+kubebuilder:scaffold:crdkustomizeresource
+# +kubebuilder:scaffold:crdkustomizeresource
 
-#patchesStrategicMerge:
+patches:
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix.
 # patches here are for enabling the conversion webhook for each CRD
-#- patches/webhook_in_controllers.yaml
-#- patches/webhook_in_imagerepositories.yaml
-#+kubebuilder:scaffold:crdkustomizewebhookpatch
+# +kubebuilder:scaffold:crdkustomizewebhookpatch
 
 # the following config is for teaching kustomize how to do kustomization for CRDs.
-configurations:
-- kustomizeconfig.yaml
+
+#configurations:
+#- kustomizeconfig.yaml
