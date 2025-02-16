@@ -10,7 +10,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.13.2
 	github.com/onsi/gomega v1.30.0
 	github.com/prometheus/client_golang v1.18.0
-	github.com/redhat-appstudio/application-api v0.0.0-20231026192857-89515ad2504f
+	github.com/redhat-appstudio/application-api e7eb2ecfb409
 	go.uber.org/zap v1.26.0
 	gotest.tools/v3 v3.5.0
 	k8s.io/api v0.29.0
