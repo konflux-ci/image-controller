@@ -102,7 +102,7 @@ In case your quay.io organization has free plan that does not allow setting repo
 
 ### Credentials rotation
 
-It's possible to request robot account token rotation by adding:
+It's possible to request robot account token rotation by adding (it will also re-create secret if it doesn't exist):
 ```yaml
 ...
 spec:
@@ -120,7 +120,6 @@ After token rotation, the `spec.credentials.regenerate-token` section will be de
 It will link secret to service account if link is missing.
 It will remove duplicate links of secret in service account.
 It will remove secret from imagePullSecrets in service account.
-It will unlink secret from service account, if secret doesn't exist (you can recreate secret using 'regenerate-token').
 It's possible to request verification and fixing of secrets linking to service account by adding:
 ```yaml
 ...

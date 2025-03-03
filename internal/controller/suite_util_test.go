@@ -32,9 +32,11 @@ import (
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	appstudioapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 )
 
 const (
@@ -66,6 +68,7 @@ type imageRepositoryConfig struct {
 	Annotations     map[string]string
 	Notifications   []imagerepositoryv1alpha1.Notifications
 	OwnerReferences []metav1.OwnerReference
+	Finalizers      []string
 }
 
 func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1alpha1.ImageRepository {
@@ -85,6 +88,10 @@ func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1al
 	if config.Annotations != nil {
 		annotations = config.Annotations
 	}
+	finalizers := []string{}
+	if config.Finalizers != nil {
+		finalizers = config.Finalizers
+	}
 
 	return &imagerepositoryv1alpha1.ImageRepository{
 		ObjectMeta: metav1.ObjectMeta{
@@ -93,6 +100,7 @@ func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1al
 			Labels:          config.Labels,
 			Annotations:     annotations,
 			OwnerReferences: config.OwnerReferences,
+			Finalizers:      finalizers,
 		},
 		Spec: imagerepositoryv1alpha1.ImageRepositorySpec{
 			Image: imagerepositoryv1alpha1.ImageParameters{
@@ -104,9 +112,12 @@ func getImageRepositoryConfig(config imageRepositoryConfig) *imagerepositoryv1al
 	}
 }
 
-func createImageRepository(config imageRepositoryConfig) {
+func createImageRepository(config imageRepositoryConfig) *imagerepositoryv1alpha1.ImageRepository {
 	imageRepository := getImageRepositoryConfig(config)
 	Expect(k8sClient.Create(ctx, imageRepository)).To(Succeed())
+
+	imageRepositoryKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: imageRepository.Name}
+	return getImageRepository(imageRepositoryKey)
 }
 
 func getImageRepository(imageRepositoryKey types.NamespacedName) *imagerepositoryv1alpha1.ImageRepository {
@@ -134,6 +145,69 @@ func waitImageRepositoryGone(resourceKey types.NamespacedName) {
 	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
 	Eventually(func() bool {
 		return k8sErrors.IsNotFound(k8sClient.Get(ctx, resourceKey, imageRepository))
+	}, timeout, interval).Should(BeTrue())
+}
+
+type applicationConfig struct {
+	ApplicationKey types.NamespacedName
+}
+
+func getSampleApplicationData(config applicationConfig) *appstudioredhatcomv1alpha1.Application {
+	name := config.ApplicationKey.Name
+	if name == "" {
+		name = defaultComponentApplication
+	}
+	namespace := config.ApplicationKey.Namespace
+	if namespace == "" {
+		namespace = defaultNamespace
+	}
+
+	return &appstudioredhatcomv1alpha1.Application{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "appstudio.redhat.com/v1alpha1",
+			Kind:       "Application",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+}
+
+// createApplication creates sample application resource and verifies it was properly created.
+func createApplication(config applicationConfig) *appstudioredhatcomv1alpha1.Application {
+	application := getSampleApplicationData(config)
+
+	Expect(k8sClient.Create(ctx, application)).Should(Succeed())
+
+	applicationKey := types.NamespacedName{Namespace: application.Namespace, Name: application.Name}
+	return getApplication(applicationKey)
+}
+
+func getApplication(applicationKey types.NamespacedName) *appstudioredhatcomv1alpha1.Application {
+	application := &appstudioredhatcomv1alpha1.Application{}
+	Eventually(func() bool {
+		Expect(k8sClient.Get(ctx, applicationKey, application)).Should(Succeed())
+		return application.ResourceVersion != ""
+	}, timeout, interval).Should(BeTrue())
+	return application
+}
+
+// deleteApplication deletes the specified application resource and verifies it was properly deleted
+func deleteApplication(applicationKey types.NamespacedName) {
+	application := &appstudioredhatcomv1alpha1.Application{}
+
+	// Check if the applicaiton exists
+	if err := k8sClient.Get(ctx, applicationKey, application); k8sErrors.IsNotFound(err) {
+		return
+	}
+
+	// Delete
+	Expect(k8sClient.Delete(ctx, application)).To(Succeed())
+
+	// Wait for delete to finish
+	Eventually(func() bool {
+		return k8sErrors.IsNotFound(k8sClient.Get(ctx, applicationKey, application))
 	}, timeout, interval).Should(BeTrue())
 }
 
@@ -361,6 +435,13 @@ func getServiceAccount(namespace string, name string) corev1.ServiceAccount {
 		return sa.ResourceVersion != ""
 	}, timeout, interval).Should(BeTrue())
 	return sa
+}
+
+func getServiceAccountList(namespace string) []corev1.ServiceAccount {
+	saList := &corev1.ServiceAccountList{}
+	Expect(k8sClient.List(ctx, saList, &client.ListOptions{Namespace: namespace})).To(Succeed())
+
+	return saList.Items
 }
 
 func deleteServiceAccount(serviceAccountKey types.NamespacedName) {
