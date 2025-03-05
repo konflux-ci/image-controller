@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: notification_resetter-cronjob
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: notification_resetter
+            image: registry.redhat.io/rhel9/python-312:9.5-1739797362
+            env:
+              - name: QUAY_TOKEN
+                valueFrom:
+                  secretKeyRef:
+                    name: quaytoken
+                    key: quaytoken
+              - name: NAMESPACE
+                valueFrom:
+                  secretKeyRef:
+                    name: quaytoken
+                    key: organization
+            imagePullPolicy: IfNotPresent
+            command:
+              - /bin/bash
+              - '-c'
+              - python /notification_resetter/reset_notifications.py --namespace $(NAMESPACE)
+            volumeMounts:
+              - name: notification-resetter-volume
+                mountPath: /notification_resetter
+            resources:
+              limits:
+                cpu: 500m
+                memory: 512Mi
+              requests:
+                cpu: 150m
+                memory: 128Mi
+            securityContext:
+              readOnlyRootFilesystem: true
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+          volumes:
+            - name: notification-resetter-volume
+              configMap:
+                name: notification-resetter-configmap
+            - name: quaytoken
+              secret:
+                secretName: quaytoken

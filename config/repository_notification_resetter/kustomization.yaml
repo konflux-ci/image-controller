@@ -1,0 +1,7 @@
+resources:
+- cronjob.yaml
+
+configMapGenerator:
+- name: notification-resetter-configmap
+  files:
+  - notification_resetter/reset_notifications.py
