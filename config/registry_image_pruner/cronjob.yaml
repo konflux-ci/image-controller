@@ -34,10 +34,10 @@ spec:
             resources:
               limits:
                 cpu: 500m
-                memory: 512Mi
+                memory: 2Gi
               requests:
                 cpu: 150m
-                memory: 128Mi
+                memory: 1Gi
             securityContext:
               readOnlyRootFilesystem: true
           restartPolicy: OnFailure
