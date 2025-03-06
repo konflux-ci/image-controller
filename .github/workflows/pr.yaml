@@ -69,12 +69,30 @@ jobs:
         cd config/registry_image_pruner/image_pruner/
         python3.9 test_prune_images.py
 
+  changes:
+    name: Check if notification resetter code changed
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      notification_resetter: ${{ steps.filter.outputs.notification_resetter }}
+    steps:
+    # For pull requests it's not necessary to checkout the code
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          notification_resetter:
+            - 'config/repository_notification_resetter/notification_resetter/**'
+
   test_reset_notifications:
+    needs: changes
+    if: ${{ needs.changes.outputs.notification_resetter == 'true' }}
     name: Run reset_notifications tests
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'

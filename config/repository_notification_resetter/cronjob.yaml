@@ -18,7 +18,7 @@ spec:
                   secretKeyRef:
                     name: quaytoken
                     key: quaytoken
-              - name: NAMESPACE
+              - name: QUAY_NAMESPACE
                 valueFrom:
                   secretKeyRef:
                     name: quaytoken
@@ -27,7 +27,7 @@ spec:
             command:
               - /bin/bash
               - '-c'
-              - python /notification_resetter/reset_notifications.py --namespace $(NAMESPACE)
+              - python /notification_resetter/reset_notifications.py --namespace $(QUAY_NAMESPACE)
             volumeMounts:
               - name: notification-resetter-volume
                 mountPath: /notification_resetter

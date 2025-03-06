@@ -35,11 +35,29 @@ class TestResetter(unittest.TestCase):
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])
     @patch("reset_notifications.urlopen")
     def test_crash_when_http_error(self, urlopen):
-        urlopen.side_effect = HTTPError(
-            "url", 404, "something is not found", Message(), None
+        error_response = io.BytesIO(b'{"detail": "Not found"}')
+        mock_error = HTTPError(
+            url="http://example.com",
+            code=404,
+            msg="Bad Request",
+            hdrs=None,
+            fp=error_response,
         )
-        with self.assertRaises(HTTPError):
-            main()
+        urlopen.return_value.__enter__.side_effect = mock_error
+        with self.assertLogs(LOGGER) as logs:
+            with self.assertRaises(RuntimeError):
+                main()
+                run_log = [
+                    msg
+                    for msg in logs.output
+                    if re.search(
+                        r"Unable to fetch repositories for namespace .+",
+                        msg,
+                    )
+                ]
+                self.assertEqual(1, len(run_log))
+            # retry mechanism work for repo fetching
+            self.assertEqual(6, urlopen.call_count)
 
     @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])

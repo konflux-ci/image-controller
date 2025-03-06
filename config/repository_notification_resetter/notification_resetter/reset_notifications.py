@@ -52,8 +52,12 @@ def get_quay_notifications(
 
     with urlopen(request) as resp:
         if resp.status != 200:
-            raise RuntimeError(resp.reason)
-        json_data = json.loads(resp.read())
+            # do not fail the job if we can't fetch notifications
+            # for single repository
+            LOGGER.warning("Failed to fetch notifications for %s/%s", namespace, name)
+            json_data = {}
+        else:
+            json_data = json.loads(resp.read())
 
     return json_data.get("notifications", [])
 
@@ -75,8 +79,13 @@ def reset_notification(uuid: str, quay_token: str, namespace: str, name: str) ->
             # There is bug in Quay Swagger docs generator
             # claiming all POST request return 201
             if resp.status not in (201, 204):
-                raise RuntimeError(resp.reason)
-
+                # do not fail the job if we can't reset notification
+                LOGGER.warning(
+                    "Failed to reset notification %s from %s/%s",
+                    uuid,
+                    namespace,
+                    name,
+                )
     except HTTPError as ex:
         # Quay API returns 400 if notification is not found
         # filter out when this is the case
@@ -130,6 +139,7 @@ def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageR
     """Fetch all image repositories for a given namespace"""
     next_page = None
     resp: HTTPResponse
+    retry = 0
     while True:
         query_args = {"namespace": namespace}
         if next_page is not None:
@@ -142,11 +152,25 @@ def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageR
                 "Authorization": f"Bearer {access_token}",
             },
         )
-
-        with urlopen(request) as resp:
-            if resp.status != 200:
-                raise RuntimeError(resp.reason)
-            json_data = json.loads(resp.read())
+        try:
+            with urlopen(request) as resp:
+                if resp.status == 200:
+                    json_data = json.loads(resp.read())
+                else:
+                    # this will raise error for 2xx other than 200
+                    # urlopen raises HTTPError for all non 2xx responses
+                    raise HTTPError(resp.reason)
+        except HTTPError as ex:
+            # retry 5 times before giving up
+            if retry < 5:
+                retry += 1
+                continue
+            else:
+                LOGGER.error(
+                    "Unable to fetch repositories for namespace %s",
+                    namespace,
+                )
+                raise RuntimeError(ex)
 
         repos = json_data.get("repositories", [])
         if not repos:
