@@ -34,6 +34,7 @@ def get_quay_notifications(
             {
                 "uuid": "string",
                 "number_of_failures": int,
+                "title": "string",
                 ...
             },
             ...
@@ -97,7 +98,13 @@ def reset_notification(uuid: str, quay_token: str, namespace: str, name: str) ->
                 "Notification %s from %s/%s was not found", uuid, namespace, name
             )
         else:
-            raise (ex)
+            LOGGER.warning(
+                "Failed to reset notification %s from %s/%s with error: %s",
+                uuid,
+                namespace,
+                name,
+                rsp_message,
+            )
 
 
 def process_repositories(
@@ -119,20 +126,34 @@ def process_repositories(
             continue
 
         for notification in all_notifications:
+            notification_title = notification.get("title", "")
+            uuid = notification["uuid"]
             if notification.get("number_of_failures", 0) > 0:
-                uuid = notification["uuid"]
                 if dry_run:
                     LOGGER.info(
-                        "Notification %s from %s/%s should be reset",
+                        "Notification %s with title %s from %s/%s should be reset",
                         uuid,
+                        notification_title,
                         namespace,
                         name,
                     )
                 else:
                     reset_notification(uuid, quay_token, namespace, name)
                     LOGGER.info(
-                        "Notification %s from %s/%s was reset", uuid, namespace, name
+                        "Notification %s with title %s from %s/%s was reset",
+                        uuid,
+                        notification_title,
+                        namespace,
+                        name,
                     )
+            else:
+                LOGGER.info(
+                    "Notification %s with title %s from %s/%s has no failures",
+                    uuid,
+                    notification_title,
+                    namespace,
+                    name,
+                )
 
 
 def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageRepo]]:

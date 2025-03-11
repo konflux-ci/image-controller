@@ -121,7 +121,7 @@ class TestResetter(unittest.TestCase):
     @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])
     @patch("reset_notifications.urlopen")
-    def test_fail_when_notification_reset_fail(self, urlopen):
+    def test_when_notification_reset_fail(self, urlopen):
         fetch_repos = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -140,17 +140,17 @@ class TestResetter(unittest.TestCase):
         response.read.return_value = json.dumps(
             {
                 "notifications": [
-                    {"uuid": "bar", "number_of_failures": 2},
+                    {"uuid": "bar", "number_of_failures": 2, "title": "Push to Quay"},
                 ],
             }
         ).encode()
         get_notifications.__enter__.return_value = response
 
-        error_response = io.BytesIO(b'{"error": "Something is bad"}')
+        error_response = io.BytesIO(b'{"detail": "Something is bad"}')
         mock_error = HTTPError(
             url="http://example.com",
-            code=400,
-            msg="Bad Request",
+            code=503,
+            msg="Unavailable",
             hdrs=None,
             fp=error_response,
         )
@@ -163,8 +163,17 @@ class TestResetter(unittest.TestCase):
             # reset notification error response
             mock_error,
         ]
-        with self.assertRaises(HTTPError):
+        with self.assertLogs(LOGGER) as logs:
             main()
+            run_log = [
+                msg
+                for msg in logs.output
+                if re.search(
+                    r"Failed to reset notification .+ error: Something is bad",
+                    msg,
+                )
+            ]
+            self.assertEqual(1, len(run_log))
 
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])
     def test_missing_quay_token_in_env(self):

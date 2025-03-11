@@ -69,7 +69,7 @@ jobs:
         cd config/registry_image_pruner/image_pruner/
         python3.9 test_prune_images.py
 
-  changes:
+  detect_changes_for_tests:
     name: Check if notification resetter code changed
     runs-on: ubuntu-latest
     permissions:
@@ -82,12 +82,12 @@ jobs:
       id: filter
       with:
         filters: |
-          notification_resetter:
+          run_notification_resetter_tests:
             - 'config/repository_notification_resetter/notification_resetter/**'
 
   test_reset_notifications:
-    needs: changes
-    if: ${{ needs.changes.outputs.notification_resetter == 'true' }}
+    needs: detect_changes_for_tests
+    if: ${{ needs.detect_changes_for_tests.outputs.run_notification_resetter_tests == 'true' }}
     name: Run reset_notifications tests
     runs-on: ubuntu-latest
     steps:
