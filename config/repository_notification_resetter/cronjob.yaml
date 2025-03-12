@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: notification_resetter-cronjob
+  name: notification-resetter-cronjob
 spec:
   schedule: "0 3 * * *"
   concurrencyPolicy: Forbid
