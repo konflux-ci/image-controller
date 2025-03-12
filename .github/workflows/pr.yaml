@@ -75,7 +75,7 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
-      notification_resetter: ${{ steps.filter.outputs.notification_resetter }}
+      run_notification_resetter_tests: ${{ steps.filter.outputs.run_notification_resetter_tests }}
     steps:
     # For pull requests it's not necessary to checkout the code
     - uses: dorny/paths-filter@v3
