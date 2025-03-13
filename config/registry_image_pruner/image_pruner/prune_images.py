@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import time
 
 from collections.abc import Iterator
 from http.client import HTTPResponse
@@ -17,6 +18,7 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger(__name__)
 QUAY_API_URL = "https://quay.io/api/v1"
+RETRY_LIMIT = 5
 
 processed_repos_counter = itertools.count()
 
@@ -29,6 +31,7 @@ def get_quay_tags(quay_token: str, namespace: str, name: str) -> List[ImageRepo]
     resp: HTTPResponse
 
     all_tags = []
+    retry_count = 0
     while True:
         query_args = {"limit": 100, "onlyActiveTags": True}
         if next_page is not None:
@@ -39,13 +42,27 @@ def get_quay_tags(quay_token: str, namespace: str, name: str) -> List[ImageRepo]
             "Authorization": f"Bearer {quay_token}",
         })
 
-        with urlopen(request) as resp:
-            if resp.status != 200:
-                if resp.status == 404:
-                    LOGGER.debug("Repository doesn't exist anymore %s/%s", namespace, name)
-                    return all_tags
-                raise RuntimeError(resp.reason)
-            json_data = json.loads(resp.read())
+        try:
+            with urlopen(request) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(resp.reason)
+                json_data = json.loads(resp.read())
+                retry_count = 0
+        except HTTPError as ex:
+            if ex.status == 404:
+                LOGGER.info("Repository doesn't exist anymore %s/%s", namespace, name)
+                return []
+
+            if ex.status == 502:
+                if retry_count > RETRY_LIMIT:
+                    LOGGER.info("Bad gateway, retry reached retry limit %s", RETRY_LIMIT)
+                    raise
+
+                retry_count += 1
+                LOGGER.info("Bad gateway, will retry")
+                time.sleep(2)
+                continue
+            raise
 
         tags = json_data.get("tags", [])
         all_tags.extend(tags)
