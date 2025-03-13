@@ -10,7 +10,7 @@ spec:
       template:
         spec:
           containers:
-          - name: notification_resetter
+          - name: notification-resetter
             image: registry.redhat.io/rhel9/python-312:9.5-1739797362
             env:
               - name: QUAY_TOKEN
@@ -27,10 +27,10 @@ spec:
             command:
               - /bin/bash
               - '-c'
-              - python /notification_resetter/reset_notifications.py --namespace $(QUAY_NAMESPACE)
+              - python /notification-resetter/reset_notifications.py --namespace $(QUAY_NAMESPACE)
             volumeMounts:
               - name: notification-resetter-volume
-                mountPath: /notification_resetter
+                mountPath: /notification-resetter
             resources:
               limits:
                 cpu: 500m
