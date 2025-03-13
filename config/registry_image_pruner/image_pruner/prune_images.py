@@ -41,6 +41,9 @@ def get_quay_tags(quay_token: str, namespace: str, name: str) -> List[ImageRepo]
 
         with urlopen(request) as resp:
             if resp.status != 200:
+                if resp.status == 404:
+                    LOGGER.debug("Repository doesn't exist anymore %s/%s", namespace, name)
+                    return all_tags
                 raise RuntimeError(resp.reason)
             json_data = json.loads(resp.read())
 
