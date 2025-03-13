@@ -9,6 +9,7 @@ on:
       - 'config/rbac/**.ya?ml'
       - 'config/manager/**.ya?ml'
       - 'config/registry_image_pruner/**.ya?ml'
+      - 'config/repository_notification_resetter/**.ya?ml'
 
 jobs:
   kube-linter:
