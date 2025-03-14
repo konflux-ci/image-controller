@@ -53,19 +53,21 @@ def get_quay_tags(quay_token: str, namespace: str, name: str) -> List[ImageRepo]
                 LOGGER.info("Repository doesn't exist anymore %s/%s", namespace, name)
                 return []
 
-            if ex.status == 502:
+            if ex.status == 502 or ex.status == 504:
                 if retry_count > RETRY_LIMIT:
-                    LOGGER.info("Bad gateway, retry reached retry limit %s", RETRY_LIMIT)
+                    LOGGER.info("Gateway error, retry reached retry limit %s", RETRY_LIMIT)
                     raise
 
                 retry_count += 1
-                LOGGER.info("Bad gateway, will retry")
+                LOGGER.info("Gateway error, will retry")
                 time.sleep(2)
                 continue
             raise
 
         tags = json_data.get("tags", [])
-        all_tags.extend(tags)
+        # store only name & manifest_digest keys, as others aren't used and take memory
+        new_tags = [{"name": tag["name"], "manifest_digest": tag["manifest_digest"]} for tag in tags]
+        all_tags.extend(new_tags)
 
         if not tags:
             LOGGER.debug("No tags found.")
@@ -121,13 +123,15 @@ def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -
 
 
 def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
-    image_digests = [image["manifest_digest"] for image in tags]
-    tags_map = {tag_info["name"]: tag_info for tag_info in tags}
+    tags_map = {tag_info["name"]: tag_info["manifest_digest"] for tag_info in tags}
+    # delete tags to save memory
+    del(tags)
+    image_digests = [digest for _, digest in tags_map.items()]
     tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src|\.sig|\.dockerfile)$")
     manifests_checked = {}
-    for tag in tags:
+    for tag_name in tags_map:
         # attestation or sbom image
-        if (match := tag_regex.match(tag["name"])) is not None:
+        if (match := tag_regex.match(tag_name)) is not None:
             if f"sha256:{match.group(1)}" not in image_digests:
                 # verify that manifest really doesn't exist, because if tag was removed, it won't be in tag list, but may still be in the registry
                 manifest_existence = manifests_checked.get(f"sha256:{match.group(1)}")
@@ -137,27 +141,27 @@ def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, nam
 
                 if not manifest_existence:
                     if dry_run:
-                        LOGGER.info("Tag %s from %s/%s should be removed", tag["name"], namespace, name)
+                        LOGGER.info("Tag %s from %s/%s should be removed", tag_name, namespace, name)
                     else:
-                        LOGGER.info("Removing tag %s from %s/%s", tag["name"], namespace, name)
-                        delete_image_tag(quay_token, namespace, name, tag["name"])
+                        LOGGER.info("Removing tag %s from %s/%s", tag_name, namespace, name)
+                        delete_image_tag(quay_token, namespace, name, tag_name)
 
-        elif tag["name"].endswith(".src"):
+        elif tag_name.endswith(".src"):
             to_delete = False
 
-            binary_tag = tag["name"].removesuffix(".src")
+            binary_tag = tag_name.removesuffix(".src")
             if binary_tag not in tags_map:
                 to_delete = True
             else:
-                manifest_digest = tags_map[binary_tag]["manifest_digest"]
+                manifest_digest = tags_map[binary_tag]
                 new_src_tag = f"{manifest_digest.replace(':', '-')}.src"
                 to_delete = new_src_tag in tags_map
 
             if to_delete:
-                LOGGER.info("Removing deprecated tag %s", tag["name"])
-                delete_image_tag(quay_token, namespace, name, tag["name"])
+                LOGGER.info("Removing deprecated tag %s", tag_name)
+                delete_image_tag(quay_token, namespace, name, tag_name)
         else:
-            LOGGER.debug("%s is not in a known type to be deleted.", tag["name"])
+            LOGGER.debug("%s is not in a known type to be deleted.", tag_name)
 
 
 def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool = False) -> None:
