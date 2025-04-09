@@ -354,11 +354,9 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	}
 
 	var pullCredentialsInfo *imageRepositoryAccessData
-	if isComponentLinked(imageRepository) {
-		pullCredentialsInfo, err = r.ProvisionImageRepositoryAccess(ctx, imageRepository, true)
-		if err != nil {
-			return err
-		}
+	pullCredentialsInfo, err = r.ProvisionImageRepositoryAccess(ctx, imageRepository, true)
+	if err != nil {
+		return err
 	}
 
 	if err = r.GrantRepositoryAccessToTeam(ctx, imageRepository); err != nil {
@@ -377,10 +375,8 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	status.Credentials.GenerationTimestamp = &metav1.Time{Time: time.Now()}
 	status.Credentials.PushRobotAccountName = pushCredentialsInfo.RobotAccountName
 	status.Credentials.PushSecretName = pushCredentialsInfo.SecretName
-	if isComponentLinked(imageRepository) {
-		status.Credentials.PullRobotAccountName = pullCredentialsInfo.RobotAccountName
-		status.Credentials.PullSecretName = pullCredentialsInfo.SecretName
-	}
+	status.Credentials.PullRobotAccountName = pullCredentialsInfo.RobotAccountName
+	status.Credentials.PullSecretName = pullCredentialsInfo.SecretName
 	status.Notifications = notificationStatus
 
 	imageRepository.Spec.Image.Name = imageRepositoryName
