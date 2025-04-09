@@ -353,12 +353,9 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		return err
 	}
 
-	var pullCredentialsInfo *imageRepositoryAccessData
-	if isComponentLinked(imageRepository) {
-		pullCredentialsInfo, err = r.ProvisionImageRepositoryAccess(ctx, imageRepository, true)
-		if err != nil {
-			return err
-		}
+	pullCredentialsInfo, err := r.ProvisionImageRepositoryAccess(ctx, imageRepository, true)
+	if err != nil {
+		return err
 	}
 
 	if err = r.GrantRepositoryAccessToTeam(ctx, imageRepository); err != nil {
@@ -377,10 +374,8 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	status.Credentials.GenerationTimestamp = &metav1.Time{Time: time.Now()}
 	status.Credentials.PushRobotAccountName = pushCredentialsInfo.RobotAccountName
 	status.Credentials.PushSecretName = pushCredentialsInfo.SecretName
-	if isComponentLinked(imageRepository) {
-		status.Credentials.PullRobotAccountName = pullCredentialsInfo.RobotAccountName
-		status.Credentials.PullSecretName = pullCredentialsInfo.SecretName
-	}
+	status.Credentials.PullRobotAccountName = pullCredentialsInfo.RobotAccountName
+	status.Credentials.PullSecretName = pullCredentialsInfo.SecretName
 	status.Notifications = notificationStatus
 
 	imageRepository.Spec.Image.Name = imageRepositoryName
@@ -498,11 +493,8 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx con
 	if err := r.RegenerateImageRepositoryAccessToken(ctx, imageRepository, false); err != nil {
 		return err
 	}
-
-	if isComponentLinked(imageRepository) {
-		if err := r.RegenerateImageRepositoryAccessToken(ctx, imageRepository, true); err != nil {
-			return err
-		}
+	if err := r.RegenerateImageRepositoryAccessToken(ctx, imageRepository, true); err != nil {
+		return err
 	}
 
 	imageRepository.Spec.Credentials.RegenerateToken = nil
@@ -562,15 +554,13 @@ func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, 
 		log.Info("Deleted push robot account", "RobotAccountName", robotAccountName, l.Action, l.ActionDelete)
 	}
 
-	if isComponentLinked(imageRepository) {
-		pullRobotAccountName := imageRepository.Status.Credentials.PullRobotAccountName
-		isPullRobotAccountDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, pullRobotAccountName)
-		if err != nil {
-			log.Error(err, "failed to delete pull robot account", l.Action, l.ActionDelete, l.Audit, "true")
-		}
-		if isPullRobotAccountDeleted {
-			log.Info("Deleted pull robot account", "RobotAccountName", pullRobotAccountName, l.Action, l.ActionDelete)
-		}
+	pullRobotAccountName := imageRepository.Status.Credentials.PullRobotAccountName
+	isPullRobotAccountDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, pullRobotAccountName)
+	if err != nil {
+		log.Error(err, "failed to delete pull robot account", l.Action, l.ActionDelete, l.Audit, "true")
+	}
+	if isPullRobotAccountDeleted {
+		log.Info("Deleted pull robot account", "RobotAccountName", pullRobotAccountName, l.Action, l.ActionDelete)
 	}
 
 	if !removeRepository {

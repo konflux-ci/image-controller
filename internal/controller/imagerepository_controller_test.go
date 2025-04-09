@@ -16,10 +16,7 @@ limitations under the License.
 package controllers
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -36,8 +33,6 @@ import (
 var _ = Describe("Image repository controller", func() {
 
 	var (
-		authRegexp = regexp.MustCompile(`.*{"auth":"([A-Za-z0-9+/=]*)"}.*`)
-
 		pushToken                  string
 		pullToken                  string
 		expectedRobotAccountPrefix string
@@ -58,6 +53,7 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
+			pullToken = "pull-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
@@ -75,22 +71,33 @@ var _ = Describe("Image repository controller", func() {
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
-			isCreateRobotAccountInvoked := false
+			isCreatePushRobotAccountInvoked := false
+			isCreatePullRobotAccountInvoked := false
 			quay.CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
 				defer GinkgoRecover()
-				isCreateRobotAccountInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(strings.HasPrefix(robotName, expectedRobotAccountPrefix)).To(BeTrue())
+				if strings.HasSuffix(robotName, "_pull") {
+					isCreatePullRobotAccountInvoked = true
+					return &quay.RobotAccount{Name: robotName, Token: pullToken}, nil
+				}
+				isCreatePushRobotAccountInvoked = true
 				return &quay.RobotAccount{Name: robotName, Token: pushToken}, nil
 			}
 			isAddPushPermissionsToAccountInvoked := false
+			isAddPullPermissionsToAccountInvoked := false
 			quay.AddPermissionsForRepositoryToAccountFunc = func(organization, imageRepository, accountName string, isRobot, isWrite bool) error {
 				defer GinkgoRecover()
-				isAddPushPermissionsToAccountInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
-				Expect(isWrite).To(BeTrue())
 				Expect(strings.HasPrefix(accountName, expectedRobotAccountPrefix)).To(BeTrue())
+				if strings.HasSuffix(accountName, "_pull") {
+					Expect(isWrite).To(BeFalse())
+					isAddPullPermissionsToAccountInvoked = true
+				} else {
+					Expect(isWrite).To(BeTrue())
+					isAddPushPermissionsToAccountInvoked = true
+				}
 				return nil
 			}
 
@@ -104,8 +111,10 @@ var _ = Describe("Image repository controller", func() {
 			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isCreateRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isCreatePullRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isCreatePushRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isAddPushPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isAddPullPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeFalse())
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
@@ -120,18 +129,21 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
+			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
+			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HaveSuffix("_pull"))
+			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-image-pull"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
 			Expect(imageRepository.Status.Notifications).To(HaveLen(0))
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
 			defer deleteSecret(pushSecretKey)
-			Expect(pushSecret.OwnerReferences).To(HaveLen(1))
-			Expect(pushSecret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
-			Expect(pushSecret.OwnerReferences[0].Name).To(Equal(imageRepository.GetName()))
-			Expect(pushSecret.Labels[InternalSecretLabelName]).To(Equal("true"))
-			Expect(pushSecret.Name).To(Equal(pushSecret.Name))
-			Expect(pushSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			verifySecretSpec(pushSecret, imageRepository.GetName(), pushSecret.Name)
+
+			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
+			pullSecret := waitSecretExist(pullSecretKey)
+			defer deleteSecret(pullSecretKey)
+			verifySecretSpec(pullSecret, imageRepository.GetName(), pullSecret.Name)
 
 			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 			Expect(sa.Secrets).To(HaveLen(1))
@@ -139,28 +151,30 @@ var _ = Describe("Image repository controller", func() {
 			Expect(sa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
 
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
-			var authDataJson interface{}
-			Expect(json.Unmarshal([]byte(pushSecretDockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(pushSecretDockerconfigJson).To(ContainSubstring(expectedImage))
-			pushSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pushSecretDockerconfigJson)[1])
-			Expect(err).To(Succeed())
-			pushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
-			Expect(string(pushSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, pushToken)))
+			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, pushToken)
+			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
 		})
 
 		It("should regenerate token", func() {
-			newToken := "push-token5678"
+			newPushToken := "push-token5678"
+			newPullToken := "pull-token5678"
 
 			// Wait just for case it takes less than a second to regenerate credentials
 			time.Sleep(time.Second)
 
-			isRegenerateRobotAccountTokenInvoked := false
+			isRegenerateRobotAccountTokenForPushInvoked := false
+			isRegenerateRobotAccountTokenForPullInvoked := false
 			quay.RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
 				defer GinkgoRecover()
-				isRegenerateRobotAccountTokenInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(strings.HasPrefix(robotName, expectedRobotAccountPrefix)).To(BeTrue())
-				return &quay.RobotAccount{Name: robotName, Token: newToken}, nil
+				if strings.HasSuffix(robotName, "_pull") {
+					isRegenerateRobotAccountTokenForPullInvoked = true
+					return &quay.RobotAccount{Name: robotName, Token: newPullToken}, nil
+				}
+				isRegenerateRobotAccountTokenForPushInvoked = true
+				return &quay.RobotAccount{Name: robotName, Token: newPushToken}, nil
 			}
 
 			imageRepository := getImageRepository(resourceKey)
@@ -169,7 +183,8 @@ var _ = Describe("Image repository controller", func() {
 			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
-			Eventually(func() bool { return isRegenerateRobotAccountTokenInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isRegenerateRobotAccountTokenForPullInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isRegenerateRobotAccountTokenForPushInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
 				imageRepository := getImageRepository(resourceKey)
 				return imageRepository.Spec.Credentials.RegenerateToken == nil &&
@@ -179,16 +194,15 @@ var _ = Describe("Image repository controller", func() {
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
-
 			Expect(pushSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
-			var authDataJson interface{}
-			Expect(json.Unmarshal([]byte(pushSecretDockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(pushSecretDockerconfigJson).To(ContainSubstring(expectedImage))
-			pushSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pushSecretDockerconfigJson)[1])
-			Expect(err).To(Succeed())
-			pushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
-			Expect(string(pushSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, newToken)))
+			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, newPushToken)
+
+			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
+			pullSecret := waitSecretExist(pullSecretKey)
+			Expect(pullSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
 		})
 
 		It("should update image visibility", func() {
@@ -285,12 +299,17 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		It("should cleanup repository", func() {
-			isDeleteRobotAccountInvoked := false
+			isDeleteRobotAccountForPushInvoked := false
+			isDeleteRobotAccountForPullInvoked := false
 			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
 				defer GinkgoRecover()
-				isDeleteRobotAccountInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
+				if strings.HasSuffix(robotAccountName, "_pull") {
+					isDeleteRobotAccountForPushInvoked = true
+				} else {
+					isDeleteRobotAccountForPullInvoked = true
+				}
 				return true, nil
 			}
 			isDeleteRepositoryInvoked := false
@@ -304,7 +323,8 @@ var _ = Describe("Image repository controller", func() {
 
 			deleteImageRepository(resourceKey)
 
-			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRobotAccountForPullInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRobotAccountForPushInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
 			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
@@ -325,6 +345,7 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
+			pullToken = "pull-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
@@ -348,22 +369,33 @@ var _ = Describe("Image repository controller", func() {
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
-			isCreateRobotAccountInvoked := false
+			isCreatePullRobotAccountInvoked := false
+			isCreatePushRobotAccountInvoked := false
 			quay.CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
 				defer GinkgoRecover()
-				isCreateRobotAccountInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(strings.HasPrefix(robotName, expectedRobotAccountPrefix)).To(BeTrue())
+				if strings.HasSuffix(robotName, "_pull") {
+					isCreatePullRobotAccountInvoked = true
+					return &quay.RobotAccount{Name: robotName, Token: pullToken}, nil
+				}
+				isCreatePushRobotAccountInvoked = true
 				return &quay.RobotAccount{Name: robotName, Token: pushToken}, nil
 			}
 			isAddPushPermissionsToAccountInvoked := false
+			isAddPullPermissionsToAccountInvoked := false
 			quay.AddPermissionsForRepositoryToAccountFunc = func(organization, imageRepository, accountName string, isRobot, isWrite bool) error {
 				defer GinkgoRecover()
-				isAddPushPermissionsToAccountInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
-				Expect(isWrite).To(BeTrue())
 				Expect(strings.HasPrefix(accountName, expectedRobotAccountPrefix)).To(BeTrue())
+				if strings.HasSuffix(accountName, "_pull") {
+					Expect(isWrite).To(BeFalse())
+					isAddPullPermissionsToAccountInvoked = true
+				} else {
+					Expect(isWrite).To(BeTrue())
+					isAddPushPermissionsToAccountInvoked = true
+				}
 				return nil
 			}
 
@@ -376,8 +408,10 @@ var _ = Describe("Image repository controller", func() {
 			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isCreateRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isCreatePullRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isCreatePushRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isAddPushPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isAddPullPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeFalse())
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
@@ -392,19 +426,21 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
+			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
+			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HaveSuffix("_pull"))
+			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-image-pull"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
 			Expect(imageRepository.Status.Notifications).To(HaveLen(0))
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
-
 			defer deleteSecret(pushSecretKey)
-			Expect(pushSecret.OwnerReferences).To(HaveLen(1))
-			Expect(pushSecret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
-			Expect(pushSecret.OwnerReferences[0].Name).To(Equal(imageRepository.GetName()))
-			Expect(pushSecret.Labels[InternalSecretLabelName]).To(Equal("true"))
-			Expect(pushSecret.Name).To(Equal(pushSecret.Name))
-			Expect(pushSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			verifySecretSpec(pushSecret, imageRepository.GetName(), pushSecret.Name)
+
+			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
+			pullSecret := waitSecretExist(pullSecretKey)
+			defer deleteSecret(pullSecretKey)
+			verifySecretSpec(pullSecret, imageRepository.GetName(), pullSecret.Name)
 
 			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 			Expect(sa.Secrets).To(HaveLen(1))
@@ -412,22 +448,24 @@ var _ = Describe("Image repository controller", func() {
 			Expect(sa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
 
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
-			var authDataJson interface{}
-			Expect(json.Unmarshal([]byte(pushSecretDockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(pushSecretDockerconfigJson).To(ContainSubstring(expectedImage))
-			pushSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pushSecretDockerconfigJson)[1])
-			Expect(err).To(Succeed())
-			pushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
-			Expect(string(pushSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, pushToken)))
+			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, pushToken)
+
+			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
 		})
 
 		It("should cleanup repository", func() {
-			isDeleteRobotAccountInvoked := false
+			isDeleteRobotAccountForPushInvoked := false
+			isDeleteRobotAccountForPullInvoked := false
 			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
 				defer GinkgoRecover()
-				isDeleteRobotAccountInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
+				if strings.HasSuffix(robotAccountName, "_pull") {
+					isDeleteRobotAccountForPushInvoked = true
+				} else {
+					isDeleteRobotAccountForPullInvoked = true
+				}
 				return true, nil
 			}
 			isDeleteRepositoryInvoked := false
@@ -441,7 +479,8 @@ var _ = Describe("Image repository controller", func() {
 
 			deleteImageRepository(resourceKey)
 
-			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRobotAccountForPullInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRobotAccountForPushInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
 			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
@@ -633,41 +672,17 @@ var _ = Describe("Image repository controller", func() {
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
 			defer deleteSecret(pushSecretKey)
-			Expect(pushSecret.Labels[InternalSecretLabelName]).To(Equal("true"))
-			Expect(pushSecret.OwnerReferences).To(HaveLen(1))
-			Expect(pushSecret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
-			Expect(pushSecret.OwnerReferences[0].Name).To(Equal(imageRepository.GetName()))
-			Expect(pushSecret.Name).To(Equal(pushSecret.Name))
-			Expect(pushSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			verifySecretSpec(pushSecret, imageRepository.GetName(), pushSecret.Name)
 
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
 			defer deleteSecret(pullSecretKey)
-
-			Expect(pullSecret.Labels[InternalSecretLabelName]).To(Equal("true"))
-			Expect(pullSecret.OwnerReferences).To(HaveLen(1))
-			Expect(pullSecret.OwnerReferences[0].Name).To(Equal(imageRepository.Name))
-			Expect(pullSecret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
-			Expect(pullSecret.Name).To(Equal(pullSecretKey.Name))
-			Expect(pullSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
-
-			var authDataJson interface{}
+			verifySecretSpec(pullSecret, imageRepository.GetName(), pullSecret.Name)
 
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
-			Expect(json.Unmarshal([]byte(pushSecretDockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(pushSecretDockerconfigJson).To(ContainSubstring(expectedImage))
-			pushSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pushSecretDockerconfigJson)[1])
-			Expect(err).To(Succeed())
-			pushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
-			Expect(string(pushSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, pushToken)))
-
+			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, pushToken)
 			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
-			Expect(json.Unmarshal([]byte(pullSecretDockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(pullSecretDockerconfigJson).To(ContainSubstring(expectedImage))
-			pullSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pullSecretDockerconfigJson)[1])
-			Expect(err).To(Succeed())
-			pullRobotAccountName := imageRepository.Status.Credentials.PullRobotAccountName
-			Expect(string(pullSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pullRobotAccountName, pullToken)))
+			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
 
 			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 			Expect(sa.Secrets).To(HaveLen(1))
@@ -813,25 +828,13 @@ var _ = Describe("Image repository controller", func() {
 			pullSecret := waitSecretExist(pullSecretKey)
 			defer deleteSecret(pullSecretKey)
 
-			var authDataJson interface{}
-
 			Expect(pushSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
-			Expect(json.Unmarshal([]byte(pushSecretDockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(pushSecretDockerconfigJson).To(ContainSubstring(expectedImage))
-			pushSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pushSecretDockerconfigJson)[1])
-			Expect(err).To(Succeed())
-			pushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
-			Expect(string(pushSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pushRobotAccountName, newPushToken)))
+			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, newPushToken)
 
 			Expect(pullSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
-			Expect(json.Unmarshal([]byte(pullSecretDockerconfigJson), &authDataJson)).To(Succeed())
-			Expect(pullSecretDockerconfigJson).To(ContainSubstring(expectedImage))
-			pullSecretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(pullSecretDockerconfigJson)[1])
-			Expect(err).To(Succeed())
-			pullRobotAccountName := imageRepository.Status.Credentials.PullRobotAccountName
-			Expect(string(pullSecretAuthString)).To(Equal(fmt.Sprintf("%s:%s", pullRobotAccountName, newPullToken)))
+			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
 		})
 
 		It("should cleanup component repository", func() {
