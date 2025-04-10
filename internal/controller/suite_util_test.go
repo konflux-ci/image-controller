@@ -17,7 +17,10 @@ limitations under the License.
 package controllers
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -52,6 +55,8 @@ const (
 	defaultComponentName        = "test-component"
 	defaultComponentApplication = "test-application"
 )
+
+var authRegexp = regexp.MustCompile(`.*{"auth":"([A-Za-z0-9+/=]*)"}.*`)
 
 type imageRepositoryConfig struct {
 	ResourceKey     *types.NamespacedName
@@ -429,4 +434,22 @@ func waitQuayTeamUsersFinalizerOnConfigMap(usersConfigMapKey types.NamespacedNam
 		}
 		return controllerutil.ContainsFinalizer(usersConfigMap, ConfigMapFinalizer)
 	}, timeout, interval).Should(BeTrue())
+}
+
+func verifySecretAuth(secretDockerconfigJson, expectedImage, robotAccountName, token string) {
+	var authDataJson interface{}
+	Expect(json.Unmarshal([]byte(secretDockerconfigJson), &authDataJson)).To(Succeed())
+	Expect(secretDockerconfigJson).To(ContainSubstring(expectedImage))
+	secretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(secretDockerconfigJson)[1])
+	Expect(err).To(Succeed())
+	Expect(string(secretAuthString)).To(Equal(fmt.Sprintf("%s:%s", robotAccountName, token)))
+}
+
+func verifySecretSpec(secret *corev1.Secret, imageRepositoryName, secretName string) {
+	Expect(secret.OwnerReferences).To(HaveLen(1))
+	Expect(secret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
+	Expect(secret.OwnerReferences[0].Name).To(Equal(imageRepositoryName))
+	Expect(secret.Labels[InternalSecretLabelName]).To(Equal("true"))
+	Expect(secret.Name).To(Equal(secretName))
+	Expect(secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 }
