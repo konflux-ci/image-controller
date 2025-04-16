@@ -44,17 +44,32 @@ var _ = Describe("Component image controller", func() {
 			Name:      fmt.Sprintf("imagerepository-for-%s-%s", defaultComponentApplication, resourceImageProvisionKey.Name),
 			Namespace: resourceImageProvisionKey.Namespace,
 		}
+		var applicationKey = types.NamespacedName{Name: defaultComponentApplication, Namespace: imageTestNamespace}
+		var componentSaName = getComponentSaName(resourceImageProvisionKey.Name)
+		var applicationSaName = getApplicationSaName(defaultComponentApplication)
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
+			createApplication(applicationConfig{ApplicationKey: applicationKey})
 		})
 
 		AfterEach(func() {
+			deleteApplication(applicationKey)
 			deleteComponent(resourceImageProvisionKey)
 		})
 
 		It("should prepare environment", func() {
 			createServiceAccount(imageTestNamespace, buildPipelineServiceAccountName)
+			createServiceAccount(imageTestNamespace, componentSaName)
+
+			// wait for application SA to be created
+			Eventually(func() bool {
+				saList := getServiceAccountList(imageTestNamespace)
+				// there will be 3 service accounts
+				// appstudio-pipeline SA, component's SA and application's SA
+				return len(saList) == 3
+			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
+
 		})
 
 		It("should do image repository provision", func() {
@@ -122,16 +137,32 @@ var _ = Describe("Component image controller", func() {
 			Expect(component.Spec.ContainerImage).ToNot(BeEmpty())
 
 			deleteImageRepository(imageRepositoryName)
+			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: imageTestNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: applicationSaName, Namespace: imageTestNamespace})
 		})
-
 	})
 
 	Context("Image repository provision error cases", func() {
 		var resourceImageErrorKey = types.NamespacedName{Name: defaultComponentName + "-imageerrors", Namespace: imageTestNamespace}
+		var applicationKey = types.NamespacedName{Name: defaultComponentApplication, Namespace: imageTestNamespace}
+		var componentSaName = getComponentSaName(resourceImageErrorKey.Name)
+		var applicationSaName = getApplicationSaName(defaultComponentApplication)
 
 		It("should prepare environment", func() {
 			deleteComponent(resourceImageErrorKey)
 			quay.ResetTestQuayClient()
+			createApplication(applicationConfig{ApplicationKey: applicationKey})
+
+			createServiceAccount(imageTestNamespace, buildPipelineServiceAccountName)
+			createServiceAccount(imageTestNamespace, componentSaName)
+
+			// wait for application SA to be created
+			Eventually(func() bool {
+				saList := getServiceAccountList(imageTestNamespace)
+				return len(saList) == 3
+			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
+
 		})
 
 		It("should do nothing if generate annotation is not set", func() {
@@ -240,6 +271,10 @@ var _ = Describe("Component image controller", func() {
 
 		It("should clean environment", func() {
 			deleteComponent(resourceImageErrorKey)
+			deleteApplication(applicationKey)
+			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: imageTestNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: applicationSaName, Namespace: imageTestNamespace})
 		})
 	})
 })

@@ -72,7 +72,7 @@ var _ = BeforeSuite(func() {
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
-			filepath.Join("../..", "config", "crd", "bases"),
+			filepath.Join("..", "..", "config", "crd", "bases"),
 			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "redhat-appstudio", "application-api@"+applicationApiDepVersion, "config", "crd", "bases"),
 		},
 		ErrorIfCRDPathMissing: true,
@@ -124,6 +124,12 @@ var _ = BeforeSuite(func() {
 		Scheme:           k8sManager.GetScheme(),
 		BuildQuayClient:  func(l logr.Logger) quay.QuayService { return quay.TestQuayClient{} },
 		QuayOrganization: quay.TestQuayOrg,
+	}).SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&ApplicationPullServiceAccountCreator{
+		Client: k8sManager.GetClient(),
+		Scheme: k8sManager.GetScheme(),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

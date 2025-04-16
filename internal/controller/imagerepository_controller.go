@@ -113,9 +113,26 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		// Reread quay token
 		r.QuayClient = r.BuildQuayClient(log)
 
-		if err := r.unlinkSecretFromServiceAccount(ctx, imageRepository.Status.Credentials.PushSecretName, imageRepository.Namespace); err != nil {
-			log.Error(err, "failed to unlink secret from service account", "SecretName", imageRepository.Status.Credentials.PushSecretName, l.Action, l.ActionUpdate)
+		// unlink secret from pipeline SA
+		if err := r.unlinkSecretFromServiceAccount(ctx, buildPipelineServiceAccountName, imageRepository.Status.Credentials.PushSecretName, imageRepository.Namespace); err != nil {
+			log.Error(err, "failed to unlink secret from service account", "SaName", buildPipelineServiceAccountName, "SecretName", imageRepository.Status.Credentials.PushSecretName, l.Action, l.ActionUpdate)
 			return ctrl.Result{}, err
+		}
+
+		if isComponentLinked(imageRepository) {
+			// unlink secret from component SA
+			componentSaName := getComponentSaName(imageRepository.Labels[ComponentNameLabelName])
+			if err := r.unlinkSecretFromServiceAccount(ctx, componentSaName, imageRepository.Status.Credentials.PushSecretName, imageRepository.Namespace); err != nil {
+				log.Error(err, "failed to unlink secret from service account", "SaName", componentSaName, "SecretName", imageRepository.Status.Credentials.PushSecretName, l.Action, l.ActionUpdate)
+				return ctrl.Result{}, err
+			}
+
+			// unlink secret from application SA
+			applicationSaName := getApplicationSaName(imageRepository.Labels[ApplicationNameLabelName])
+			if err := r.unlinkSecretFromServiceAccount(ctx, applicationSaName, imageRepository.Status.Credentials.PullSecretName, imageRepository.Namespace); err != nil {
+				log.Error(err, "failed to unlink secret from service account", "SaName", applicationSaName, "SecretName", imageRepository.Status.Credentials.PullSecretName, l.Action, l.ActionUpdate)
+				return ctrl.Result{}, err
+			}
 		}
 
 		if controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {
@@ -173,6 +190,22 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Update component
 	if isComponentLinked(imageRepository) {
+		// link secret to application SA
+		applicationSaName := getApplicationSaName(imageRepository.Labels[ApplicationNameLabelName])
+		pullSecretName := getSecretName(imageRepository, true)
+		if err := r.linkSecretToServiceAccount(ctx, applicationSaName, pullSecretName, imageRepository.Namespace, true); err != nil {
+			log.Error(err, "failed to link secret to service account", "SaName", applicationSaName, "SecretName", pullSecretName, l.Action, l.ActionUpdate)
+			return ctrl.Result{}, err
+		}
+
+		// link secret to component SA
+		pushSecretName := getSecretName(imageRepository, false)
+		componentSaName := getComponentSaName(imageRepository.Labels[ComponentNameLabelName])
+		if err := r.linkSecretToServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace, false); err != nil {
+			log.Error(err, "failed to link secret to service account", "SaName", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
+			return ctrl.Result{}, err
+		}
+
 		updateComponentAnnotation, updateComponentAnnotationExists := imageRepository.Annotations[updateComponentAnnotationName]
 		if updateComponentAnnotationExists && updateComponentAnnotation == "true" {
 
@@ -653,36 +686,38 @@ func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepos
 		if err := r.Client.Create(ctx, secret); err != nil {
 			log.Error(err, "failed to create image repository secret", l.Action, l.ActionAdd, l.Audit, "true")
 			return err
-		} else {
-			log.Info("Image repository secret created")
 		}
+		log.Info("Image repository secret created")
 	}
 	if !isPull {
-		if err := r.linkSecretToServiceAccount(ctx, secretName, imageRepository.Namespace); err != nil {
-			log.Error(err, "failed to link secret to service account", "SecretName", secretName, l.Action, l.ActionUpdate)
+		if err := r.linkSecretToServiceAccount(ctx, buildPipelineServiceAccountName, secretName, imageRepository.Namespace, false); err != nil {
+			log.Error(err, "failed to link secret to service account", "SaName", buildPipelineServiceAccountName, l.Action, l.ActionUpdate)
 			return err
 		}
 	}
+
 	return nil
 }
 
-// linkSecretToServiceAccount ensures that the given secret is linked with the provided service account.
-func (r *ImageRepositoryReconciler) linkSecretToServiceAccount(ctx context.Context, secretNameToAdd, namespace string) error {
-	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", buildPipelineServiceAccountName)
+// linkSecretToServiceAccount ensures that the given secret is linked with the provided service account,
+// add also to ImagePullSecrets if requested
+func (r *ImageRepositoryReconciler) linkSecretToServiceAccount(ctx context.Context, saName, secretNameToAdd, namespace string, addImagePullSecret bool) error {
+	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", saName, "SecretName", secretNameToAdd)
 
 	serviceAccount := &corev1.ServiceAccount{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: namespace}, serviceAccount)
+	err := r.Client.Get(ctx, types.NamespacedName{Name: saName, Namespace: namespace}, serviceAccount)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Error(err, "pipeline service account doesn't exist yet", l.Action, l.ActionView)
+			log.Error(err, "service account doesn't exist yet", l.Action, l.ActionView)
 			return err
 		}
-		log.Error(err, "failed to read pipeline service account", l.Action, l.ActionView)
+		log.Error(err, "failed to read service account", l.Action, l.ActionView)
 		return err
 	}
 
 	// check if secret is already linked and add it only if it isn't to avoid duplication
 	secretLinked := false
+	shouldUpdateServiceAccount := false
 	for _, serviceAccountSecret := range serviceAccount.Secrets {
 		if serviceAccountSecret.Name == secretNameToAdd {
 			secretLinked = true
@@ -690,24 +725,43 @@ func (r *ImageRepositoryReconciler) linkSecretToServiceAccount(ctx context.Conte
 		}
 	}
 	if !secretLinked {
-		// add it only to Secrets and not in imagePullSecrets which is used only for the image pod itself needs to run
 		serviceAccount.Secrets = append(serviceAccount.Secrets, corev1.ObjectReference{Name: secretNameToAdd})
+		shouldUpdateServiceAccount = true
+	}
 
+	secretLinked = false
+	if addImagePullSecret {
+		for _, serviceAccountSecret := range serviceAccount.ImagePullSecrets {
+			if serviceAccountSecret.Name == secretNameToAdd {
+				secretLinked = true
+				break
+			}
+		}
+	} else {
+		secretLinked = true
+	}
+	if !secretLinked {
+		serviceAccount.ImagePullSecrets = append(serviceAccount.ImagePullSecrets, corev1.LocalObjectReference{Name: secretNameToAdd})
+		shouldUpdateServiceAccount = true
+	}
+
+	if shouldUpdateServiceAccount {
 		if err := r.Client.Update(ctx, serviceAccount); err != nil {
-			log.Error(err, "failed to update pipeline service account", l.Action, l.ActionUpdate)
+			log.Error(err, "failed to update service account", l.Action, l.ActionUpdate)
 			return err
 		}
-		log.Info("Added secret link to pipeline service account", "SecretName", secretNameToAdd, l.Action, l.ActionUpdate)
+		log.Info("Added secret link to service account", l.Action, l.ActionUpdate)
 	}
+
 	return nil
 }
 
 // unlinkSecretFromServiceAccount ensures that the given secret is not linked with the provided service account.
-func (r *ImageRepositoryReconciler) unlinkSecretFromServiceAccount(ctx context.Context, secretNameToRemove, namespace string) error {
-	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", buildPipelineServiceAccountName)
+func (r *ImageRepositoryReconciler) unlinkSecretFromServiceAccount(ctx context.Context, saName, secretNameToRemove, namespace string) error {
+	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", saName, "SecretName", secretNameToRemove)
 
 	serviceAccount := &corev1.ServiceAccount{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: namespace}, serviceAccount)
+	err := r.Client.Get(ctx, types.NamespacedName{Name: saName, Namespace: namespace}, serviceAccount)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return nil
@@ -730,7 +784,6 @@ func (r *ImageRepositoryReconciler) unlinkSecretFromServiceAccount(ctx context.C
 	serviceAccount.Secrets = pushSecrets
 
 	// Remove secret from pull secrets list
-	// we aren't adding them anymore in imagePullSecrets but just to be sure check and remove them from there
 	imagePullSecrets := []corev1.LocalObjectReference{}
 	for _, pullSecret := range serviceAccount.ImagePullSecrets {
 		// don't break and search for duplicities
@@ -744,21 +797,22 @@ func (r *ImageRepositoryReconciler) unlinkSecretFromServiceAccount(ctx context.C
 
 	if unlinkSecret {
 		if err := r.Client.Update(ctx, serviceAccount); err != nil {
-			log.Error(err, "failed to update pipeline service account", l.Action, l.ActionUpdate)
+			log.Error(err, "failed to update service account", l.Action, l.ActionUpdate)
 			return err
 		}
-		log.Info("Removed secret link from pipeline service account", "SecretName", secretNameToRemove, l.Action, l.ActionUpdate)
+		log.Info("Removed secret link from service account", l.Action, l.ActionUpdate)
 	}
+
 	return nil
 }
 
 // cleanUpSecretInServiceAccount ensures that the given secret is linked with the provided service account just once
-// and remove the secret from ImagePullSecrets
-func (r *ImageRepositoryReconciler) cleanUpSecretInServiceAccount(ctx context.Context, secretName, namespace string) error {
-	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", buildPipelineServiceAccountName)
+// and remove the secret from ImagePullSecrets unless requested to keep
+func (r *ImageRepositoryReconciler) cleanUpSecretInServiceAccount(ctx context.Context, saName, secretName, namespace string, keepImagePullSecrets bool) error {
+	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", saName)
 
 	serviceAccount := &corev1.ServiceAccount{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: namespace}, serviceAccount)
+	err := r.Client.Get(ctx, types.NamespacedName{Name: saName, Namespace: namespace}, serviceAccount)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return nil
@@ -786,15 +840,24 @@ func (r *ImageRepositoryReconciler) cleanUpSecretInServiceAccount(ctx context.Co
 	}
 	serviceAccount.Secrets = pushSecrets
 
-	// Remove secret from pull secrets list
+	// Remove secret from pull secrets list unless requested to keep
 	imagePullSecrets := []corev1.LocalObjectReference{}
+	foundSecret = false
 	for _, pullSecret := range serviceAccount.ImagePullSecrets {
-		// don't break and search for duplicities
 		if pullSecret.Name == secretName {
-			linksModified = true
-			continue
+			if keepImagePullSecrets {
+				if !foundSecret {
+					imagePullSecrets = append(imagePullSecrets, pullSecret)
+					foundSecret = true
+				} else {
+					linksModified = true
+				}
+			} else {
+				linksModified = true
+			}
+		} else {
+			imagePullSecrets = append(imagePullSecrets, pullSecret)
 		}
-		imagePullSecrets = append(imagePullSecrets, pullSecret)
 	}
 	serviceAccount.ImagePullSecrets = imagePullSecrets
 
@@ -805,45 +868,53 @@ func (r *ImageRepositoryReconciler) cleanUpSecretInServiceAccount(ctx context.Co
 		}
 		log.Info("Cleaned up secret links in pipeline service account", "SecretName", secretName, l.Action, l.ActionUpdate)
 	}
+
 	return nil
 }
 
 // VerifyAndFixSecretsLinking ensures that the given secret is linked to the provided service account, and also removes duplicated link for the secret.
-// when secret doesn't exist unlink it from service account
 func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
-	secretName := imageRepository.Status.Credentials.PushSecretName
-	log := ctrllog.FromContext(ctx).WithValues("SecretName", secretName)
+	log := ctrllog.FromContext(ctx)
 
-	// check secret existence and if secret doesn't exist unlink it from service account
-	// users can recreate it by using regenerate-token
-	secret := &corev1.Secret{}
-	secretKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: secretName}
-	secretExists := true
-	if err := r.Client.Get(ctx, secretKey, secret); err != nil {
-		if !errors.IsNotFound(err) {
-			log.Error(err, "failed to get secret", l.Action, l.ActionView)
-			return err
-		}
+	componentSaName := getComponentSaName(imageRepository.Labels[ComponentNameLabelName])
+	applicationSaName := getApplicationSaName(imageRepository.Labels[ApplicationNameLabelName])
+	pushSecretName := imageRepository.Status.Credentials.PushSecretName
+	pullSecretName := imageRepository.Status.Credentials.PullSecretName
 
-		secretExists = false
-		log.Info("Secret doesn't exist, will unlink secret from service account")
-
-		if err := r.unlinkSecretFromServiceAccount(ctx, secretName, imageRepository.Namespace); err != nil {
-			log.Error(err, "failed to unlink secret from service account", l.Action, l.ActionUpdate)
-			return err
-		}
+	// link secret to service account if isn't linked already
+	if err := r.linkSecretToServiceAccount(ctx, buildPipelineServiceAccountName, pushSecretName, imageRepository.Namespace, false); err != nil {
+		log.Error(err, "failed to link secret to service account", buildPipelineServiceAccountName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
+		return err
 	}
 
-	if secretExists {
+	// clean duplicate secret links and remove secret from ImagePullSecrets
+	if err := r.cleanUpSecretInServiceAccount(ctx, buildPipelineServiceAccountName, pushSecretName, imageRepository.Namespace, false); err != nil {
+		log.Error(err, "failed to clean up secret in service account", "saName", buildPipelineServiceAccountName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
+		return err
+	}
+
+	if isComponentLinked(imageRepository) {
 		// link secret to service account if isn't linked already
-		if err := r.linkSecretToServiceAccount(ctx, secretName, imageRepository.Namespace); err != nil {
-			log.Error(err, "failed to link secret to service account", l.Action, l.ActionUpdate)
+		if err := r.linkSecretToServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace, false); err != nil {
+			log.Error(err, "failed to link secret to service account", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
 			return err
 		}
 
 		// clean duplicate secret links and remove secret from ImagePullSecrets
-		if err := r.cleanUpSecretInServiceAccount(ctx, secretName, imageRepository.Namespace); err != nil {
-			log.Error(err, "failed to clean up secret in service account", l.Action, l.ActionUpdate)
+		if err := r.cleanUpSecretInServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace, false); err != nil {
+			log.Error(err, "failed to clean up secret in service account", "saName", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
+			return err
+		}
+
+		// link secret to service account if isn't linked already
+		if err := r.linkSecretToServiceAccount(ctx, applicationSaName, pullSecretName, imageRepository.Namespace, true); err != nil {
+			log.Error(err, "failed to link secret to service account", "saName", applicationSaName, "SecretName", pullSecretName, l.Action, l.ActionUpdate)
+			return err
+		}
+
+		// clean duplicate secret links
+		if err := r.cleanUpSecretInServiceAccount(ctx, applicationSaName, pullSecretName, imageRepository.Namespace, true); err != nil {
+			log.Error(err, "failed to clean up secret in service account", "saName", applicationSaName, "SecretName", pullSecretName, l.Action, l.ActionUpdate)
 			return err
 		}
 	}
@@ -950,4 +1021,9 @@ func (r *ImageRepositoryReconciler) ImageRepositoryForSameUrlExists(ctx context.
 	}
 
 	return false, nil
+}
+
+// getComponentSaName returns name of component SA
+func getComponentSaName(componentName string) string {
+	return fmt.Sprintf("build-pipeline-%s", componentName)
 }

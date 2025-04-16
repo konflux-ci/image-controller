@@ -30,10 +30,19 @@ rules:
   resources:
   - serviceaccounts
   verbs:
+  - create
   - get
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - appstudio.redhat.com
+  resources:
+  - applications
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - appstudio.redhat.com
