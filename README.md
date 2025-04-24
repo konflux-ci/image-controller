@@ -190,12 +190,19 @@ kind: ImageRepository
 metadata:
   name: imagerepository-for-component-sample
   namespace: test-ns
+  annotations:
+    image-controller.appstudio.redhat.com/update-component-image: 'true'
   labels:
     appstudio.redhat.com/component: my-component
     appstudio.redhat.com/application: my-app
 ```
 As a result, a public image repository `quay.io/my-org/test-ns/my-app/my-component` will be created.
 When `status.state` is set to `ready`, the image repository is ready for use.
+
+Annotation `image-controller.appstudio.redhat.com/update-component-image` is required when using
+ImageRepository with Component, as it will set Component's `spec.containerImage` allowing
+Build service controller to continue.
+
 Additional information about the image repository one may obtain from the `ImageRepository` object `status`:
 ```yaml
 apiVersion: appstudio.redhat.com/v1alpha1
