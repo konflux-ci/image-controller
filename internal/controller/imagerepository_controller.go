@@ -53,6 +53,11 @@ const (
 	additionalUsersConfigMapName         = "image-controller-additional-users"
 	additionalUsersConfigMapKey          = "quay.io"
 	skipRepositoryDeletionAnnotationName = "image-controller.appstudio.redhat.com/skip-repository-deletion"
+
+	waitForRelatedComponentInitialDelay           = 5
+	waitForRelatedComponentFallbackDelay          = 60
+	waitForRelatedComponentInitialWindowDuration  = 2 * 60
+	waitForRelatedComponentFallbackWindowDuration = 60 * 60
 )
 
 // ImageRepositoryReconciler reconciles a ImageRepository object
@@ -181,6 +186,24 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Provision image repository if it hasn't been done yet
 	if !controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {
 		setMetricsTime(repositoryIdForMetrics, reconcileStartTime)
+		if isComponentLinked(imageRepository) {
+			componentExists, requeueAfterSeconds, err := r.CheckComponentExistence(ctx, imageRepository)
+			if err != nil {
+				// getting component failed
+				return ctrl.Result{}, err
+			}
+			if requeueAfterSeconds > 0 {
+				// wait for component to appear, requeue without error
+				return ctrl.Result{RequeueAfter: time.Duration(requeueAfterSeconds) * time.Second}, nil
+			}
+			if !componentExists {
+				// component doesn't exist and we won't requeue anymore, 2 cases:
+				// 1st we are updating status for the 1st time, which will do another reconcile
+				// 2nd status was already updated, but wait timeout for component elapsed
+				return ctrl.Result{}, nil
+			}
+		}
+
 		if err := r.ProvisionImageRepository(ctx, imageRepository); err != nil {
 			log.Error(err, "provision of image repository failed")
 			return ctrl.Result{}, err
@@ -306,6 +329,45 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{}, nil
 }
 
+// CheckComponentExistence checks if component for ImageRepository exists
+// if not it will request requeue and wait for component to be created
+// returns componentExists bool, requeueAfterSeconds int, error
+func (r *ImageRepositoryReconciler) CheckComponentExistence(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) (bool, int, error) {
+	log := ctrllog.FromContext(ctx).WithName("CheckComponentExistence")
+
+	componentName := imageRepository.Labels[ComponentNameLabelName]
+	component := &appstudioredhatcomv1alpha1.Component{}
+	componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
+	if err := r.Client.Get(ctx, componentKey, component); err != nil {
+		if errors.IsNotFound(err) {
+			log.Info("component related to image repository doesn't exist, will wait for component", "Component", componentName)
+			componentDoesNotExistMessage := fmt.Sprintf("Component '%s' does not exist", componentName)
+
+			if imageRepository.Status.Message != componentDoesNotExistMessage {
+				imageRepository.Status.Message = componentDoesNotExistMessage
+				if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+					log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
+					return false, -1, err
+				}
+				// status update will trigger new reconcile
+				return false, -1, nil
+			}
+			// when status message is the same status update won't trigger new reconcile, so we will explicitly request requeue
+			timeAfterCreation := time.Now().Unix() - imageRepository.GetCreationTimestamp().Unix()
+			if timeAfterCreation < waitForRelatedComponentInitialWindowDuration {
+				return false, waitForRelatedComponentInitialDelay, nil
+			}
+			if timeAfterCreation < waitForRelatedComponentFallbackWindowDuration {
+				return false, waitForRelatedComponentFallbackDelay, nil
+			}
+			return false, -1, nil
+		}
+		log.Error(err, "failed to get component", "ComponentName", componentName, l.Action, l.ActionView)
+		return false, -1, err
+	}
+	return true, -1, nil
+}
+
 // ProvisionImageRepository creates image repository, robot account(s) and secret(s) to access the image repository.
 // If labels with Application and Component name are present, robot account with pull only access
 // will be created and pull token will be propagated Secret.
@@ -320,12 +382,12 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
 		if err := r.Client.Get(ctx, componentKey, component); err != nil {
 			if errors.IsNotFound(err) {
+				log.Info("attempt to create image repository related to non existing component", "Component", componentName)
 				imageRepository.Status.Message = fmt.Sprintf("Component '%s' does not exist", componentName)
 				if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
 					log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 					return err
 				}
-				log.Info("attempt to create image repository related to non existing component", "Component", componentName)
 			}
 			log.Error(err, "failed to get component", "ComponentName", componentName, l.Action, l.ActionView)
 			return err
