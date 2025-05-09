@@ -127,8 +127,9 @@ type ImageRepositoryStatus struct {
 type ImageRepositoryState string
 
 const (
-	ImageRepositoryStateReady  ImageRepositoryState = "ready"
-	ImageRepositoryStateFailed ImageRepositoryState = "failed"
+	ImageRepositoryStateReady   ImageRepositoryState = "ready"
+	ImageRepositoryStateFailed  ImageRepositoryState = "failed"
+	ImageRepositoryStateWaiting ImageRepositoryState = "waiting"
 )
 
 // ImageStatus shows actual generated image repository parameters.
