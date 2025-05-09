@@ -358,6 +358,15 @@ func (r *ImageRepositoryReconciler) CheckComponentExistence(ctx context.Context,
 				return false, waitForRelatedComponentInitialDelay, nil
 			}
 			if timeAfterCreation < waitForRelatedComponentFallbackWindowDuration {
+				if imageRepository.Status.State == "" {
+					imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateWaiting
+					if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+						log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
+						return false, -1, err
+					}
+					// status update will trigger new reconcile
+					return false, -1, nil
+				}
 				return false, waitForRelatedComponentFallbackDelay, nil
 			}
 			return false, -1, nil
