@@ -424,6 +424,28 @@ func createServiceAccount(namespace, name string) corev1.ServiceAccount {
 	return getServiceAccount(namespace, name)
 }
 
+func createServiceAccountWithSecrets(namespace, name string, pushSecrets, imagePullSecrets []string) corev1.ServiceAccount {
+	secretsReferences := []corev1.ObjectReference{}
+	imagePullSecretsReferences := []corev1.LocalObjectReference{}
+	for _, secretName := range pushSecrets {
+		secretsReferences = append(secretsReferences, corev1.ObjectReference{Name: secretName})
+	}
+	for _, secretName := range imagePullSecrets {
+		imagePullSecretsReferences = append(imagePullSecretsReferences, corev1.LocalObjectReference{Name: secretName})
+	}
+
+	serviceAccount := corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+		},
+		Secrets:          secretsReferences,
+		ImagePullSecrets: imagePullSecretsReferences,
+	}
+	Expect(k8sClient.Create(ctx, &serviceAccount)).To(Succeed())
+	return getServiceAccount(namespace, name)
+}
+
 func getServiceAccount(namespace string, name string) corev1.ServiceAccount {
 	sa := corev1.ServiceAccount{}
 	key := types.NamespacedName{
