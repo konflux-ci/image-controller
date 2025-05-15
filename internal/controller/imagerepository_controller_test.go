@@ -1207,6 +1207,7 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should clean environment", func() {
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
+			deleteImageRepository(resourceKey)
 		})
 	})
 
@@ -1340,6 +1341,202 @@ var _ = Describe("Image repository controller", func() {
 			// should delete repository, because no other ImageRepository uses the repository
 			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
+		})
+
+		It("don't remove nudging pull secret from component's SA, if ImageRepository is not for component", func() {
+			serviceAccountForSomeComponent := fmt.Sprintf("%s%s", componentSaNamePrefix, "sa-for-some-component")
+			serviceAccountCommon := "common-sa"
+
+			customImageName := defaultNamespace + "/" + "my-image-for-nudging-component"
+			expectedImageName = customImageName
+			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
+
+			isCreateRepositoryInvoked := false
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				isCreateRepositoryInvoked = true
+				Expect(repository.Repository).To(Equal(expectedImageName))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
+				return &quay.Repository{Name: expectedImageName}, nil
+			}
+
+			// create imageRepository without component
+			createImageRepository(imageRepositoryConfig{
+				ResourceKey: &resourceKey,
+				ImageName:   customImageName,
+			})
+
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+
+			nudgingImageRepository := getImageRepository(resourceKey)
+			nudgedPullSecretName := nudgingImageRepository.Status.Credentials.PullSecretName
+			commonPullSecretName := "common-pull-secret"
+			commonPushSecretName := "common-push-secret"
+
+			// create 2 SAs, one common, another for some component, both will include pullSecret from nudging component's imageRepository
+			// and one common pull & push secret
+			pullSecrets := []string{commonPullSecretName, nudgedPullSecretName}
+			pushSecrets := []string{commonPushSecretName, nudgedPullSecretName}
+			createServiceAccountWithSecrets(defaultNamespace, serviceAccountForSomeComponent, pushSecrets, pullSecrets)
+			createServiceAccountWithSecrets(defaultNamespace, serviceAccountCommon, pushSecrets, pullSecrets)
+			defer deleteServiceAccount(types.NamespacedName{Name: serviceAccountForSomeComponent, Namespace: defaultNamespace})
+			defer deleteServiceAccount(types.NamespacedName{Name: serviceAccountCommon, Namespace: defaultNamespace})
+
+			someComponentSa := getServiceAccount(defaultNamespace, serviceAccountForSomeComponent)
+			commonSa := getServiceAccount(defaultNamespace, serviceAccountCommon)
+			// verify that created SAs have 2 secrets in each section
+			Expect(len(someComponentSa.Secrets)).To(Equal(2))
+			Expect(len(someComponentSa.ImagePullSecrets)).To(Equal(2))
+			Expect(len(commonSa.Secrets)).To(Equal(2))
+			Expect(len(commonSa.ImagePullSecrets)).To(Equal(2))
+			// and also both contain pullSecret from nudging component's imageRepository
+			Expect(someComponentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(someComponentSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+
+			isDeleteRobotAccountInvoked := false
+			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRobotAccountInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
+				return true, nil
+			}
+			isDeleteRepositoryInvoked := false
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRepositoryInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(imageRepository).To(Equal(customImageName))
+				return true, nil
+			}
+
+			deleteImageRepository(resourceKey)
+			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
+
+			// deleting imageRepository won't remove imageRepository's pull secret, because it wasn't for any component
+			someComponentSa = getServiceAccount(defaultNamespace, serviceAccountForSomeComponent)
+			commonSa = getServiceAccount(defaultNamespace, serviceAccountCommon)
+
+			// common SA and some component SA will still have 2 secrets linked and one of them is pull secret from nudged Component
+			Expect(len(commonSa.Secrets)).To(Equal(2))
+			Expect(len(commonSa.ImagePullSecrets)).To(Equal(2))
+			Expect(commonSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+
+			Expect(len(someComponentSa.Secrets)).To(Equal(2))
+			Expect(len(someComponentSa.ImagePullSecrets)).To(Equal(2))
+			Expect(someComponentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(someComponentSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+		})
+
+		It("remove nudging pull secret from nudged components SA", func() {
+			serviceAccountForNudgedComponent := fmt.Sprintf("%s%s", componentSaNamePrefix, "sa-for-nudged-component")
+			serviceAccountCommon := "common-sa"
+			applicationKey := types.NamespacedName{Name: "nudging-application", Namespace: defaultNamespace}
+			componentKey := types.NamespacedName{Name: "nudging-component", Namespace: defaultNamespace}
+			componentSaName := getComponentSaName(componentKey.Name)
+			createApplication(applicationConfig{ApplicationKey: applicationKey})
+			createComponent(componentConfig{ComponentKey: componentKey})
+			createServiceAccount(defaultNamespace, componentSaName)
+			defer deleteComponent(componentKey)
+			defer deleteApplication(applicationKey)
+			defer deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespace})
+
+			customImageName := defaultNamespace + "/" + "my-image-for-nudging-component"
+			expectedImageName = customImageName
+			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
+
+			isCreateRepositoryInvoked := false
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				isCreateRepositoryInvoked = true
+				Expect(repository.Repository).To(Equal(expectedImageName))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
+				return &quay.Repository{Name: expectedImageName}, nil
+			}
+
+			// create imageRepository for component
+			createImageRepository(imageRepositoryConfig{
+				ResourceKey: &resourceKey,
+				ImageName:   customImageName,
+				Labels: map[string]string{
+					ApplicationNameLabelName: applicationKey.Name,
+					ComponentNameLabelName:   componentKey.Name,
+				},
+			})
+
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+
+			nudgingImageRepository := getImageRepository(resourceKey)
+			nudgedPullSecretName := nudgingImageRepository.Status.Credentials.PullSecretName
+			commonPullSecretName := "common-pull-secret"
+			commonPushSecretName := "common-push-secret"
+
+			// create 2 SAs, one common, another for nudged component, both will include pullSecret from nudging component's imageRepository
+			// and one common pull & push secret
+			pullSecrets := []string{commonPullSecretName, nudgedPullSecretName}
+			pushSecrets := []string{commonPushSecretName, nudgedPullSecretName}
+			createServiceAccountWithSecrets(defaultNamespace, serviceAccountForNudgedComponent, pushSecrets, pullSecrets)
+			createServiceAccountWithSecrets(defaultNamespace, serviceAccountCommon, pushSecrets, pullSecrets)
+			defer deleteServiceAccount(types.NamespacedName{Name: serviceAccountForNudgedComponent, Namespace: defaultNamespace})
+			defer deleteServiceAccount(types.NamespacedName{Name: serviceAccountCommon, Namespace: defaultNamespace})
+
+			nudgedComponentSa := getServiceAccount(defaultNamespace, serviceAccountForNudgedComponent)
+			commonSa := getServiceAccount(defaultNamespace, serviceAccountCommon)
+			// verify that created SAs have 2 secrets in each section
+			Expect(len(nudgedComponentSa.Secrets)).To(Equal(2))
+			Expect(len(nudgedComponentSa.ImagePullSecrets)).To(Equal(2))
+			Expect(len(commonSa.Secrets)).To(Equal(2))
+			Expect(len(commonSa.ImagePullSecrets)).To(Equal(2))
+			// and also both contain pullSecret from nudging component's imageRepository
+			Expect(nudgedComponentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(nudgedComponentSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+
+			isDeleteRobotAccountInvoked := false
+			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRobotAccountInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
+				return true, nil
+			}
+			isDeleteRepositoryInvoked := false
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRepositoryInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(imageRepository).To(Equal(customImageName))
+				return true, nil
+			}
+
+			deleteImageRepository(resourceKey)
+			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
+
+			// deleting imageRepository will also remove nudging pull secret from nudged component's SA
+			// but will leave common secret
+			// and won't remove anything from common SA
+			nudgedComponentSa = getServiceAccount(defaultNamespace, serviceAccountForNudgedComponent)
+			commonSa = getServiceAccount(defaultNamespace, serviceAccountCommon)
+
+			// common SA will still have 2 secrets linked and one of them is pull secret from nudged Component
+			Expect(len(commonSa.Secrets)).To(Equal(2))
+			Expect(len(commonSa.ImagePullSecrets)).To(Equal(2))
+			Expect(commonSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+
+			// nudged component SA will have only 1 secret and pull secret from nudged Component will be gone
+			Expect(len(nudgedComponentSa.Secrets)).To(Equal(1))
+			Expect(len(nudgedComponentSa.ImagePullSecrets)).To(Equal(1))
+			Expect(nudgedComponentSa.Secrets).To(Equal([]corev1.ObjectReference{corev1.ObjectReference{Name: commonPushSecretName}}))
+			Expect(nudgedComponentSa.ImagePullSecrets).To(Equal([]corev1.LocalObjectReference{corev1.LocalObjectReference{Name: commonPullSecretName}}))
 		})
 
 		It("should clean environment", func() {
