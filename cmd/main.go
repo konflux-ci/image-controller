@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -144,6 +145,9 @@ func main() {
 		},
 	}
 
+	leaseDuration := 60 * time.Second
+	renewDeadline := 35 * time.Second
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Client:                 clientOpts,
 		Scheme:                 scheme,
@@ -152,6 +156,8 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "ed4c18c3.appstudio.redhat.com",
+		LeaseDuration:          &leaseDuration,
+		RenewDeadline:          &renewDeadline,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
