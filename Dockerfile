@@ -28,7 +28,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o ma
 # Use ubi-minimal as minimal base image to package the manager binary
 # For more details and updates, refer to
 # https://catalog.redhat.com/software/containers/ubi8/ubi-minimal/5c359a62bed8bd75a2c3fba8
-FROM registry.access.redhat.com/ubi8/ubi-minimal:8.10-1179
+FROM registry.access.redhat.com/ubi8/ubi-minimal:8.10-1295.1749680713
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
