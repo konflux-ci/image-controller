@@ -145,8 +145,11 @@ func main() {
 		},
 	}
 
-	leaseDuration := 60 * time.Second
-	renewDeadline := 35 * time.Second
+	// The values are set according to
+	// https://github.com/openshift/enhancements/blob/master/CONVENTIONS.md#handling-kube-apiserver-disruption
+	leaseDuration := 137 * time.Second
+	renewDeadline := 107 * time.Second
+	retryPeriod := 26 * time.Second
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Client:                 clientOpts,
@@ -158,6 +161,7 @@ func main() {
 		LeaderElectionID:       "ed4c18c3.appstudio.redhat.com",
 		LeaseDuration:          &leaseDuration,
 		RenewDeadline:          &renewDeadline,
+		RetryPeriod:            &retryPeriod,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
