@@ -21,6 +21,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -134,10 +135,10 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				return ctrl.Result{}, err
 			}
 
-			// unlink secret from application SA
-			applicationSaName := getApplicationSaName(imageRepository.Labels[ApplicationNameLabelName])
-			if err := r.unlinkSecretFromServiceAccount(ctx, applicationSaName, imageRepository.Status.Credentials.PullSecretName, imageRepository.Namespace); err != nil {
-				log.Error(err, "failed to unlink secret from service account", "SaName", applicationSaName, "SecretName", imageRepository.Status.Credentials.PullSecretName, l.Action, l.ActionUpdate)
+			// remove pull secret entry from application pull secret
+			err := r.removePullSecretFromApplicationPullSecret(ctx, imageRepository)
+			if err != nil {
+				log.Error(err, "failed to remove entry from application pull secret", "application", imageRepository.Labels[ApplicationNameLabelName], "secret", imageRepository.Status.Credentials.PullSecretName)
 				return ctrl.Result{}, err
 			}
 
@@ -221,11 +222,12 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Update component
 	if isComponentLinked(imageRepository) {
-		// link secret to application SA
-		applicationSaName := getApplicationSaName(imageRepository.Labels[ApplicationNameLabelName])
+		// update application pull secret
+		applicationName := imageRepository.Labels[ApplicationNameLabelName]
 		pullSecretName := getSecretName(imageRepository, true)
-		if err := r.linkSecretToServiceAccount(ctx, applicationSaName, pullSecretName, imageRepository.Namespace, true); err != nil {
-			log.Error(err, "failed to link secret to service account", "SaName", applicationSaName, "SecretName", pullSecretName, l.Action, l.ActionUpdate)
+		err := r.addPullSecretToApplicationPullSecret(ctx, applicationName, imageRepository.Namespace, pullSecretName)
+		if err != nil {
+			log.Error(err, "failed to update application pull secret after individual pull secret change", "application", applicationName, "secret", pullSecretName)
 			return ctrl.Result{}, err
 		}
 
@@ -876,4 +878,227 @@ func (r *ImageRepositoryReconciler) ImageRepositoryForSameUrlExists(ctx context.
 // getComponentSaName returns name of component SA
 func getComponentSaName(componentName string) string {
 	return fmt.Sprintf("%s%s", componentSaNamePrefix, componentName)
+}
+
+// addPullSecretToApplicationPullSecret updates the application pull secret when new image repository pull secret is created
+// or when an existing one is updated.
+func (r *ImageRepositoryReconciler) addPullSecretToApplicationPullSecret(ctx context.Context, applicationName string, namespace string, pullSecretName string) error {
+	log := ctrllog.FromContext(ctx)
+
+	application := &appstudioredhatcomv1alpha1.Application{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: applicationName, Namespace: namespace}, application); err != nil {
+		log.Error(err, "failed to get Application", "application", applicationName)
+		return err
+	}
+
+	applicationPullSecretName := getApplicationPullSecretName(applicationName)
+	applicationPullSecret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: applicationPullSecretName, Namespace: namespace}, applicationPullSecret); err != nil {
+		log.Error(err, "failed to get application pull secret", "secretName", applicationPullSecretName)
+		return err
+	}
+
+	pullSecret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: pullSecretName, Namespace: namespace}, pullSecret); err != nil {
+		log.Error(err, "failed to get individual pull secret", "secretName", pullSecretName)
+		return err
+	}
+	if pullSecret.Type != corev1.SecretTypeDockerConfigJson {
+		log.Info("Skipping secret due to unexpected type", "secretName", pullSecretName, "type", pullSecret.Type)
+		return nil
+	}
+
+	dockerConfigDataBytes, ok := pullSecret.Data[corev1.DockerConfigJsonKey]
+	if !ok {
+		log.Info("Missing .dockerconfigjson key", "secretName", pullSecretName)
+		return nil
+	}
+
+	var newAuths dockerConfigJson
+	if err := json.Unmarshal(dockerConfigDataBytes, &newAuths); err != nil {
+		log.Error(err, "failed to unmarshal .dockerconfigjson", "secretName", pullSecretName)
+		return err
+	}
+
+	var existingAuths dockerConfigJson
+	if err := json.Unmarshal(applicationPullSecret.Data[corev1.DockerConfigJsonKey], &existingAuths); err != nil {
+		log.Error(err, "failed to unmarshal existing .dockerconfigjson", "secretName", applicationPullSecretName)
+		return err
+	}
+
+	changed := false
+	if existingAuths.Auths == nil {
+		existingAuths.Auths = make(map[string]struct {
+			Auth string `json:"auth"`
+		})
+	}
+
+	// If there are multiple pullsecrets for the same registry,
+	// keep the first one that was already present. Do not override.
+	for reg, entry := range newAuths.Auths {
+		if _, authAlreadyExists := existingAuths.Auths[reg]; !authAlreadyExists {
+			existingAuths.Auths[reg] = entry
+			changed = true
+		}
+	}
+
+	if !changed {
+		return nil
+	}
+
+	// Marshal and update
+	mergedData, err := json.Marshal(existingAuths)
+	if err != nil {
+		log.Error(err, "failed to marshal updated docker config json")
+		return err
+	}
+	applicationPullSecret.Data[corev1.DockerConfigJsonKey] = mergedData
+
+	if err := r.Client.Update(ctx, applicationPullSecret); err != nil {
+		log.Error(err, "failed to update application pull secret", "secretName", applicationPullSecretName)
+		return err
+	}
+
+	log.Info("Application pull secret updated with new registry auth", "application", applicationName)
+	return nil
+
+}
+
+func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
+	log := ctrllog.FromContext(ctx)
+
+	applicationPullSecretName := getApplicationPullSecretName(imageRepository.Labels[ApplicationNameLabelName])
+	applicationPullSecret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: applicationPullSecretName, Namespace: imageRepository.Namespace}, applicationPullSecret); err != nil {
+		if errors.IsNotFound(err) {
+			// Nothing to remove the pullsecret from
+			return nil
+		}
+		log.Error(err, "failed to get application pull secret", "secretName", applicationPullSecretName)
+		return err
+	}
+
+	// Get the pull secret that is being removed
+	pullSecret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}, pullSecret); err != nil {
+		if errors.IsNotFound(err) {
+			log.Info("Pull secret already deleted, cannot identify which registry auths to remove", "secretName", imageRepository.Status.Credentials.PullSecretName)
+			return nil
+		}
+		log.Error(err, "failed to get pull secret", "secretName", imageRepository.Status.Credentials.PullSecretName)
+		return err
+	}
+	if pullSecret.Type != corev1.SecretTypeDockerConfigJson {
+		log.Info("Skipping secret due to unexpected type", "secretName", imageRepository.Status.Credentials.PullSecretName, "type", pullSecret.Type)
+		return nil
+	}
+
+	dockerConfigDataBytes, ok := pullSecret.Data[corev1.DockerConfigJsonKey]
+	if !ok {
+		log.Info("Missing .dockerconfigjson key", "secretName", imageRepository.Status.Credentials.PullSecretName)
+		return nil
+	}
+
+	var toRemoveAuths dockerConfigJson
+	if err := json.Unmarshal(dockerConfigDataBytes, &toRemoveAuths); err != nil {
+		log.Error(err, "failed to unmarshal .dockerconfigjson", "secretName", imageRepository.Status.Credentials.PullSecretName)
+		return err
+	}
+
+	var existingAuths dockerConfigJson
+	if err := json.Unmarshal(applicationPullSecret.Data[corev1.DockerConfigJsonKey], &existingAuths); err != nil {
+		log.Error(err, "failed to unmarshal application .dockerconfigjson", "secretName", applicationPullSecretName)
+		return err
+	}
+
+	if existingAuths.Auths == nil {
+		return nil
+	}
+
+	imageRepositoriesList := &imagerepositoryv1alpha1.ImageRepositoryList{}
+	if err := r.Client.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: imageRepository.Namespace}); err != nil {
+		log.Error(err, "failed to list image repositories")
+		return err
+	}
+
+	changed := false
+	for reg := range toRemoveAuths.Auths {
+		// Check if there’s another IR with the same repo URL. In that case
+		// we don't remove the record for the registry pullsecret completely, but replace it
+		// with pullsecret from this other IR.
+		foundImageRepositoryWithSameUrl := false
+
+		for _, otherIR := range imageRepositoriesList.Items {
+			// Skip the current IR that contains the secret we are removing
+			if otherIR.ObjectMeta.Name == imageRepository.ObjectMeta.Name {
+				continue
+			}
+			// Must match the same registry URL
+			if otherIR.Status.Image.URL != imageRepository.Status.Image.URL {
+				continue
+			}
+
+			// Get the other IR pull secret
+			otherIRPullSecret := &corev1.Secret{}
+			if err := r.Client.Get(ctx, types.NamespacedName{Name: otherIR.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}, otherIRPullSecret); err != nil {
+				if errors.IsNotFound(err) {
+					log.Info("Pull secret not found", "secretName", otherIR.Status.Credentials.PullSecretName)
+					// We can continue looking for another alternative
+					continue
+				}
+				log.Error(err, "failed to get pull secret", "secretName", otherIR.Status.Credentials.PullSecretName)
+				return err
+			}
+			if otherIRPullSecret.Type != corev1.SecretTypeDockerConfigJson {
+				continue
+			}
+
+			otherIRDockerConfigDataBytes, ok := otherIRPullSecret.Data[corev1.DockerConfigJsonKey]
+			if !ok {
+				continue
+			}
+
+			var otherIRConfig dockerConfigJson
+			if err := json.Unmarshal(otherIRDockerConfigDataBytes, &otherIRConfig); err != nil {
+				continue
+			}
+
+			// We found another Image Repository with the same registry URL and viable pullsecret to
+			// replace the secret being removed.
+			if replacement, ok := otherIRConfig.Auths[reg]; ok {
+				existingAuths.Auths[reg] = replacement
+				foundImageRepositoryWithSameUrl = true
+				changed = true
+				break
+			}
+		}
+
+		if !foundImageRepositoryWithSameUrl {
+			// No other IR with the same url found, safe to remove the auth entry
+			if _, exists := existingAuths.Auths[reg]; exists {
+				delete(existingAuths.Auths, reg)
+				changed = true
+			}
+		}
+	}
+
+	if !changed {
+		return nil
+	}
+
+	// Marshal and update
+	updatedData, err := json.Marshal(existingAuths)
+	if err != nil {
+		log.Error(err, "failed to marshal updated docker config json after deletion")
+		return err
+	}
+	applicationPullSecret.Data[corev1.DockerConfigJsonKey] = updatedData
+
+	if err := r.Client.Update(ctx, applicationPullSecret); err != nil {
+		log.Error(err, "failed to update application pull secret after removing registry auth", "secretName", applicationPullSecretName)
+		return err
+	}
+
+	log.Info("Application pull secret updated after removing registry auth", "application", imageRepository.Labels[ApplicationNameLabelName])
+	return nil
 }

@@ -46,7 +46,6 @@ var _ = Describe("Component image controller", func() {
 		}
 		var applicationKey = types.NamespacedName{Name: defaultComponentApplication, Namespace: imageTestNamespace}
 		var componentSaName = getComponentSaName(resourceImageProvisionKey.Name)
-		var applicationSaName = getApplicationSaName(defaultComponentApplication)
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
@@ -61,6 +60,7 @@ var _ = Describe("Component image controller", func() {
 		It("should prepare environment", func() {
 			createServiceAccount(imageTestNamespace, buildPipelineServiceAccountName)
 			createServiceAccount(imageTestNamespace, componentSaName)
+			createServiceAccount(imageTestNamespace, KonfluxIntegrationRunnerSAName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {
@@ -139,7 +139,7 @@ var _ = Describe("Component image controller", func() {
 			deleteImageRepository(imageRepositoryName)
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: imageTestNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
-			deleteServiceAccount(types.NamespacedName{Name: applicationSaName, Namespace: imageTestNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: NamespaceServiceAccountName, Namespace: imageTestNamespace})
 		})
 	})
 
@@ -147,7 +147,6 @@ var _ = Describe("Component image controller", func() {
 		var resourceImageErrorKey = types.NamespacedName{Name: defaultComponentName + "-imageerrors", Namespace: imageTestNamespace}
 		var applicationKey = types.NamespacedName{Name: defaultComponentApplication, Namespace: imageTestNamespace}
 		var componentSaName = getComponentSaName(resourceImageErrorKey.Name)
-		var applicationSaName = getApplicationSaName(defaultComponentApplication)
 
 		It("should prepare environment", func() {
 			deleteComponent(resourceImageErrorKey)
@@ -156,6 +155,7 @@ var _ = Describe("Component image controller", func() {
 
 			createServiceAccount(imageTestNamespace, buildPipelineServiceAccountName)
 			createServiceAccount(imageTestNamespace, componentSaName)
+			createServiceAccount(imageTestNamespace, KonfluxIntegrationRunnerSAName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {
@@ -274,7 +274,7 @@ var _ = Describe("Component image controller", func() {
 			deleteApplication(applicationKey)
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: imageTestNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
-			deleteServiceAccount(types.NamespacedName{Name: applicationSaName, Namespace: imageTestNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: NamespaceServiceAccountName, Namespace: imageTestNamespace})
 		})
 	})
 })

@@ -237,9 +237,9 @@ func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Conte
 	log := ctrllog.FromContext(ctx)
 
 	componentSaName := getComponentSaName(imageRepository.Labels[ComponentNameLabelName])
-	applicationSaName := getApplicationSaName(imageRepository.Labels[ApplicationNameLabelName])
 	pushSecretName := imageRepository.Status.Credentials.PushSecretName
-	pullSecretName := imageRepository.Status.Credentials.PullSecretName
+	applicationName := imageRepository.Labels[ApplicationNameLabelName]
+	applicationPullSecretName := getApplicationPullSecretName(applicationName)
 
 	// link secret to service account if isn't linked already
 	if err := r.linkSecretToServiceAccount(ctx, buildPipelineServiceAccountName, pushSecretName, imageRepository.Namespace, false); err != nil {
@@ -267,14 +267,14 @@ func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Conte
 		}
 
 		// link secret to service account if isn't linked already
-		if err := r.linkSecretToServiceAccount(ctx, applicationSaName, pullSecretName, imageRepository.Namespace, true); err != nil {
-			log.Error(err, "failed to link secret to service account", "saName", applicationSaName, "SecretName", pullSecretName, l.Action, l.ActionUpdate)
+		if err := r.linkSecretToServiceAccount(ctx, NamespaceServiceAccountName, applicationPullSecretName, imageRepository.Namespace, true); err != nil {
+			log.Error(err, "failed to link secret to service account", "saName", NamespaceServiceAccountName, "SecretName", applicationPullSecretName, l.Action, l.ActionUpdate)
 			return err
 		}
 
 		// clean duplicate secret links
-		if err := r.cleanUpSecretInServiceAccount(ctx, applicationSaName, pullSecretName, imageRepository.Namespace, true); err != nil {
-			log.Error(err, "failed to clean up secret in service account", "saName", applicationSaName, "SecretName", pullSecretName, l.Action, l.ActionUpdate)
+		if err := r.cleanUpSecretInServiceAccount(ctx, NamespaceServiceAccountName, applicationPullSecretName, imageRepository.Namespace, true); err != nil {
+			log.Error(err, "failed to clean up secret in service account", "saName", NamespaceServiceAccountName, "SecretName", applicationPullSecretName, l.Action, l.ActionUpdate)
 			return err
 		}
 	}

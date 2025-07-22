@@ -58,6 +58,7 @@ var _ = Describe("Image repository controller", func() {
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
+			createServiceAccount(defaultNamespace, KonfluxIntegrationRunnerSAName)
 		})
 
 		It("should provision image repository", func() {
@@ -316,6 +317,8 @@ var _ = Describe("Image repository controller", func() {
 			Expect(sa.ImagePullSecrets).To(HaveLen(0))
 
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: KonfluxIntegrationRunnerSAName, Namespace: defaultNamespace})
+
 		})
 	})
 
@@ -333,6 +336,7 @@ var _ = Describe("Image repository controller", func() {
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
+			createServiceAccount(defaultNamespace, KonfluxIntegrationRunnerSAName)
 
 			// add push secret to SA
 			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
@@ -472,6 +476,8 @@ var _ = Describe("Image repository controller", func() {
 			Expect(sa.ImagePullSecrets).To(HaveLen(0))
 
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: KonfluxIntegrationRunnerSAName, Namespace: defaultNamespace})
+
 		})
 	})
 
@@ -479,7 +485,6 @@ var _ = Describe("Image repository controller", func() {
 		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-componentprovision", Namespace: defaultNamespace}
 		var componentKey = types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespace}
 		var applicationKey = types.NamespacedName{Name: defaultComponentApplication, Namespace: defaultNamespace}
-		var applicationSaName = getApplicationSaName(defaultComponentApplication)
 		var componentSaName = getComponentSaName(defaultComponentName)
 
 		BeforeEach(func() {
@@ -502,6 +507,7 @@ var _ = Describe("Image repository controller", func() {
 
 			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 			createServiceAccount(defaultNamespace, componentSaName)
+			createServiceAccount(defaultNamespace, KonfluxIntegrationRunnerSAName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {
@@ -689,7 +695,7 @@ var _ = Describe("Image repository controller", func() {
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
-			applicationSa := getServiceAccount(defaultNamespace, applicationSaName)
+			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			Expect(applicationSa.Secrets).To(HaveLen(1))
 			Expect(applicationSa.ImagePullSecrets).To(HaveLen(1))
 			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pullSecret.Name}))
@@ -703,7 +709,7 @@ var _ = Describe("Image repository controller", func() {
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(0))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
-			applicationSa := getServiceAccount(defaultNamespace, applicationSaName)
+			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			Expect(applicationSa.Secrets).To(HaveLen(0))
 			Expect(applicationSa.ImagePullSecrets).To(HaveLen(0))
 		}
@@ -863,7 +869,7 @@ var _ = Describe("Image repository controller", func() {
 			pipelineSa.Secrets = []corev1.ObjectReference{}
 			Expect(k8sClient.Update(ctx, &pipelineSa)).To(Succeed())
 
-			applicationSa := getServiceAccount(defaultNamespace, applicationSaName)
+			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			applicationSa.Secrets = []corev1.ObjectReference{}
 			applicationSa.ImagePullSecrets = []corev1.LocalObjectReference{}
 			Expect(k8sClient.Update(ctx, &applicationSa)).To(Succeed())
@@ -882,7 +888,7 @@ var _ = Describe("Image repository controller", func() {
 			pushSecretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
 			pullSecretName := fmt.Sprintf("%s-image-pull", resourceKey.Name)
 			pipelineSa = getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			applicationSa = getServiceAccount(defaultNamespace, applicationSaName)
+			applicationSa = getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespace, componentSaName)
 			Expect(pipelineSa.Secrets).To(HaveLen(1))
 			Expect(pipelineSa.ImagePullSecrets).To(HaveLen(0))
@@ -907,7 +913,7 @@ var _ = Describe("Image repository controller", func() {
 			pipelineSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: pushSecretName}, {Name: pushSecretName}}
 			Expect(k8sClient.Update(ctx, &pipelineSa)).To(Succeed())
 
-			applicationSa := getServiceAccount(defaultNamespace, applicationSaName)
+			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			applicationSa.Secrets = []corev1.ObjectReference{{Name: pullSecretName}, {Name: pullSecretName}}
 			applicationSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: pullSecretName}, {Name: pullSecretName}}
 			Expect(k8sClient.Update(ctx, &applicationSa)).To(Succeed())
@@ -925,7 +931,7 @@ var _ = Describe("Image repository controller", func() {
 			waitImageRepositoryCredentialSectionRequestGone(resourceKey, "verify")
 
 			pipelineSa = getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			applicationSa = getServiceAccount(defaultNamespace, applicationSaName)
+			applicationSa = getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespace, componentSaName)
 			Expect(pipelineSa.Secrets).To(HaveLen(1))
 			Expect(pipelineSa.ImagePullSecrets).To(HaveLen(0))
@@ -973,8 +979,8 @@ var _ = Describe("Image repository controller", func() {
 			Expect(pipelinesSa.Secrets).To(HaveLen(0))
 			Expect(pipelinesSa.ImagePullSecrets).To(HaveLen(0))
 
-			applicationSa := getServiceAccount(defaultNamespace, applicationSaName)
-			Expect(applicationSa.Secrets).To(HaveLen(0))
+			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			Expect(applicationSa.Secrets).To(HaveLen(1))
 			Expect(applicationSa.ImagePullSecrets).To(HaveLen(0))
 
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
@@ -983,7 +989,7 @@ var _ = Describe("Image repository controller", func() {
 
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespace})
-			deleteServiceAccount(types.NamespacedName{Name: applicationSaName, Namespace: defaultNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: NamespaceServiceAccountName, Namespace: defaultNamespace})
 		})
 	})
 
@@ -1000,6 +1006,8 @@ var _ = Describe("Image repository controller", func() {
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
+			createServiceAccount(defaultNamespace, KonfluxIntegrationRunnerSAName)
+
 		})
 
 		It("should provision image repository", func() {
@@ -1207,6 +1215,8 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should clean environment", func() {
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: KonfluxIntegrationRunnerSAName, Namespace: defaultNamespace})
+
 			deleteImageRepository(resourceKey)
 		})
 	})
@@ -1221,6 +1231,8 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should prepare environment", func() {
 			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
+			createServiceAccount(defaultNamespace, KonfluxIntegrationRunnerSAName)
+
 		})
 
 		It("should create image repository with requested name", func() {
@@ -1541,6 +1553,7 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should clean environment", func() {
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: KonfluxIntegrationRunnerSAName, Namespace: defaultNamespace})
 		})
 	})
 
@@ -1554,6 +1567,8 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should prepare environment", func() {
 			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
+			createServiceAccount(defaultNamespace, KonfluxIntegrationRunnerSAName)
+
 		})
 
 		It("don't remove repository if explicitly requested using annotation", func() {
@@ -1604,6 +1619,8 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should clean environment", func() {
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: KonfluxIntegrationRunnerSAName, Namespace: defaultNamespace})
+
 		})
 	})
 
@@ -1622,6 +1639,8 @@ var _ = Describe("Image repository controller", func() {
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 
 			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
+			createServiceAccount(defaultNamespace, KonfluxIntegrationRunnerSAName)
+
 		})
 
 		It("should permanently fail if private image repository requested on creation but quota exceeded", func() {
@@ -1723,6 +1742,8 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should clean environment", func() {
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: KonfluxIntegrationRunnerSAName, Namespace: defaultNamespace})
+
 		})
 	})
 })

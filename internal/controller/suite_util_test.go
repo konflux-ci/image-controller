@@ -556,3 +556,36 @@ func verifySecretSpec(secret *corev1.Secret, imageRepositoryName, secretName str
 	Expect(secret.Name).To(Equal(secretName))
 	Expect(secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 }
+
+// createDockerConfigSecret creates a kubernetes.io/dockerconfigjson secret
+func createDockerConfigSecret(secretKey types.NamespacedName, dockerConfigData string) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretKey.Name,
+			Namespace: secretKey.Namespace,
+		},
+		Type: corev1.SecretTypeDockerConfigJson,
+		Data: map[string][]byte{
+			corev1.DockerConfigJsonKey: []byte(dockerConfigData),
+		},
+	}
+	Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+}
+
+// generateDockerConfigJson creates the raw JSON string for .dockerconfigjson
+func generateDockerConfigJson(registry, username, password string) string {
+	authString := fmt.Sprintf("%s:%s", username, password)
+	encodedAuth := base64.StdEncoding.EncodeToString([]byte(authString))
+
+	auths := make(map[string]struct {
+		Auth string `json:"auth"`
+	})
+	auths[registry] = struct {
+		Auth string `json:"auth"`
+	}{Auth: encodedAuth}
+
+	dcj := dockerConfigJson{Auths: auths}
+	marshaled, err := json.Marshal(dcj)
+	Expect(err).To(Succeed())
+	return string(marshaled)
+}
