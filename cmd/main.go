@@ -224,7 +224,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.ApplicationPullServiceAccountCreator{
+	if err = (&controllers.ApplicationPullSecretCreator{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {

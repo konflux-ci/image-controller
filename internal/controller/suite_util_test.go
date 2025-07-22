@@ -20,7 +20,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -57,8 +56,6 @@ const (
 	defaultComponentName        = "test-component"
 	defaultComponentApplication = "test-application"
 )
-
-var authRegexp = regexp.MustCompile(`.*{"auth":"([A-Za-z0-9+/=]*)"}.*`)
 
 type imageRepositoryConfig struct {
 	ResourceKey     *types.NamespacedName
@@ -540,19 +537,70 @@ func waitQuayTeamUsersFinalizerOnConfigMap(usersConfigMapKey types.NamespacedNam
 }
 
 func verifySecretAuth(secretDockerconfigJson, expectedImage, robotAccountName, token string) {
-	var authDataJson interface{}
+	var authDataJson dockerConfigJson
 	Expect(json.Unmarshal([]byte(secretDockerconfigJson), &authDataJson)).To(Succeed())
-	Expect(secretDockerconfigJson).To(ContainSubstring(expectedImage))
-	secretAuthString, err := base64.StdEncoding.DecodeString(authRegexp.FindStringSubmatch(secretDockerconfigJson)[1])
+	Expect(authDataJson.Auths).To(HaveKey(expectedImage))
+	secretAuthString, err := base64.StdEncoding.DecodeString(authDataJson.Auths[expectedImage].Auth)
 	Expect(err).To(Succeed())
 	Expect(string(secretAuthString)).To(Equal(fmt.Sprintf("%s:%s", robotAccountName, token)))
 }
 
-func verifySecretSpec(secret *corev1.Secret, imageRepositoryName, secretName string) {
+func verifySecretAuthEmpty(secretDockerconfigJson string) {
+	var authDataJson dockerConfigJson
+	Expect(json.Unmarshal([]byte(secretDockerconfigJson), &authDataJson)).To(Succeed())
+	Expect(authDataJson.Auths).To(HaveLen(0))
+}
+
+func verifySecretSpec(secret *corev1.Secret, ownerKind, ownerName, secretName string) {
 	Expect(secret.OwnerReferences).To(HaveLen(1))
-	Expect(secret.OwnerReferences[0].Kind).To(Equal("ImageRepository"))
-	Expect(secret.OwnerReferences[0].Name).To(Equal(imageRepositoryName))
+	Expect(secret.OwnerReferences[0].Kind).To(Equal(ownerKind))
+	Expect(secret.OwnerReferences[0].Name).To(Equal(ownerName))
 	Expect(secret.Labels[InternalSecretLabelName]).To(Equal("true"))
 	Expect(secret.Name).To(Equal(secretName))
 	Expect(secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+}
+
+// createDockerConfigSecret creates secret, either SecretTypeDockerConfigJson or SecretTypeBasicAuth
+func createDockerConfigSecret(secretKey types.NamespacedName, dockerConfigData string, dockerCofingJsonSecret bool) {
+	var secret *corev1.Secret
+	if dockerCofingJsonSecret {
+		secret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretKey.Name,
+				Namespace: secretKey.Namespace,
+			},
+			Type: corev1.SecretTypeDockerConfigJson,
+			Data: map[string][]byte{
+				corev1.DockerConfigJsonKey: []byte(dockerConfigData),
+			},
+		}
+	} else {
+		secret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretKey.Name,
+				Namespace: secretKey.Namespace,
+			},
+			Type: corev1.SecretTypeBasicAuth,
+			Data: map[string][]byte{
+				corev1.BasicAuthUsernameKey: []byte("user"),
+				corev1.BasicAuthPasswordKey: []byte("password"),
+			},
+		}
+
+	}
+	Expect(k8sClient.Create(ctx, secret)).To(Succeed())
+}
+
+// generateDockerConfigJson creates the raw JSON string for .dockerconfigjson
+func generateDockerConfigJson(registry, username, password string) string {
+	authString := fmt.Sprintf("%s:%s", username, password)
+	encodedAuth := base64.StdEncoding.EncodeToString([]byte(authString))
+
+	auths := map[string]dockerConfigAuth{}
+	auths[registry] = dockerConfigAuth{encodedAuth}
+
+	dcj := dockerConfigJson{Auths: auths}
+	marshaled, err := json.Marshal(dcj)
+	Expect(err).To(Succeed())
+	return string(marshaled)
 }
