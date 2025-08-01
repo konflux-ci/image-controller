@@ -60,7 +60,7 @@ var _ = Describe("Component image controller", func() {
 		It("should prepare environment", func() {
 			createServiceAccount(imageTestNamespace, buildPipelineServiceAccountName)
 			createServiceAccount(imageTestNamespace, componentSaName)
-			createServiceAccount(imageTestNamespace, KonfluxIntegrationRunnerSAName)
+			createServiceAccount(imageTestNamespace, NamespaceServiceAccountName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {
@@ -155,7 +155,7 @@ var _ = Describe("Component image controller", func() {
 
 			createServiceAccount(imageTestNamespace, buildPipelineServiceAccountName)
 			createServiceAccount(imageTestNamespace, componentSaName)
-			createServiceAccount(imageTestNamespace, KonfluxIntegrationRunnerSAName)
+			createServiceAccount(imageTestNamespace, NamespaceServiceAccountName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {

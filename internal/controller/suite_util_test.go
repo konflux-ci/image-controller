@@ -394,6 +394,15 @@ func waitSecretExist(secretKey types.NamespacedName) *corev1.Secret {
 	return secret
 }
 
+func getSecret(secretKey types.NamespacedName) *corev1.Secret {
+	secret := &corev1.Secret{}
+	Eventually(func() bool {
+		Expect(k8sClient.Get(ctx, secretKey, secret)).Should(Succeed())
+		return secret.ResourceVersion != ""
+	}, timeout, interval).Should(BeTrue())
+	return secret
+}
+
 func deleteSecret(resourceKey types.NamespacedName) {
 	secret := &corev1.Secret{}
 	if err := k8sClient.Get(ctx, resourceKey, secret); err != nil {
@@ -557,17 +566,33 @@ func verifySecretSpec(secret *corev1.Secret, imageRepositoryName, secretName str
 	Expect(secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 }
 
-// createDockerConfigSecret creates a kubernetes.io/dockerconfigjson secret
-func createDockerConfigSecret(secretKey types.NamespacedName, dockerConfigData string) {
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretKey.Name,
-			Namespace: secretKey.Namespace,
-		},
-		Type: corev1.SecretTypeDockerConfigJson,
-		Data: map[string][]byte{
-			corev1.DockerConfigJsonKey: []byte(dockerConfigData),
-		},
+// createDockerConfigSecret creates secret, either SecretTypeDockerConfigJson or SecretTypeBasicAuth
+func createDockerConfigSecret(secretKey types.NamespacedName, dockerConfigData string, dockerCofingJsonSecret bool) {
+	var secret *corev1.Secret
+	if dockerCofingJsonSecret {
+		secret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretKey.Name,
+				Namespace: secretKey.Namespace,
+			},
+			Type: corev1.SecretTypeDockerConfigJson,
+			Data: map[string][]byte{
+				corev1.DockerConfigJsonKey: []byte(dockerConfigData),
+			},
+		}
+	} else {
+		secret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      secretKey.Name,
+				Namespace: secretKey.Namespace,
+			},
+			Type: corev1.SecretTypeBasicAuth,
+			Data: map[string][]byte{
+				corev1.BasicAuthUsernameKey: []byte("user"),
+				corev1.BasicAuthPasswordKey: []byte("password"),
+			},
+		}
+
 	}
 	Expect(k8sClient.Create(ctx, secret)).To(Succeed())
 }
