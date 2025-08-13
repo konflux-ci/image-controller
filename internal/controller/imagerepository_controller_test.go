@@ -138,12 +138,12 @@ var _ = Describe("Image repository controller", func() {
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
 			defer deleteSecret(pushSecretKey)
-			verifySecretSpec(pushSecret, imageRepository.GetName(), pushSecret.Name)
+			verifySecretSpec(pushSecret, "ImageRepository", imageRepository.GetName(), pushSecret.Name)
 
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
 			defer deleteSecret(pullSecretKey)
-			verifySecretSpec(pullSecret, imageRepository.GetName(), pullSecret.Name)
+			verifySecretSpec(pullSecret, "ImageRepository", imageRepository.GetName(), pullSecret.Name)
 
 			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 			Expect(sa.Secrets).To(HaveLen(1))
@@ -418,12 +418,12 @@ var _ = Describe("Image repository controller", func() {
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
 			defer deleteSecret(pushSecretKey)
-			verifySecretSpec(pushSecret, imageRepository.GetName(), pushSecret.Name)
+			verifySecretSpec(pushSecret, "ImageRepository", imageRepository.GetName(), pushSecret.Name)
 
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
 			defer deleteSecret(pullSecretKey)
-			verifySecretSpec(pullSecret, imageRepository.GetName(), pullSecret.Name)
+			verifySecretSpec(pullSecret, "ImageRepository", imageRepository.GetName(), pullSecret.Name)
 
 			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 			Expect(sa.Secrets).To(HaveLen(1))
@@ -479,8 +479,8 @@ var _ = Describe("Image repository controller", func() {
 		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-componentprovision", Namespace: defaultNamespace}
 		var componentKey = types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespace}
 		var applicationKey = types.NamespacedName{Name: defaultComponentApplication, Namespace: defaultNamespace}
-		var applicationSaName = getApplicationSaName(defaultComponentApplication)
 		var componentSaName = getComponentSaName(defaultComponentName)
+		var applicationSecretName = getApplicationPullSecretName(applicationKey.Name)
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClientToFails()
@@ -502,6 +502,7 @@ var _ = Describe("Image repository controller", func() {
 
 			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 			createServiceAccount(defaultNamespace, componentSaName)
+			createServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {
@@ -669,17 +670,24 @@ var _ = Describe("Image repository controller", func() {
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
 			defer deleteSecret(pushSecretKey)
-			verifySecretSpec(pushSecret, imageRepository.GetName(), pushSecret.Name)
+			verifySecretSpec(pushSecret, "ImageRepository", imageRepository.GetName(), pushSecret.Name)
 
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
 			defer deleteSecret(pullSecretKey)
-			verifySecretSpec(pullSecret, imageRepository.GetName(), pullSecret.Name)
+			verifySecretSpec(pullSecret, "ImageRepository", imageRepository.GetName(), pullSecret.Name)
+
+			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: imageRepository.Namespace}
+			applicationSecret := waitSecretExist(applicationSecretKey)
+			defer deleteSecret(applicationSecretKey)
+			verifySecretSpec(applicationSecret, "Application", applicationKey.Name, applicationSecretName)
 
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, pushToken)
 			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
+			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
 
 			pipelineSa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 			Expect(pipelineSa.Secrets).To(HaveLen(1))
@@ -689,11 +697,11 @@ var _ = Describe("Image repository controller", func() {
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
-			applicationSa := getServiceAccount(defaultNamespace, applicationSaName)
+			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			Expect(applicationSa.Secrets).To(HaveLen(1))
 			Expect(applicationSa.ImagePullSecrets).To(HaveLen(1))
-			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pullSecret.Name}))
-			Expect(applicationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: pullSecret.Name}))
+			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
+			Expect(applicationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: applicationSecretName}))
 		}
 
 		assertSecretsGoneFromServiceAccounts := func() {
@@ -703,9 +711,9 @@ var _ = Describe("Image repository controller", func() {
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(0))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
-			applicationSa := getServiceAccount(defaultNamespace, applicationSaName)
-			Expect(applicationSa.Secrets).To(HaveLen(0))
-			Expect(applicationSa.ImagePullSecrets).To(HaveLen(0))
+			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			Expect(applicationSa.Secrets).To(HaveLen(1))
+			Expect(applicationSa.ImagePullSecrets).To(HaveLen(1))
 		}
 
 		It("should provision image repository for component, without update component annotation", func() {
@@ -785,7 +793,7 @@ var _ = Describe("Image repository controller", func() {
 			assertProvisionRepository(true, false)
 		})
 
-		It("should regenerate tokens and update secrets", func() {
+		It("should regenerate tokens and update secrets (secrets don't exist)", func() {
 			newPushToken := "push-token5678"
 			newPullToken := "pull-token5678"
 
@@ -846,6 +854,9 @@ var _ = Describe("Image repository controller", func() {
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
 
+			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: imageRepository.Namespace}
+			applicationSecret := waitSecretExist(applicationSecretKey)
+
 			Expect(pushSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, newPushToken)
@@ -853,6 +864,87 @@ var _ = Describe("Image repository controller", func() {
 			Expect(pullSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
+
+			Expect(applicationSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
+		})
+
+		It("should regenerate tokens and update secrets (secrets exist)", func() {
+			newPushToken := "push-token98765"
+			newPullToken := "pull-token98765"
+
+			// Wait just for case it takes less than a second to regenerate credentials
+			time.Sleep(time.Second)
+
+			quay.RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) {
+				return true, nil
+			}
+			isRegenerateRobotAccountTokenForPushInvoked := false
+			isRegenerateRobotAccountTokenForPullInvoked := false
+			quay.RegenerateRobotAccountTokenFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
+				defer GinkgoRecover()
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(strings.HasPrefix(robotName, expectedRobotAccountPrefix)).To(BeTrue())
+				if strings.HasSuffix(robotName, "_pull") {
+					isRegenerateRobotAccountTokenForPullInvoked = true
+					return &quay.RobotAccount{Name: robotName, Token: newPullToken}, nil
+				}
+				isRegenerateRobotAccountTokenForPushInvoked = true
+				return &quay.RobotAccount{Name: robotName, Token: newPushToken}, nil
+			}
+			isGetNotificationsInvoked := false
+			quay.GetNotificationsFunc = func(organization, repository string) ([]quay.Notification, error) {
+				isGetNotificationsInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				return []quay.Notification{
+					{
+						Title:  "test-notification",
+						Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
+						Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
+						Config: quay.NotificationConfig{
+							Url: "http://test-url",
+						},
+					},
+				}, nil
+			}
+
+			imageRepository := getImageRepository(resourceKey)
+			oldTokenGenerationTimestamp := *imageRepository.Status.Credentials.GenerationTimestamp
+			regenerateToken := true
+			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
+			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+
+			Eventually(func() bool { return isRegenerateRobotAccountTokenForPushInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isRegenerateRobotAccountTokenForPullInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool {
+				imageRepository := getImageRepository(resourceKey)
+				return imageRepository.Spec.Credentials.RegenerateToken == nil &&
+					imageRepository.Status.Credentials.GenerationTimestamp != nil &&
+					*imageRepository.Status.Credentials.GenerationTimestamp != oldTokenGenerationTimestamp
+			}, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isGetNotificationsInvoked }, timeout, interval).Should(BeTrue())
+
+			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
+			pushSecret := waitSecretExist(pushSecretKey)
+
+			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
+			pullSecret := waitSecretExist(pullSecretKey)
+
+			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: imageRepository.Namespace}
+			applicationSecret := waitSecretExist(applicationSecretKey)
+
+			Expect(pushSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, newPushToken)
+
+			Expect(pullSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
+
+			Expect(applicationSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
 		})
 
 		It("verify and fix, secret is missing from SAs", func() {
@@ -863,7 +955,7 @@ var _ = Describe("Image repository controller", func() {
 			pipelineSa.Secrets = []corev1.ObjectReference{}
 			Expect(k8sClient.Update(ctx, &pipelineSa)).To(Succeed())
 
-			applicationSa := getServiceAccount(defaultNamespace, applicationSaName)
+			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			applicationSa.Secrets = []corev1.ObjectReference{}
 			applicationSa.ImagePullSecrets = []corev1.LocalObjectReference{}
 			Expect(k8sClient.Update(ctx, &applicationSa)).To(Succeed())
@@ -880,9 +972,8 @@ var _ = Describe("Image repository controller", func() {
 			waitImageRepositoryCredentialSectionRequestGone(resourceKey, "verify")
 
 			pushSecretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
-			pullSecretName := fmt.Sprintf("%s-image-pull", resourceKey.Name)
 			pipelineSa = getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			applicationSa = getServiceAccount(defaultNamespace, applicationSaName)
+			applicationSa = getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespace, componentSaName)
 			Expect(pipelineSa.Secrets).To(HaveLen(1))
 			Expect(pipelineSa.ImagePullSecrets).To(HaveLen(0))
@@ -892,14 +983,13 @@ var _ = Describe("Image repository controller", func() {
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
 			Expect(applicationSa.Secrets).To(HaveLen(1))
 			Expect(applicationSa.ImagePullSecrets).To(HaveLen(1))
-			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pullSecretName}))
-			Expect(applicationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: pullSecretName}))
+			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
+			Expect(applicationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: applicationSecretName}))
 		})
 
 		It("verify and fix, secret is duplicated in SA, also is in ImagePullSecrets", func() {
 			quay.ResetTestQuayClient()
 			pushSecretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
-			pullSecretName := fmt.Sprintf("%s-image-pull", resourceKey.Name)
 
 			// will remove duplicate, and remove it from ImagePullSecrets
 			pipelineSa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
@@ -907,9 +997,9 @@ var _ = Describe("Image repository controller", func() {
 			pipelineSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: pushSecretName}, {Name: pushSecretName}}
 			Expect(k8sClient.Update(ctx, &pipelineSa)).To(Succeed())
 
-			applicationSa := getServiceAccount(defaultNamespace, applicationSaName)
-			applicationSa.Secrets = []corev1.ObjectReference{{Name: pullSecretName}, {Name: pullSecretName}}
-			applicationSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: pullSecretName}, {Name: pullSecretName}}
+			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			applicationSa.Secrets = []corev1.ObjectReference{{Name: applicationSecretName}, {Name: applicationSecretName}}
+			applicationSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: applicationSecretName}, {Name: applicationSecretName}}
 			Expect(k8sClient.Update(ctx, &applicationSa)).To(Succeed())
 
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
@@ -925,7 +1015,7 @@ var _ = Describe("Image repository controller", func() {
 			waitImageRepositoryCredentialSectionRequestGone(resourceKey, "verify")
 
 			pipelineSa = getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			applicationSa = getServiceAccount(defaultNamespace, applicationSaName)
+			applicationSa = getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespace, componentSaName)
 			Expect(pipelineSa.Secrets).To(HaveLen(1))
 			Expect(pipelineSa.ImagePullSecrets).To(HaveLen(0))
@@ -935,8 +1025,8 @@ var _ = Describe("Image repository controller", func() {
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
 			Expect(applicationSa.Secrets).To(HaveLen(1))
 			Expect(applicationSa.ImagePullSecrets).To(HaveLen(1))
-			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pullSecretName}))
-			Expect(applicationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: pullSecretName}))
+			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
+			Expect(applicationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: applicationSecretName}))
 		})
 
 		It("should cleanup component repository", func() {
@@ -973,9 +1063,14 @@ var _ = Describe("Image repository controller", func() {
 			Expect(pipelinesSa.Secrets).To(HaveLen(0))
 			Expect(pipelinesSa.ImagePullSecrets).To(HaveLen(0))
 
-			applicationSa := getServiceAccount(defaultNamespace, applicationSaName)
-			Expect(applicationSa.Secrets).To(HaveLen(0))
-			Expect(applicationSa.ImagePullSecrets).To(HaveLen(0))
+			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			Expect(applicationSa.Secrets).To(HaveLen(1))
+			Expect(applicationSa.ImagePullSecrets).To(HaveLen(1))
+
+			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: defaultNamespace}
+			applicationSecret := waitSecretExist(applicationSecretKey)
+			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuthEmpty(applicationSecretDockerconfigJson)
 
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(0))
@@ -983,7 +1078,7 @@ var _ = Describe("Image repository controller", func() {
 
 			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespace})
-			deleteServiceAccount(types.NamespacedName{Name: applicationSaName, Namespace: defaultNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: NamespaceServiceAccountName, Namespace: defaultNamespace})
 		})
 	})
 
