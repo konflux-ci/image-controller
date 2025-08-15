@@ -15,3 +15,6 @@ configMapGenerator:
   - name: grafana-dashboard-image-repository-provision-failure
     files:
       - grafana-dashboard-image-repository-provision-failure.json
+  - name: grafana-dashboard-image-repository-quay-availability
+    files:
+      - grafana-dashboard-image-repository-quay-availability.json
