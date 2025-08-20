@@ -92,7 +92,7 @@ spec:
       description: Build a source image.
       name: build-source-image
       type: string
-    - default: 'false'
+    - default: 'true'
       description: Add built image into an OCI image index
       name: build-image-index
       type: string
@@ -104,6 +104,12 @@ spec:
       description: Path to a file with build arguments for buildah, see https://www.mankier.com/1/buildah-build#--build-arg-file
       name: build-args-file
       type: string
+    - default:
+      - linux/x86_64
+      - linux/arm64
+      description: List of platforms to build the container image on
+      name: build-platforms
+      type: array
     results:
     - description: ''
       name: IMAGE_URL
@@ -215,7 +221,12 @@ spec:
         workspace: git-auth
       - name: netrc
         workspace: netrc
-    - name: build-container
+    - matrix:
+        params:
+        - name: PLATFORM
+          value:
+          - $(params.build-platforms)
+      name: build-images
       params:
       - name: IMAGE
         value: $(params.output-image)
@@ -245,9 +256,9 @@ spec:
       taskRef:
         params:
         - name: name
-          value: buildah-oci-ta
+          value: buildah-remote-oci-ta
         - name: bundle
-          value: quay.io/konflux-ci/tekton-catalog/task-buildah-oci-ta:0.4@sha256:48b99ad18fd3bde2d22ec2c397d36c55e45ca90ddf1620c9e00bdee518e297bf
+          value: quay.io/konflux-ci/tekton-catalog/task-buildah-remote-oci-ta:0.4@sha256:153d73cd52e904962ff1d3c9b13eba9e8bd4ef38bb768853db5e5b0ada3230d4
         - name: kind
           value: task
         resolver: bundles
@@ -310,9 +321,9 @@ spec:
         value: $(params.build-image-index)
       - name: IMAGES
         value:
-        - $(tasks.build-container.results.IMAGE_URL)@$(tasks.build-container.results.IMAGE_DIGEST)
+        - $(tasks.build-images.results.IMAGE_REF[*])
       runAfter:
-      - build-container
+      - build-images
       taskRef:
         params:
         - name: name
