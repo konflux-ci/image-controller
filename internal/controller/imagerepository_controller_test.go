@@ -229,14 +229,25 @@ var _ = Describe("Image repository controller", func() {
 			}, timeout, interval).Should(BeTrue())
 		})
 
-		It("should revert image name if edited", func() {
+		It("should add message when image name was edited", func() {
 			imageRepository := getImageRepository(resourceKey)
 			imageRepository.Spec.Image.Name = "renamed"
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool {
 				imageRepository := getImageRepository(resourceKey)
-				return imageRepository.Spec.Image.Name == expectedImageName
+				return strings.HasPrefix(imageRepository.Status.Message, imageRepositoryNameChangedMessagePrefix)
+			}, timeout, interval).Should(BeTrue())
+		})
+
+		It("should remove message when image name is the same again", func() {
+			imageRepository := getImageRepository(resourceKey)
+			imageRepository.Spec.Image.Name = expectedImageName
+			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+
+			Eventually(func() bool {
+				imageRepository := getImageRepository(resourceKey)
+				return imageRepository.Status.Message == ""
 			}, timeout, interval).Should(BeTrue())
 		})
 
