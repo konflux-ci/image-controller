@@ -60,7 +60,9 @@ const (
 	waitForRelatedComponentInitialWindowDuration  = 2 * 60
 	waitForRelatedComponentFallbackWindowDuration = 60 * 60
 
-	componentSaNamePrefix = "build-pipeline-"
+	componentSaNamePrefix                   = "build-pipeline-"
+	imageRepositoryNameChangedMessagePrefix = "Image repository name changed after creation"
+	imageRepositoryNameChangedMessageSuffix = "That doesn't change image name in the registry. To do that, delete ImageRepository object and re-create it with new image name."
 )
 
 // ImageRepositoryReconciler reconciles a ImageRepository object
@@ -277,17 +279,31 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Make sure, that image repository name is the same as on creation.
-	// Do it here to avoid webhook creation.
+	// If it isn't set message
 	imageRepositoryName := strings.TrimPrefix(imageRepository.Status.Image.URL, fmt.Sprintf("quay.io/%s/", r.QuayOrganization))
 	if imageRepository.Spec.Image.Name != imageRepositoryName {
-		oldName := imageRepository.Spec.Image.Name
-		imageRepository.Spec.Image.Name = imageRepositoryName
-		if err := r.Client.Update(ctx, imageRepository); err != nil {
-			log.Error(err, "failed to revert image repository name", "OldName", oldName, "ExpectedName", imageRepositoryName, l.Action, l.ActionUpdate)
-			return ctrl.Result{}, err
+		imageNameDiffersMessage := fmt.Sprintf("%s from '%s' to '%s'. %s", imageRepositoryNameChangedMessagePrefix, imageRepositoryName, imageRepository.Spec.Image.Name, imageRepositoryNameChangedMessageSuffix)
+
+		if imageRepository.Status.Message != imageNameDiffersMessage {
+			imageRepository.Status.Message = imageNameDiffersMessage
+			if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+				log.Error(err, "failed to update imageRepository status message with image name change", l.Action, l.ActionUpdate)
+				return ctrl.Result{}, err
+			}
+			log.Info("added message about image change to imageRepository", "ImageRepository", imageRepository.ObjectMeta.Name)
+			return ctrl.Result{}, nil
 		}
-		log.Info("reverted image repository name", "OldName", oldName, "ExpectedName", imageRepositoryName, l.Action, l.ActionUpdate)
-		return ctrl.Result{}, nil
+	} else {
+		// Remove message about image changed, if it is the same
+		if strings.HasPrefix(imageRepository.Status.Message, imageRepositoryNameChangedMessagePrefix) {
+			imageRepository.Status.Message = ""
+			if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+				log.Error(err, "failed to update imageRepository remove message with image name change", l.Action, l.ActionUpdate)
+				return ctrl.Result{}, err
+			}
+			log.Info("removed message about image change from imageRepository", "ImageRepository", imageRepository.ObjectMeta.Name)
+			return ctrl.Result{}, nil
+		}
 	}
 
 	// Change image visibility if requested
