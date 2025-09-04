@@ -3,7 +3,7 @@ module github.com/konflux-ci/image-controller
 go 1.22.0
 
 require (
-	github.com/go-logr/logr v1.4.2
+	github.com/go-logr/logr v1.4.3
 	github.com/h2non/gock v1.2.0
 	github.com/onsi/ginkgo/v2 v2.19.0
 	github.com/onsi/gomega v1.33.1
