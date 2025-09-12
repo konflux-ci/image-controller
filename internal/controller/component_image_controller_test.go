@@ -59,7 +59,7 @@ var _ = Describe("Component image controller", func() {
 
 		It("should prepare environment", func() {
 			createServiceAccount(imageTestNamespace, componentSaName)
-			createServiceAccount(imageTestNamespace, NamespaceServiceAccountName)
+			createServiceAccount(imageTestNamespace, IntegrationTestsServiceAccountName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {
@@ -137,7 +137,7 @@ var _ = Describe("Component image controller", func() {
 
 			deleteImageRepository(imageRepositoryName)
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
-			deleteServiceAccount(types.NamespacedName{Name: NamespaceServiceAccountName, Namespace: imageTestNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: IntegrationTestsServiceAccountName, Namespace: imageTestNamespace})
 		})
 	})
 
@@ -152,7 +152,7 @@ var _ = Describe("Component image controller", func() {
 			createApplication(applicationConfig{ApplicationKey: applicationKey})
 
 			createServiceAccount(imageTestNamespace, componentSaName)
-			createServiceAccount(imageTestNamespace, NamespaceServiceAccountName)
+			createServiceAccount(imageTestNamespace, IntegrationTestsServiceAccountName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {
@@ -270,7 +270,7 @@ var _ = Describe("Component image controller", func() {
 			deleteComponent(resourceImageErrorKey)
 			deleteApplication(applicationKey)
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
-			deleteServiceAccount(types.NamespacedName{Name: NamespaceServiceAccountName, Namespace: imageTestNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: IntegrationTestsServiceAccountName, Namespace: imageTestNamespace})
 		})
 	})
 })

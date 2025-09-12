@@ -36,7 +36,10 @@ import (
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 )
 
-const NamespaceServiceAccountName = "konflux-integration-runner"
+const (
+	IntegrationTestsServiceAccountName = "konflux-integration-runner"
+	ApplicationSecretLinkToSaFinalizer = "application-secret-link-to-integration-tests-sa.appstudio.openshift.io/finalizer"
+)
 
 // dockerConfigJson represents the structure of a .dockerconfigjson secret
 type dockerConfigJson struct {
@@ -60,6 +63,7 @@ func (r *ApplicationPullSecretCreator) SetupWithManager(mgr ctrl.Manager) error 
 }
 
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=applications,verbs=get;list;watch
+//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=applications/finalizers,verbs=update
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
@@ -80,12 +84,34 @@ func (r *ApplicationPullSecretCreator) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// do nothing when application is to be deleted
+	applicationPullSecretName := getApplicationPullSecretName(application.Name)
+
 	if !application.DeletionTimestamp.IsZero() {
+		// remove application secret from SA
+		if err := r.unlinkApplicationSecretFromIntegrationTestsSa(ctx, applicationPullSecretName, application.Namespace); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		if controllerutil.ContainsFinalizer(application, ApplicationSecretLinkToSaFinalizer) {
+			controllerutil.RemoveFinalizer(application, ApplicationSecretLinkToSaFinalizer)
+			if err := r.Client.Update(ctx, application); err != nil {
+				log.Error(err, "failed to remove application finalizer", l.Action, l.ActionUpdate)
+				return ctrl.Result{}, err
+			}
+			log.Info("Application finalizer removed", l.Action, l.ActionDelete)
+		}
 		return ctrl.Result{}, nil
 	}
 
-	applicationPullSecretName := getApplicationPullSecretName(application.Name)
+	if !controllerutil.ContainsFinalizer(application, ApplicationSecretLinkToSaFinalizer) {
+		controllerutil.AddFinalizer(application, ApplicationSecretLinkToSaFinalizer)
+		if err := r.Client.Update(ctx, application); err != nil {
+			log.Error(err, "failed to add application finalizer", l.Action, l.ActionUpdate)
+			return ctrl.Result{}, err
+		}
+		log.Info("Application finalizer added", l.Action, l.ActionDelete)
+	}
+
 	applicationPullSecretExists, err := r.doesApplicationPullSecretExist(ctx, applicationPullSecretName, application)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -263,12 +289,12 @@ func (r *ApplicationPullSecretCreator) updateServiceAccountWithApplicationPullSe
 
 	// fetch namespace SA
 	namespaceServiceAccount := &corev1.ServiceAccount{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: NamespaceServiceAccountName, Namespace: namespace}, namespaceServiceAccount); err != nil {
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: IntegrationTestsServiceAccountName, Namespace: namespace}, namespaceServiceAccount); err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("Namespace ServiceAccount not found", "serviceAccountName", NamespaceServiceAccountName, "namespace", namespace)
+			log.Info("Namespace ServiceAccount not found", "serviceAccountName", IntegrationTestsServiceAccountName, "namespace", namespace)
 			return nil
 		}
-		log.Error(err, "failed to read namespace ServiceAccount", "serviceAccountName", NamespaceServiceAccountName, "namespace", namespace, l.Action, l.ActionView)
+		log.Error(err, "failed to read namespace ServiceAccount", "serviceAccountName", IntegrationTestsServiceAccountName, "namespace", namespace, l.Action, l.ActionView)
 		return err
 	}
 
@@ -325,4 +351,54 @@ func (r *ApplicationPullSecretCreator) doesApplicationPullSecretExist(ctx contex
 	}
 
 	return true, nil
+}
+
+// unlinkApplicationSecretFromIntegrationTestsSa ensures that the given secret is not linked with the integration tests service account.
+func (r *ApplicationPullSecretCreator) unlinkApplicationSecretFromIntegrationTestsSa(ctx context.Context, secretNameToRemove, namespace string) error {
+	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", IntegrationTestsServiceAccountName, "SecretName", secretNameToRemove)
+
+	serviceAccount := &corev1.ServiceAccount{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: IntegrationTestsServiceAccountName, Namespace: namespace}, serviceAccount)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		log.Error(err, "failed to read namespace service account", l.Action, l.ActionView)
+		return err
+	}
+
+	shouldUpdate := false
+	// Remove secret from secrets list
+	pushSecrets := []corev1.ObjectReference{}
+	for _, credentialSecret := range serviceAccount.Secrets {
+		// don't break and search for duplicities
+		if credentialSecret.Name == secretNameToRemove {
+			shouldUpdate = true
+			continue
+		}
+		pushSecrets = append(pushSecrets, credentialSecret)
+	}
+	serviceAccount.Secrets = pushSecrets
+
+	// Remove secret from pull secrets list
+	imagePullSecrets := []corev1.LocalObjectReference{}
+	for _, pullSecret := range serviceAccount.ImagePullSecrets {
+		// don't break and search for duplicities
+		if pullSecret.Name == secretNameToRemove {
+			shouldUpdate = true
+			continue
+		}
+		imagePullSecrets = append(imagePullSecrets, pullSecret)
+	}
+	serviceAccount.ImagePullSecrets = imagePullSecrets
+
+	if shouldUpdate {
+		if err := r.Client.Update(ctx, serviceAccount); err != nil {
+			log.Error(err, "failed to update service account", l.Action, l.ActionUpdate)
+			return err
+		}
+		log.Info("Removed secret link from service account", l.Action, l.ActionUpdate)
+	}
+
+	return nil
 }
