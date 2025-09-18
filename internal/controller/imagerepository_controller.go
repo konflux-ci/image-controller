@@ -49,7 +49,6 @@ const (
 
 	ImageRepositoryFinalizer = "appstudio.openshift.io/image-repository"
 
-	buildPipelineServiceAccountName      = "appstudio-pipeline"
 	updateComponentAnnotationName        = "image-controller.appstudio.redhat.com/update-component-image"
 	additionalUsersConfigMapName         = "image-controller-additional-users"
 	additionalUsersConfigMapKey          = "quay.io"
@@ -122,12 +121,6 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 		// Reread quay token
 		r.QuayClient = r.BuildQuayClient(log)
-
-		// unlink secret from pipeline SA
-		if err := r.unlinkSecretFromServiceAccount(ctx, buildPipelineServiceAccountName, imageRepository.Status.Credentials.PushSecretName, imageRepository.Namespace); err != nil {
-			log.Error(err, "failed to unlink secret from service account", "SaName", buildPipelineServiceAccountName, "SecretName", imageRepository.Status.Credentials.PushSecretName, l.Action, l.ActionUpdate)
-			return ctrl.Result{}, err
-		}
 
 		if isComponentLinked(imageRepository) {
 			// unlink secret from component SA
@@ -565,7 +558,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 	}
 
 	secretName := getSecretName(imageRepository, isPullOnly)
-	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, quayImageURL, isPullOnly); err != nil {
+	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, quayImageURL); err != nil {
 		return nil, err
 	}
 
@@ -665,7 +658,7 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx con
 	if isPullOnly {
 		secretName = imageRepository.Status.Credentials.PullSecretName
 	}
-	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, quayImageURL, isPullOnly); err != nil {
+	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, quayImageURL); err != nil {
 		return err
 	}
 
@@ -763,7 +756,7 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 	return err
 }
 
-func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, secretName string, robotAccount *quay.RobotAccount, imageURL string, isPull bool) error {
+func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, secretName string, robotAccount *quay.RobotAccount, imageURL string) error {
 	log := ctrllog.FromContext(ctx).WithValues("SecretName", secretName)
 
 	secret := &corev1.Secret{}
@@ -804,12 +797,6 @@ func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepos
 			return err
 		}
 		log.Info("Image repository secret updated")
-	}
-	if !isPull {
-		if err := r.linkSecretToServiceAccount(ctx, buildPipelineServiceAccountName, secretName, imageRepository.Namespace, false); err != nil {
-			log.Error(err, "failed to link secret to service account", "SaName", buildPipelineServiceAccountName, l.Action, l.ActionUpdate)
-			return err
-		}
 	}
 
 	return nil

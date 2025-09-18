@@ -38,7 +38,6 @@ var _ = Describe("Users config map controller", func() {
 
 		It("should prepare environment", func() {
 			createNamespace(configTestNamespace)
-			createServiceAccount(configTestNamespace, buildPipelineServiceAccountName)
 		})
 
 		It("team doesn't exist, requested 2 users, imageRepositories don't exist, create team with and add 2 users", func() {
