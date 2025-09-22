@@ -241,18 +241,6 @@ func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Conte
 	applicationName := imageRepository.Labels[ApplicationNameLabelName]
 	applicationPullSecretName := getApplicationPullSecretName(applicationName)
 
-	// link secret to service account if isn't linked already
-	if err := r.linkSecretToServiceAccount(ctx, buildPipelineServiceAccountName, pushSecretName, imageRepository.Namespace, false); err != nil {
-		log.Error(err, "failed to link secret to service account", buildPipelineServiceAccountName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
-		return err
-	}
-
-	// clean duplicate secret links and remove secret from ImagePullSecrets
-	if err := r.cleanUpSecretInServiceAccount(ctx, buildPipelineServiceAccountName, pushSecretName, imageRepository.Namespace, false); err != nil {
-		log.Error(err, "failed to clean up secret in service account", "saName", buildPipelineServiceAccountName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
-		return err
-	}
-
 	if isComponentLinked(imageRepository) {
 		// link secret to service account if isn't linked already
 		if err := r.linkSecretToServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace, false); err != nil {

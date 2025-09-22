@@ -58,16 +58,15 @@ var _ = Describe("Component image controller", func() {
 		})
 
 		It("should prepare environment", func() {
-			createServiceAccount(imageTestNamespace, buildPipelineServiceAccountName)
 			createServiceAccount(imageTestNamespace, componentSaName)
 			createServiceAccount(imageTestNamespace, NamespaceServiceAccountName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {
 				saList := getServiceAccountList(imageTestNamespace)
-				// there will be 3 service accounts
-				// appstudio-pipeline SA, component's SA and application's SA
-				return len(saList) == 3
+				// there will be 2 service accounts
+				// component's SA and application's SA
+				return len(saList) == 2
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 
 		})
@@ -137,7 +136,6 @@ var _ = Describe("Component image controller", func() {
 			Expect(component.Spec.ContainerImage).ToNot(BeEmpty())
 
 			deleteImageRepository(imageRepositoryName)
-			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: imageTestNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: NamespaceServiceAccountName, Namespace: imageTestNamespace})
 		})
@@ -153,14 +151,13 @@ var _ = Describe("Component image controller", func() {
 			quay.ResetTestQuayClient()
 			createApplication(applicationConfig{ApplicationKey: applicationKey})
 
-			createServiceAccount(imageTestNamespace, buildPipelineServiceAccountName)
 			createServiceAccount(imageTestNamespace, componentSaName)
 			createServiceAccount(imageTestNamespace, NamespaceServiceAccountName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {
 				saList := getServiceAccountList(imageTestNamespace)
-				return len(saList) == 3
+				return len(saList) == 2
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 
 		})
@@ -272,7 +269,6 @@ var _ = Describe("Component image controller", func() {
 		It("should clean environment", func() {
 			deleteComponent(resourceImageErrorKey)
 			deleteApplication(applicationKey)
-			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: imageTestNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: NamespaceServiceAccountName, Namespace: imageTestNamespace})
 		})

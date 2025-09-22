@@ -57,7 +57,6 @@ var _ = Describe("Image repository controller", func() {
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
-			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 		})
 
 		It("should provision image repository", func() {
@@ -144,11 +143,6 @@ var _ = Describe("Image repository controller", func() {
 			pullSecret := waitSecretExist(pullSecretKey)
 			defer deleteSecret(pullSecretKey)
 			verifySecretSpec(pullSecret, "ImageRepository", imageRepository.GetName(), pullSecret.Name)
-
-			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			Expect(sa.Secrets).To(HaveLen(1))
-			Expect(sa.ImagePullSecrets).To(HaveLen(0))
-			Expect(sa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
 
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, pushToken)
@@ -251,47 +245,6 @@ var _ = Describe("Image repository controller", func() {
 			}, timeout, interval).Should(BeTrue())
 		})
 
-		It("verify and fix, secret is missing from SA", func() {
-			// will add it to SA, but not to ImagePullSecrets
-			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			sa.Secrets = []corev1.ObjectReference{}
-			Expect(k8sClient.Update(ctx, &sa)).To(Succeed())
-
-			imageRepository := getImageRepository(resourceKey)
-			verifyLinking := true
-			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{VerifyLinking: &verifyLinking}
-			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
-
-			waitImageRepositoryCredentialSectionRequestGone(resourceKey, "verify")
-
-			secretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
-			sa = getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			Expect(sa.Secrets).To(HaveLen(1))
-			Expect(sa.ImagePullSecrets).To(HaveLen(0))
-			Expect(sa.Secrets).To(ContainElement(corev1.ObjectReference{Name: secretName}))
-		})
-
-		It("verify and fix, secret is duplicated in SA, also is in ImagePullSecrets", func() {
-			// will remove duplicate, and remove it from ImagePullSecrets
-			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			secretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
-			sa.Secrets = []corev1.ObjectReference{{Name: secretName}, {Name: secretName}}
-			sa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: secretName}, {Name: secretName}}
-			Expect(k8sClient.Update(ctx, &sa)).To(Succeed())
-
-			imageRepository := getImageRepository(resourceKey)
-			verifyLinking := true
-			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{VerifyLinking: &verifyLinking}
-			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
-
-			waitImageRepositoryCredentialSectionRequestGone(resourceKey, "verify")
-
-			sa = getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			Expect(sa.Secrets).To(HaveLen(1))
-			Expect(sa.ImagePullSecrets).To(HaveLen(0))
-			Expect(sa.Secrets).To(ContainElement(corev1.ObjectReference{Name: secretName}))
-		})
-
 		It("should cleanup repository", func() {
 			isDeleteRobotAccountForPushInvoked := false
 			isDeleteRobotAccountForPullInvoked := false
@@ -320,169 +273,6 @@ var _ = Describe("Image repository controller", func() {
 			Eventually(func() bool { return isDeleteRobotAccountForPullInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRobotAccountForPushInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
-
-			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			// verify that secret is unlinked
-			Expect(sa.Secrets).To(HaveLen(0))
-			Expect(sa.ImagePullSecrets).To(HaveLen(0))
-
-			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
-		})
-	})
-
-	Context("Image repository provision secret already linked in SA", func() {
-		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-islinked", Namespace: defaultNamespace}
-
-		BeforeEach(func() {
-			quay.ResetTestQuayClientToFails()
-		})
-
-		It("should prepare environment", func() {
-			pushToken = "push-token1234"
-			pullToken = "pull-token1234"
-			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
-			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
-			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
-			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-
-			// add push secret to SA
-			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			secretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
-			sa.Secrets = append(sa.Secrets, corev1.ObjectReference{Name: secretName})
-			Expect(k8sClient.Update(ctx, &sa)).To(Succeed())
-		})
-
-		It("should provision image repository", func() {
-			isCreateRepositoryInvoked := false
-			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
-				defer GinkgoRecover()
-				isCreateRepositoryInvoked = true
-				Expect(repository.Repository).To(Equal(expectedImageName))
-				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
-				Expect(repository.Visibility).To(Equal("public"))
-				Expect(repository.Description).ToNot(BeEmpty())
-				return &quay.Repository{Name: expectedImageName}, nil
-			}
-			isCreatePullRobotAccountInvoked := false
-			isCreatePushRobotAccountInvoked := false
-			quay.CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
-				defer GinkgoRecover()
-				Expect(organization).To(Equal(quay.TestQuayOrg))
-				Expect(strings.HasPrefix(robotName, expectedRobotAccountPrefix)).To(BeTrue())
-				if strings.HasSuffix(robotName, "_pull") {
-					isCreatePullRobotAccountInvoked = true
-					return &quay.RobotAccount{Name: robotName, Token: pullToken}, nil
-				}
-				isCreatePushRobotAccountInvoked = true
-				return &quay.RobotAccount{Name: robotName, Token: pushToken}, nil
-			}
-			isAddPushPermissionsToAccountInvoked := false
-			isAddPullPermissionsToAccountInvoked := false
-			quay.AddPermissionsForRepositoryToAccountFunc = func(organization, imageRepository, accountName string, isRobot, isWrite bool) error {
-				defer GinkgoRecover()
-				Expect(organization).To(Equal(quay.TestQuayOrg))
-				Expect(imageRepository).To(Equal(expectedImageName))
-				Expect(strings.HasPrefix(accountName, expectedRobotAccountPrefix)).To(BeTrue())
-				if strings.HasSuffix(accountName, "_pull") {
-					Expect(isWrite).To(BeFalse())
-					isAddPullPermissionsToAccountInvoked = true
-				} else {
-					Expect(isWrite).To(BeTrue())
-					isAddPushPermissionsToAccountInvoked = true
-				}
-				return nil
-			}
-
-			isCreateNotificationInvoked := false
-			quay.CreateNotificationFunc = func(organization, repository string, notification quay.Notification) (*quay.Notification, error) {
-				isCreateNotificationInvoked = true
-				Expect(organization).To(Equal(quay.TestQuayOrg))
-				return &quay.Notification{UUID: "uuid"}, nil
-			}
-			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
-
-			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isCreatePullRobotAccountInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isCreatePushRobotAccountInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isAddPushPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isAddPullPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeFalse())
-
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
-
-			imageRepository := getImageRepository(resourceKey)
-			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
-			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
-			Expect(imageRepository.OwnerReferences).To(HaveLen(0))
-			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
-			Expect(imageRepository.Status.Message).To(BeEmpty())
-			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
-			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
-			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
-			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
-			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
-			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HaveSuffix("_pull"))
-			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-image-pull"))
-			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
-			Expect(imageRepository.Status.Notifications).To(HaveLen(0))
-
-			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
-			pushSecret := waitSecretExist(pushSecretKey)
-			defer deleteSecret(pushSecretKey)
-			verifySecretSpec(pushSecret, "ImageRepository", imageRepository.GetName(), pushSecret.Name)
-
-			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
-			pullSecret := waitSecretExist(pullSecretKey)
-			defer deleteSecret(pullSecretKey)
-			verifySecretSpec(pullSecret, "ImageRepository", imageRepository.GetName(), pullSecret.Name)
-
-			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			Expect(sa.Secrets).To(HaveLen(1))
-			Expect(sa.ImagePullSecrets).To(HaveLen(0))
-			Expect(sa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
-
-			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
-			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, pushToken)
-
-			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
-			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
-		})
-
-		It("should cleanup repository", func() {
-			isDeleteRobotAccountForPushInvoked := false
-			isDeleteRobotAccountForPullInvoked := false
-			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
-				defer GinkgoRecover()
-				Expect(organization).To(Equal(quay.TestQuayOrg))
-				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
-				if strings.HasSuffix(robotAccountName, "_pull") {
-					isDeleteRobotAccountForPushInvoked = true
-				} else {
-					isDeleteRobotAccountForPullInvoked = true
-				}
-				return true, nil
-			}
-			isDeleteRepositoryInvoked := false
-			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
-				defer GinkgoRecover()
-				isDeleteRepositoryInvoked = true
-				Expect(organization).To(Equal(quay.TestQuayOrg))
-				Expect(imageRepository).To(Equal(expectedImageName))
-				return true, nil
-			}
-
-			deleteImageRepository(resourceKey)
-
-			Eventually(func() bool { return isDeleteRobotAccountForPullInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isDeleteRobotAccountForPushInvoked }, timeout, interval).Should(BeTrue())
-			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
-
-			sa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			// verify that secret is unlinked
-			Expect(sa.Secrets).To(HaveLen(0))
-			Expect(sa.ImagePullSecrets).To(HaveLen(0))
-
-			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
 		})
 	})
 
@@ -511,16 +301,15 @@ var _ = Describe("Image repository controller", func() {
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 
-			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 			createServiceAccount(defaultNamespace, componentSaName)
 			createServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {
 				saList := getServiceAccountList(defaultNamespace)
-				// there will be 3 service accounts
-				// appstudio-pipeline SA, component's SA and application's SA
-				return len(saList) == 3
+				// there will be 2 service accounts
+				// component's SA and application's SA
+				return len(saList) == 2
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 		})
 
@@ -700,10 +489,6 @@ var _ = Describe("Image repository controller", func() {
 			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
 
-			pipelineSa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			Expect(pipelineSa.Secrets).To(HaveLen(1))
-			Expect(pipelineSa.ImagePullSecrets).To(HaveLen(0))
-			Expect(pipelineSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
@@ -716,9 +501,6 @@ var _ = Describe("Image repository controller", func() {
 		}
 
 		assertSecretsGoneFromServiceAccounts := func() {
-			pipelineSa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			Expect(pipelineSa.Secrets).To(HaveLen(0))
-			Expect(pipelineSa.ImagePullSecrets).To(HaveLen(0))
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(0))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
@@ -961,16 +743,12 @@ var _ = Describe("Image repository controller", func() {
 		It("verify and fix, secret is missing from SAs", func() {
 			quay.ResetTestQuayClient()
 
-			// will add it to SA, but not to ImagePullSecrets
-			pipelineSa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			pipelineSa.Secrets = []corev1.ObjectReference{}
-			Expect(k8sClient.Update(ctx, &pipelineSa)).To(Succeed())
-
 			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			applicationSa.Secrets = []corev1.ObjectReference{}
 			applicationSa.ImagePullSecrets = []corev1.LocalObjectReference{}
 			Expect(k8sClient.Update(ctx, &applicationSa)).To(Succeed())
 
+			// will add it to SA, but not to ImagePullSecrets
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			componentSa.Secrets = []corev1.ObjectReference{}
 			Expect(k8sClient.Update(ctx, &componentSa)).To(Succeed())
@@ -983,12 +761,8 @@ var _ = Describe("Image repository controller", func() {
 			waitImageRepositoryCredentialSectionRequestGone(resourceKey, "verify")
 
 			pushSecretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
-			pipelineSa = getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 			applicationSa = getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespace, componentSaName)
-			Expect(pipelineSa.Secrets).To(HaveLen(1))
-			Expect(pipelineSa.ImagePullSecrets).To(HaveLen(0))
-			Expect(pipelineSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
@@ -1002,17 +776,12 @@ var _ = Describe("Image repository controller", func() {
 			quay.ResetTestQuayClient()
 			pushSecretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
 
-			// will remove duplicate, and remove it from ImagePullSecrets
-			pipelineSa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			pipelineSa.Secrets = []corev1.ObjectReference{{Name: pushSecretName}, {Name: pushSecretName}}
-			pipelineSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: pushSecretName}, {Name: pushSecretName}}
-			Expect(k8sClient.Update(ctx, &pipelineSa)).To(Succeed())
-
 			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			applicationSa.Secrets = []corev1.ObjectReference{{Name: applicationSecretName}, {Name: applicationSecretName}}
 			applicationSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: applicationSecretName}, {Name: applicationSecretName}}
 			Expect(k8sClient.Update(ctx, &applicationSa)).To(Succeed())
 
+			// will remove duplicate, and remove it from ImagePullSecrets
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			componentSa.Secrets = []corev1.ObjectReference{{Name: pushSecretName}, {Name: pushSecretName}}
 			componentSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: pushSecretName}, {Name: pushSecretName}}
@@ -1025,12 +794,8 @@ var _ = Describe("Image repository controller", func() {
 
 			waitImageRepositoryCredentialSectionRequestGone(resourceKey, "verify")
 
-			pipelineSa = getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 			applicationSa = getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespace, componentSaName)
-			Expect(pipelineSa.Secrets).To(HaveLen(1))
-			Expect(pipelineSa.ImagePullSecrets).To(HaveLen(0))
-			Expect(pipelineSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
@@ -1069,11 +834,6 @@ var _ = Describe("Image repository controller", func() {
 			Eventually(func() bool { return isDeleteRobotAccountForPullInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
-			// verify that secret is unlinked from SAs
-			pipelinesSa := getServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
-			Expect(pipelinesSa.Secrets).To(HaveLen(0))
-			Expect(pipelinesSa.ImagePullSecrets).To(HaveLen(0))
-
 			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
 			Expect(applicationSa.Secrets).To(HaveLen(1))
 			Expect(applicationSa.ImagePullSecrets).To(HaveLen(1))
@@ -1083,11 +843,11 @@ var _ = Describe("Image repository controller", func() {
 			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuthEmpty(applicationSecretDockerconfigJson)
 
+			// verify that secret is unlinked from SAs
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(0))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
 
-			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: NamespaceServiceAccountName, Namespace: defaultNamespace})
 		})
@@ -1105,7 +865,6 @@ var _ = Describe("Image repository controller", func() {
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
-			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 		})
 
 		It("should provision image repository", func() {
@@ -1312,7 +1071,6 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		It("should clean environment", func() {
-			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
 			deleteImageRepository(resourceKey)
 		})
 	})
@@ -1323,10 +1081,6 @@ var _ = Describe("Image repository controller", func() {
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
 			deleteImageRepository(resourceKey)
-		})
-
-		It("should prepare environment", func() {
-			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 		})
 
 		It("should create image repository with requested name", func() {
@@ -1644,10 +1398,6 @@ var _ = Describe("Image repository controller", func() {
 			Expect(nudgedComponentSa.Secrets).To(Equal([]corev1.ObjectReference{corev1.ObjectReference{Name: commonPushSecretName}}))
 			Expect(nudgedComponentSa.ImagePullSecrets).To(Equal([]corev1.LocalObjectReference{corev1.LocalObjectReference{Name: commonPullSecretName}}))
 		})
-
-		It("should clean environment", func() {
-			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
-		})
 	})
 
 	Context("Skip quay repository deletion", func() {
@@ -1656,10 +1406,6 @@ var _ = Describe("Image repository controller", func() {
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
 			deleteImageRepository(resourceKey)
-		})
-
-		It("should prepare environment", func() {
-			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 		})
 
 		It("don't remove repository if explicitly requested using annotation", func() {
@@ -1707,10 +1453,6 @@ var _ = Describe("Image repository controller", func() {
 			Expect(isDeleteRobotAccountInvoked).To(BeTrue())
 			Expect(isDeleteRepositoryInvoked).To(BeFalse())
 		})
-
-		It("should clean environment", func() {
-			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
-		})
 	})
 
 	Context("Image repository error scenarios", func() {
@@ -1726,8 +1468,6 @@ var _ = Describe("Image repository controller", func() {
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
 			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
-
-			createServiceAccount(defaultNamespace, buildPipelineServiceAccountName)
 		})
 
 		It("should permanently fail if private image repository requested on creation but quota exceeded", func() {
@@ -1825,10 +1565,6 @@ var _ = Describe("Image repository controller", func() {
 				ImageName: "wrong&name",
 			})
 			Expect(k8sClient.Create(ctx, imageRepository)).ToNot(Succeed())
-		})
-
-		It("should clean environment", func() {
-			deleteServiceAccount(types.NamespacedName{Name: buildPipelineServiceAccountName, Namespace: defaultNamespace})
 		})
 	})
 })
