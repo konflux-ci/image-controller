@@ -302,7 +302,7 @@ var _ = Describe("Image repository controller", func() {
 			expectedRobotAccountPrefix = strings.ReplaceAll(strings.ReplaceAll(expectedImageName, "-", "_"), "/", "_")
 
 			createServiceAccount(defaultNamespace, componentSaName)
-			createServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			createServiceAccount(defaultNamespace, IntegrationTestsServiceAccountName)
 
 			// wait for application SA to be created
 			Eventually(func() bool {
@@ -493,7 +493,7 @@ var _ = Describe("Image repository controller", func() {
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
-			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			applicationSa := getServiceAccount(defaultNamespace, IntegrationTestsServiceAccountName)
 			Expect(applicationSa.Secrets).To(HaveLen(1))
 			Expect(applicationSa.ImagePullSecrets).To(HaveLen(1))
 			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
@@ -504,7 +504,7 @@ var _ = Describe("Image repository controller", func() {
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(0))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
-			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			applicationSa := getServiceAccount(defaultNamespace, IntegrationTestsServiceAccountName)
 			Expect(applicationSa.Secrets).To(HaveLen(1))
 			Expect(applicationSa.ImagePullSecrets).To(HaveLen(1))
 		}
@@ -743,7 +743,7 @@ var _ = Describe("Image repository controller", func() {
 		It("verify and fix, secret is missing from SAs", func() {
 			quay.ResetTestQuayClient()
 
-			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			applicationSa := getServiceAccount(defaultNamespace, IntegrationTestsServiceAccountName)
 			applicationSa.Secrets = []corev1.ObjectReference{}
 			applicationSa.ImagePullSecrets = []corev1.LocalObjectReference{}
 			Expect(k8sClient.Update(ctx, &applicationSa)).To(Succeed())
@@ -761,7 +761,7 @@ var _ = Describe("Image repository controller", func() {
 			waitImageRepositoryCredentialSectionRequestGone(resourceKey, "verify")
 
 			pushSecretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
-			applicationSa = getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			applicationSa = getServiceAccount(defaultNamespace, IntegrationTestsServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
@@ -776,7 +776,7 @@ var _ = Describe("Image repository controller", func() {
 			quay.ResetTestQuayClient()
 			pushSecretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
 
-			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			applicationSa := getServiceAccount(defaultNamespace, IntegrationTestsServiceAccountName)
 			applicationSa.Secrets = []corev1.ObjectReference{{Name: applicationSecretName}, {Name: applicationSecretName}}
 			applicationSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: applicationSecretName}, {Name: applicationSecretName}}
 			Expect(k8sClient.Update(ctx, &applicationSa)).To(Succeed())
@@ -794,7 +794,7 @@ var _ = Describe("Image repository controller", func() {
 
 			waitImageRepositoryCredentialSectionRequestGone(resourceKey, "verify")
 
-			applicationSa = getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			applicationSa = getServiceAccount(defaultNamespace, IntegrationTestsServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
@@ -834,7 +834,7 @@ var _ = Describe("Image repository controller", func() {
 			Eventually(func() bool { return isDeleteRobotAccountForPullInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
-			applicationSa := getServiceAccount(defaultNamespace, NamespaceServiceAccountName)
+			applicationSa := getServiceAccount(defaultNamespace, IntegrationTestsServiceAccountName)
 			Expect(applicationSa.Secrets).To(HaveLen(1))
 			Expect(applicationSa.ImagePullSecrets).To(HaveLen(1))
 
@@ -849,7 +849,7 @@ var _ = Describe("Image repository controller", func() {
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
 
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespace})
-			deleteServiceAccount(types.NamespacedName{Name: NamespaceServiceAccountName, Namespace: defaultNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: IntegrationTestsServiceAccountName, Namespace: defaultNamespace})
 		})
 	})
 

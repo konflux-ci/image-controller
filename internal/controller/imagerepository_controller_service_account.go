@@ -255,14 +255,14 @@ func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Conte
 		}
 
 		// link secret to service account if isn't linked already
-		if err := r.linkSecretToServiceAccount(ctx, NamespaceServiceAccountName, applicationPullSecretName, imageRepository.Namespace, true); err != nil {
-			log.Error(err, "failed to link secret to service account", "saName", NamespaceServiceAccountName, "SecretName", applicationPullSecretName, l.Action, l.ActionUpdate)
+		if err := r.linkSecretToServiceAccount(ctx, IntegrationTestsServiceAccountName, applicationPullSecretName, imageRepository.Namespace, true); err != nil {
+			log.Error(err, "failed to link secret to service account", "saName", IntegrationTestsServiceAccountName, "SecretName", applicationPullSecretName, l.Action, l.ActionUpdate)
 			return err
 		}
 
 		// clean duplicate secret links
-		if err := r.cleanUpSecretInServiceAccount(ctx, NamespaceServiceAccountName, applicationPullSecretName, imageRepository.Namespace, true); err != nil {
-			log.Error(err, "failed to clean up secret in service account", "saName", NamespaceServiceAccountName, "SecretName", applicationPullSecretName, l.Action, l.ActionUpdate)
+		if err := r.cleanUpSecretInServiceAccount(ctx, IntegrationTestsServiceAccountName, applicationPullSecretName, imageRepository.Namespace, true); err != nil {
+			log.Error(err, "failed to clean up secret in service account", "saName", IntegrationTestsServiceAccountName, "SecretName", applicationPullSecretName, l.Action, l.ActionUpdate)
 			return err
 		}
 	}
