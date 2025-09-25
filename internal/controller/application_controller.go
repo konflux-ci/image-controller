@@ -62,7 +62,7 @@ func (r *ApplicationPullSecretCreator) SetupWithManager(mgr ctrl.Manager) error 
 		Complete(r)
 }
 
-//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=applications,verbs=get;list;watch
+//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=applications,verbs=get;list;watch;update
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=applications/finalizers,verbs=update
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories,verbs=get;list;watch
