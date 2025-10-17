@@ -11,7 +11,7 @@ require (
 	github.com/onsi/gomega v1.33.1
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redhat-appstudio/application-api v0.0.0-20231026192857-89515ad2504f
-	go.uber.org/zap v1.26.0
+	go.uber.org/zap v1.27.0
 	gotest.tools/v3 v3.5.0
 	k8s.io/api v0.31.0
 	k8s.io/apimachinery v0.31.0
