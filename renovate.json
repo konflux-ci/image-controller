@@ -16,6 +16,18 @@
         "github-actions"
       ],
       "automerge": true
+    },
+    {
+      "description": "Go minor updates",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "go minor dependencies"
+    },
+    {
+      "description": "Go patch updates",
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["patch"],
+      "groupName": "go patch dependencies"
     }
   ]
 }
