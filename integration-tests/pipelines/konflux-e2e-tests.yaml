@@ -169,9 +169,9 @@ spec:
         resolver: git
         params:
           - name: url
-            value: https://github.com/konflux-ci/tekton-integration-catalog.git
+            value: https://github.com/flacatus/tekton-integration-catalog.git
           - name: revision
-            value: main
+            value: add_m
           - name: pathInRepo
             value: tasks/store-pipeline-status/0.1/store-pipeline-status.yaml
       params:
