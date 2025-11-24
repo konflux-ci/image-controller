@@ -55,6 +55,9 @@ jobs:
         run: make test
       - name: Upload codecov report
         uses: codecov/codecov-action@v3.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: unit-tests
 
   test_prune_images:
     name: Run prune_images tests
