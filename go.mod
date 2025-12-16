@@ -7,10 +7,11 @@ toolchain go1.24.6
 require (
 	github.com/go-logr/logr v1.4.3
 	github.com/h2non/gock v1.2.0
+	github.com/konflux-ci/application-api v0.0.0-20251126155256-d24742e8b026
 	github.com/onsi/ginkgo/v2 v2.26.0
 	github.com/onsi/gomega v1.38.2
+	github.com/openshift/api v0.0.0-20221013123534-96eec44e1979
 	github.com/prometheus/client_golang v1.19.1
-	github.com/redhat-appstudio/application-api v0.0.0-20231026192857-89515ad2504f
 	go.uber.org/zap v1.27.0
 	gotest.tools/v3 v3.5.2
 	k8s.io/api v0.31.0

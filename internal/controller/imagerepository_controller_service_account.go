@@ -32,13 +32,18 @@ import (
 
 // linkSecretToServiceAccount ensures that the given secret is linked with the provided service account,
 // add also to ImagePullSecrets if requested
-func (r *ImageRepositoryReconciler) linkSecretToServiceAccount(ctx context.Context, saName, secretNameToAdd, namespace string, addImagePullSecret bool) error {
+func (r *ImageRepositoryReconciler) linkSecretToServiceAccount(ctx context.Context, saName, secretNameToAdd, namespace string, addImagePullSecret, notFoundOk bool) error {
 	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", saName, "SecretName", secretNameToAdd)
 
 	serviceAccount := &corev1.ServiceAccount{}
 	err := r.Client.Get(ctx, types.NamespacedName{Name: saName, Namespace: namespace}, serviceAccount)
 	if err != nil {
 		if errors.IsNotFound(err) {
+			if notFoundOk {
+				log.Info("Integration ServiceAccount not found")
+				return nil
+			}
+
 			log.Error(err, "service account doesn't exist yet", l.Action, l.ActionView)
 			return err
 		}
@@ -242,9 +247,9 @@ func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Conte
 	applicationPullSecretName := getApplicationPullSecretName(applicationName)
 
 	if isComponentLinked(imageRepository) {
-		// link secret to service account if isn't linked already
-		if err := r.linkSecretToServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace, false); err != nil {
-			log.Error(err, "failed to link secret to service account", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
+		// link secret to component service account if isn't linked already
+		if err := r.linkSecretToServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace, false, false); err != nil {
+			log.Error(err, "failed to link secret to component service account", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
 			return err
 		}
 
@@ -254,16 +259,18 @@ func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Conte
 			return err
 		}
 
-		// link secret to service account if isn't linked already
-		if err := r.linkSecretToServiceAccount(ctx, IntegrationTestsServiceAccountName, applicationPullSecretName, imageRepository.Namespace, true); err != nil {
-			log.Error(err, "failed to link secret to service account", "saName", IntegrationTestsServiceAccountName, "SecretName", applicationPullSecretName, l.Action, l.ActionUpdate)
-			return err
-		}
+		if applicationName != "" {
+			// link secret to integration service account if isn't linked already
+			if err := r.linkSecretToServiceAccount(ctx, IntegrationServiceAccountName, applicationPullSecretName, imageRepository.Namespace, true, true); err != nil {
+				log.Error(err, "failed to link secret to integration service account", "saName", IntegrationServiceAccountName, "SecretName", applicationPullSecretName, l.Action, l.ActionUpdate)
+				return err
+			}
 
-		// clean duplicate secret links
-		if err := r.cleanUpSecretInServiceAccount(ctx, IntegrationTestsServiceAccountName, applicationPullSecretName, imageRepository.Namespace, true); err != nil {
-			log.Error(err, "failed to clean up secret in service account", "saName", IntegrationTestsServiceAccountName, "SecretName", applicationPullSecretName, l.Action, l.ActionUpdate)
-			return err
+			// clean duplicate secret links
+			if err := r.cleanUpSecretInServiceAccount(ctx, IntegrationServiceAccountName, applicationPullSecretName, imageRepository.Namespace, true); err != nil {
+				log.Error(err, "failed to clean up secret in service account", "saName", IntegrationServiceAccountName, "SecretName", applicationPullSecretName, l.Action, l.ActionUpdate)
+				return err
+			}
 		}
 	}
 
