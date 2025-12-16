@@ -142,15 +142,15 @@ func TestGetRobotAccount(t *testing.T) {
 
 	robotAccount, err := quayClient.GetRobotAccount(quayOrgName, quayRobotAccountName)
 	if err != nil {
-		if err.Error() == "Could not find robot with specified username" {
-			t.Logf("Robot account %s does not exists", quayRobotAccountName)
-		} else {
-			t.Fatalf("Unknown error: %s\n", err.Error())
-		}
-	} else if robotAccount.Name == quayOrgName+"+"+quayRobotAccountName {
-		t.Logf("Robot account %s exists", quayRobotAccountName)
+		t.Fatalf("Unknown error: %s\n", err.Error())
 	} else {
-		t.Fatalf("Unexpected response: %v\n", robotAccount)
+		if robotAccount == nil {
+			t.Logf("Robot account %s does not exists", quayRobotAccountName)
+		} else if robotAccount.Name == quayOrgName+"+"+quayRobotAccountName {
+			t.Logf("Robot account %s exists", quayRobotAccountName)
+		} else {
+			t.Fatalf("Unexpected response: %v\n", robotAccount)
+		}
 	}
 }
 
@@ -173,6 +173,18 @@ func TestAddPermissionsToRobotAccount(t *testing.T) {
 	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
 
 	err := quayClient.AddPermissionsForRepositoryToAccount(quayOrgName, quayImageRepoName, quayRobotAccountName, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemovePermissionsFromRobotAccount(t *testing.T) {
+	if quayToken == "" {
+		return
+	}
+	quayClient := NewQuayClient(&http.Client{Transport: &http.Transport{}}, quayToken, quayApiUrl)
+
+	err := quayClient.RemovePermissionsForRepositoryFromAccount(quayOrgName, quayImageRepoName, quayRobotAccountName, true)
 	if err != nil {
 		t.Fatal(err)
 	}

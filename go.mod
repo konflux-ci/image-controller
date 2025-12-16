@@ -7,10 +7,11 @@ toolchain go1.24.6
 require (
 	github.com/go-logr/logr v1.4.3
 	github.com/h2non/gock v1.2.0
+	github.com/konflux-ci/application-api v0.0.0-20260312190025-5154ad273e17
+	github.com/konflux-ci/coverport/instrumentation/go v0.0.0-20251127103713-95b5b5e04a62
 	github.com/onsi/ginkgo/v2 v2.26.0
 	github.com/onsi/gomega v1.38.2
 	github.com/prometheus/client_golang v1.19.1
-	github.com/redhat-appstudio/application-api v0.0.0-20231026192857-89515ad2504f
 	go.uber.org/zap v1.27.0
 	gotest.tools/v3 v3.5.2
 	k8s.io/api v0.31.0
@@ -30,7 +31,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
-	github.com/evanphx/json-patch v4.5.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
@@ -56,7 +56,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/konflux-ci/coverport/instrumentation/go v0.0.0-20251127103713-95b5b5e04a62 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect

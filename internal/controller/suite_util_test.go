@@ -33,9 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
-	appstudioapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 )
 
 const (
@@ -149,7 +148,7 @@ type applicationConfig struct {
 	ApplicationKey types.NamespacedName
 }
 
-func getSampleApplicationData(config applicationConfig) *appstudioredhatcomv1alpha1.Application {
+func getSampleApplicationData(config applicationConfig) *compapiv1alpha1.Application {
 	name := config.ApplicationKey.Name
 	if name == "" {
 		name = defaultComponentApplication
@@ -159,7 +158,7 @@ func getSampleApplicationData(config applicationConfig) *appstudioredhatcomv1alp
 		namespace = defaultNamespace
 	}
 
-	return &appstudioredhatcomv1alpha1.Application{
+	return &compapiv1alpha1.Application{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "appstudio.redhat.com/v1alpha1",
 			Kind:       "Application",
@@ -172,7 +171,7 @@ func getSampleApplicationData(config applicationConfig) *appstudioredhatcomv1alp
 }
 
 // createApplication creates sample application resource and verifies it was properly created.
-func createApplication(config applicationConfig) *appstudioredhatcomv1alpha1.Application {
+func createApplication(config applicationConfig) *compapiv1alpha1.Application {
 	application := getSampleApplicationData(config)
 
 	Expect(k8sClient.Create(ctx, application)).Should(Succeed())
@@ -181,8 +180,8 @@ func createApplication(config applicationConfig) *appstudioredhatcomv1alpha1.App
 	return getApplication(applicationKey)
 }
 
-func getApplication(applicationKey types.NamespacedName) *appstudioredhatcomv1alpha1.Application {
-	application := &appstudioredhatcomv1alpha1.Application{}
+func getApplication(applicationKey types.NamespacedName) *compapiv1alpha1.Application {
+	application := &compapiv1alpha1.Application{}
 	Eventually(func() bool {
 		Expect(k8sClient.Get(ctx, applicationKey, application)).Should(Succeed())
 		return application.ResourceVersion != ""
@@ -192,7 +191,7 @@ func getApplication(applicationKey types.NamespacedName) *appstudioredhatcomv1al
 
 // deleteApplication deletes the specified application resource and verifies it was properly deleted
 func deleteApplication(applicationKey types.NamespacedName) {
-	application := &appstudioredhatcomv1alpha1.Application{}
+	application := &compapiv1alpha1.Application{}
 
 	// Check if the applicaiton exists
 	if err := k8sClient.Get(ctx, applicationKey, application); k8sErrors.IsNotFound(err) {
@@ -214,7 +213,7 @@ type componentConfig struct {
 	Annotations          map[string]string
 }
 
-func getSampleComponentData(config componentConfig) *appstudioapiv1alpha1.Component {
+func getSampleComponentData(config componentConfig) *compapiv1alpha1.Component {
 	name := config.ComponentKey.Name
 	if name == "" {
 		name = defaultComponentName
@@ -224,15 +223,12 @@ func getSampleComponentData(config componentConfig) *appstudioapiv1alpha1.Compon
 		namespace = defaultNamespace
 	}
 	application := config.ComponentApplication
-	if application == "" {
-		application = defaultComponentApplication
-	}
 	annotations := make(map[string]string)
 	if config.Annotations != nil {
 		annotations = config.Annotations
 	}
 
-	return &appstudioapiv1alpha1.Component{
+	return &compapiv1alpha1.Component{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "appstudio.redhat.com/v1alpha1",
 			Kind:       "Component",
@@ -242,7 +238,7 @@ func getSampleComponentData(config componentConfig) *appstudioapiv1alpha1.Compon
 			Namespace:   namespace,
 			Annotations: annotations,
 		},
-		Spec: appstudioapiv1alpha1.ComponentSpec{
+		Spec: compapiv1alpha1.ComponentSpec{
 			ComponentName: name,
 			Application:   application,
 		},
@@ -250,7 +246,7 @@ func getSampleComponentData(config componentConfig) *appstudioapiv1alpha1.Compon
 }
 
 // createComponent creates sample component resource and verifies it was properly created.
-func createComponent(config componentConfig) *appstudioapiv1alpha1.Component {
+func createComponent(config componentConfig) *compapiv1alpha1.Component {
 	component := getSampleComponentData(config)
 
 	Expect(k8sClient.Create(ctx, component)).Should(Succeed())
@@ -259,8 +255,8 @@ func createComponent(config componentConfig) *appstudioapiv1alpha1.Component {
 	return getComponent(componentKey)
 }
 
-func getComponent(componentKey types.NamespacedName) *appstudioapiv1alpha1.Component {
-	component := &appstudioapiv1alpha1.Component{}
+func getComponent(componentKey types.NamespacedName) *compapiv1alpha1.Component {
+	component := &compapiv1alpha1.Component{}
 	Eventually(func() bool {
 		Expect(k8sClient.Get(ctx, componentKey, component)).Should(Succeed())
 		return component.ResourceVersion != ""
@@ -270,7 +266,7 @@ func getComponent(componentKey types.NamespacedName) *appstudioapiv1alpha1.Compo
 
 // deleteComponent deletes the specified component resource and verifies it was properly deleted
 func deleteComponent(componentKey types.NamespacedName) {
-	component := &appstudioapiv1alpha1.Component{}
+	component := &compapiv1alpha1.Component{}
 
 	// Check if the component exists
 	if err := k8sClient.Get(ctx, componentKey, component); k8sErrors.IsNotFound(err) {
@@ -364,6 +360,15 @@ func createNamespace(name string) {
 	if err := k8sClient.Create(ctx, &namespace); err != nil && !k8sErrors.IsAlreadyExists(err) {
 		Fail(err.Error())
 	}
+}
+
+func getNamespace(name string) corev1.Namespace {
+	ns := corev1.Namespace{}
+	Eventually(func() bool {
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kubeSystemNamespace}, &ns)).To(Succeed())
+		return ns.ResourceVersion != ""
+	}, timeout, interval).Should(BeTrue())
+	return ns
 }
 
 func deleteNamespace(name string) {
@@ -552,9 +557,11 @@ func verifySecretAuthEmpty(secretDockerconfigJson string) {
 }
 
 func verifySecretSpec(secret *corev1.Secret, ownerKind, ownerName, secretName string) {
-	Expect(secret.OwnerReferences).To(HaveLen(1))
-	Expect(secret.OwnerReferences[0].Kind).To(Equal(ownerKind))
-	Expect(secret.OwnerReferences[0].Name).To(Equal(ownerName))
+	if ownerKind != "" && ownerName != "" {
+		Expect(secret.OwnerReferences).To(HaveLen(1))
+		Expect(secret.OwnerReferences[0].Kind).To(Equal(ownerKind))
+		Expect(secret.OwnerReferences[0].Name).To(Equal(ownerName))
+	}
 	Expect(secret.Labels[InternalSecretLabelName]).To(Equal("true"))
 	Expect(secret.Name).To(Equal(secretName))
 	Expect(secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))

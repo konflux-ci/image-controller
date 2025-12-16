@@ -36,6 +36,7 @@ type QuayService interface {
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
 	AddPermissionsForRepositoryToAccount(organization, imageRepository, accountName string, isRobot, isWrite bool) error
+	RemovePermissionsForRepositoryFromAccount(organization, imageRepository, accountName string, isRobot bool) error
 	ListPermissionsForRepository(organization, imageRepository string) (map[string]UserAccount, error)
 	AddReadPermissionsForRepositoryToTeam(organization, imageRepository, teamName string) error
 	ListRepositoryPermissionsForTeam(organization, teamName string) ([]TeamPermission, error)
@@ -285,9 +286,19 @@ func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*Ro
 	if err := resp.GetJson(data); err != nil {
 		return nil, err
 	}
+	statusCode := resp.GetStatusCode()
 
-	if resp.GetStatusCode() != http.StatusOK {
-		return nil, errors.New(data.Message)
+	if statusCode != http.StatusOK {
+		message := "Failed to get robot account"
+		if data.Message != "" {
+			message = data.Message
+		}
+
+		if statusCode == 400 && strings.Contains(message, "Could not find robot with specified username") {
+			return nil, nil
+		}
+
+		return nil, errors.New(message)
 	}
 
 	return data, nil
@@ -325,14 +336,24 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 			message = data.Message
 		} else if data.ErrorMessage != "" {
 			message = data.ErrorMessage
-		} else {
+		} else if data.Error != "" {
 			message = data.Error
 		}
 	}
 
 	// Handle robot account already exists case
 	if statusCode == 400 && strings.Contains(message, "Existing robot with name") {
-		return c.GetRobotAccount(organization, robotName)
+		robotAccount, err := c.GetRobotAccount(organization, robotName)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if robotAccount == nil {
+			return nil, fmt.Errorf("robot account doesn't exist anymore")
+		}
+
+		return robotAccount, nil
 	}
 
 	return nil, fmt.Errorf("failed to create robot account. Status code: %d, message: %s", statusCode, message)
@@ -379,12 +400,12 @@ func (c *QuayClient) ListPermissionsForRepository(organization, imageRepository 
 	}
 
 	if resp.GetStatusCode() != 200 {
-		var message string
+		message := "Failed to list permissions for repository"
 		data := &QuayError{}
 		if err := resp.GetJson(data); err == nil {
 			if data.ErrorMessage != "" {
 				message = data.ErrorMessage
-			} else {
+			} else if data.Error != "" {
 				message = data.Error
 			}
 		}
@@ -412,12 +433,12 @@ func (c *QuayClient) ListRepositoryPermissionsForTeam(organization, teamName str
 	}
 
 	if resp.GetStatusCode() != 200 {
-		var message string
+		message := "Failed to list repository permissions for team"
 		data := &QuayError{}
 		if err := resp.GetJson(data); err == nil {
 			if data.ErrorMessage != "" {
 				message = data.ErrorMessage
-			} else {
+			} else if data.Error != "" {
 				message = data.Error
 			}
 		} else {
@@ -454,12 +475,12 @@ func (c *QuayClient) AddUserToTeam(organization, teamName, userName string) (boo
 			return true, fmt.Errorf("failed to add user: %s, to the team team: %s, user doesn't exist", userName, teamName)
 		}
 
-		var message string
+		message := "Failed to add user to team"
 		data := &QuayError{}
 		if err := resp.GetJson(data); err == nil {
 			if data.ErrorMessage != "" {
 				message = data.ErrorMessage
-			} else {
+			} else if data.Error != "" {
 				message = data.Error
 			}
 		} else {
@@ -485,12 +506,12 @@ func (c *QuayClient) RemoveUserFromTeam(organization, teamName, userName string)
 		return nil
 	}
 
-	var message string
+	message := "Failed to remove user from team"
 	data := &QuayError{}
 	if err := resp.GetJson(data); err == nil {
 		if data.ErrorMessage != "" {
 			message = data.ErrorMessage
-		} else {
+		} else if data.Error != "" {
 			message = data.Error
 		}
 	} else {
@@ -513,12 +534,12 @@ func (c *QuayClient) DeleteTeam(organization, teamName string) error {
 		return nil
 	}
 
-	var message string
+	message := "Failed to delete team"
 	data := &QuayError{}
 	if err := resp.GetJson(data); err == nil {
 		if data.ErrorMessage != "" {
 			message = data.ErrorMessage
-		} else {
+		} else if data.Error != "" {
 			message = data.Error
 		}
 	} else {
@@ -549,12 +570,12 @@ func (c *QuayClient) EnsureTeam(organization, teamName string) ([]Member, error)
 	}
 
 	if resp.GetStatusCode() != 200 {
-		var message string
+		message := "Failed to create team"
 		data := &QuayError{}
 		if err := resp.GetJson(data); err == nil {
 			if data.ErrorMessage != "" {
 				message = data.ErrorMessage
-			} else {
+			} else if data.Error != "" {
 				message = data.Error
 			}
 		} else {
@@ -585,12 +606,12 @@ func (c *QuayClient) GetTeamMembers(organization, teamName string) ([]Member, er
 			return nil, nil
 		}
 
-		var message string
+		message := "Failed to get team members"
 		data := &QuayError{}
 		if err := resp.GetJson(data); err == nil {
 			if data.ErrorMessage != "" {
 				message = data.ErrorMessage
-			} else {
+			} else if data.Error != "" {
 				message = data.Error
 			}
 		} else {
@@ -637,20 +658,67 @@ func (c *QuayClient) AddPermissionsForRepositoryToAccount(organization, imageRep
 	if err != nil {
 		return err
 	}
+	statusCode := resp.GetStatusCode()
 
-	if resp.GetStatusCode() != 200 {
-		var message string
+	if statusCode != 200 {
+		message := "Failed to add permissions for repository to account"
 		data := &QuayError{}
 		if err := resp.GetJson(data); err == nil {
 			if data.ErrorMessage != "" {
 				message = data.ErrorMessage
-			} else {
+			} else if data.Error != "" {
 				message = data.Error
 			}
 		}
-		return fmt.Errorf("failed to add permissions to the account: %s. Status code: %d, message: %s", accountFullName, resp.GetStatusCode(), message)
+		return fmt.Errorf("failed to add permissions to the account: %s. Status code: %d, message: %s", accountFullName, statusCode, message)
 	}
 	return nil
+}
+
+// RemovePermissionsForRepositoryFromAccount removes for given account access to the given repository
+func (c *QuayClient) RemovePermissionsForRepositoryFromAccount(organization, imageRepository, accountName string, isRobot bool) error {
+	var accountFullName string
+	if isRobot {
+		if robotName, err := handleRobotName(accountName); err == nil {
+			accountFullName = organization + "+" + robotName
+		} else {
+			return err
+		}
+	} else {
+		accountFullName = accountName
+	}
+
+	url := fmt.Sprintf("%s/repository/%s/%s/permissions/user/%s", c.url, organization, imageRepository, accountFullName)
+
+	resp, err := c.doRequest(url, http.MethodDelete, nil)
+	if err != nil {
+		return err
+	}
+	statusCode := resp.GetStatusCode()
+
+	if statusCode == 204 || statusCode == 404 {
+		return nil
+	}
+
+	data := &QuayError{}
+	if err := resp.GetJson(data); err != nil {
+		return err
+	}
+
+	message := "Failed to remove permissions for user from repository"
+	if data.Message != "" {
+		message = data.Message
+	} else if data.ErrorMessage != "" {
+		message = data.ErrorMessage
+	} else if data.Error != "" {
+		message = data.Error
+	}
+
+	if statusCode == 400 && strings.Contains(message, "User does not have permission for repo") {
+		return nil
+	}
+
+	return errors.New(message)
 }
 
 // AddReadPermissionsForRepositoryToTeam allows given team read access to the given repository.
@@ -664,12 +732,12 @@ func (c *QuayClient) AddReadPermissionsForRepositoryToTeam(organization, imageRe
 	}
 
 	if resp.GetStatusCode() != 200 {
-		var message string
+		message := "Failed to add permissions for repository to team"
 		data := &QuayError{}
 		if err := resp.GetJson(data); err == nil {
 			if data.ErrorMessage != "" {
 				message = data.ErrorMessage
-			} else {
+			} else if data.Error != "" {
 				message = data.Error
 			}
 		} else {

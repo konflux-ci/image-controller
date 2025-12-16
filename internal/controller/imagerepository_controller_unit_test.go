@@ -220,7 +220,7 @@ func TestIsComponentLinked(t *testing.T) {
 			expect:          false,
 		},
 		{
-			name: "Should not be linked to component if application label missing",
+			name: "Should be linked to component even if application label missing",
 			imageRepository: &imagerepositoryv1alpha1.ImageRepository{
 				ObjectMeta: v1.ObjectMeta{
 					Labels: map[string]string{
@@ -228,7 +228,7 @@ func TestIsComponentLinked(t *testing.T) {
 					},
 				},
 			},
-			expect: false,
+			expect: true,
 		},
 		{
 			name: "Should not be linked to component if component label missing",
