@@ -461,7 +461,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	imageRepository.Status.Image.URL = quayImageURL
 
 	if imageRepository.Spec.Image.Visibility == "" {
-		imageRepository.Spec.Image.Visibility = imagerepositoryv1alpha1.ImageVisibilityPublic
+		imageRepository.Spec.Image.Visibility = imagerepositoryv1alpha1.ImageVisibilityPrivate
 	}
 	visibility := string(imageRepository.Spec.Image.Visibility)
 

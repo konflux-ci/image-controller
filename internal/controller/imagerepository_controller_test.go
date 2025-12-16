@@ -107,7 +107,7 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.Notification{UUID: "uuid"}, nil
 			}
 
-			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
+			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey, Visibility: "public"})
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreatePullRobotAccountInvoked }, timeout, interval).Should(BeTrue())
@@ -323,7 +323,7 @@ var _ = Describe("Image repository controller", func() {
 				isCreateRepositoryInvoked = true
 				Expect(repository.Repository).To(Equal(expectedImageName))
 				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
-				Expect(repository.Visibility).To(Equal("public"))
+				Expect(repository.Visibility).To(Equal("private"))
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
@@ -448,7 +448,7 @@ var _ = Describe("Image repository controller", func() {
 			}
 
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
-			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPrivate))
 			Expect(imageRepository.OwnerReferences).To(HaveLen(1))
 			Expect(imageRepository.OwnerReferences[0].Name).To(Equal(defaultComponentName))
 			Expect(imageRepository.OwnerReferences[0].Kind).To(Equal("Component"))
@@ -456,7 +456,7 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
-			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPrivate))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
@@ -910,7 +910,7 @@ var _ = Describe("Image repository controller", func() {
 				isCreateRepositoryInvoked = true
 				Expect(repository.Repository).To(Equal(expectedImageName))
 				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
-				Expect(repository.Visibility).To(Equal("public"))
+				Expect(repository.Visibility).To(Equal("private"))
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
@@ -926,12 +926,12 @@ var _ = Describe("Image repository controller", func() {
 
 			imageRepository := getImageRepository(resourceKey)
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
-			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPrivate))
 			Expect(imageRepository.OwnerReferences).To(HaveLen(0))
 			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
-			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPrivate))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
@@ -1129,7 +1129,7 @@ var _ = Describe("Image repository controller", func() {
 				isCreateRepositoryInvoked = true
 				Expect(repository.Repository).To(Equal(expectedImageName))
 				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
-				Expect(repository.Visibility).To(Equal("public"))
+				Expect(repository.Visibility).To(Equal("private"))
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
@@ -1155,7 +1155,7 @@ var _ = Describe("Image repository controller", func() {
 				isCreateRepositoryInvoked = true
 				Expect(repository.Repository).To(Equal(expectedImageName))
 				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
-				Expect(repository.Visibility).To(Equal("public"))
+				Expect(repository.Visibility).To(Equal("private"))
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
@@ -1543,7 +1543,7 @@ var _ = Describe("Image repository controller", func() {
 			quay.CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
 				return &quay.RobotAccount{Name: robotName, Token: pushToken}, nil
 			}
-			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
+			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey, Visibility: "public"})
 			defer deleteImageRepository(resourceKey)
 
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
