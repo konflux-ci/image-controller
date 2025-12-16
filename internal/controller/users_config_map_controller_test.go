@@ -26,8 +26,11 @@ import (
 
 var _ = Describe("Users config map controller", func() {
 	Context("Users config map creation, update, removal, namespace doesn't start with number", func() {
-		var configTestNamespace = "config-map-namespace-test"
-		var usersConfigMapKey = types.NamespacedName{Name: additionalUsersConfigMapName, Namespace: configTestNamespace}
+		var (
+			configTestNamespace = "config-map-namespace-test"
+			usersConfigMapKey   = types.NamespacedName{Name: additionalUsersConfigMapName, Namespace: configTestNamespace}
+			pacRouteKey         = types.NamespacedName{Name: pipelinesAsCodeRouteName, Namespace: pipelinesAsCodeNamespace}
+		)
 		expectedTeamName := "configxmapxnamespacextestxteam"
 		imageRepositoryName1 := fmt.Sprintf("%s/some1/image1", configTestNamespace)
 		imageRepositoryName2 := fmt.Sprintf("%s/other2/image2", configTestNamespace)
@@ -38,6 +41,8 @@ var _ = Describe("Users config map controller", func() {
 
 		It("should prepare environment", func() {
 			createNamespace(configTestNamespace)
+			createNamespace(pipelinesAsCodeNamespace)
+			createRoute(pacRouteKey, "pac.host.domain.com")
 		})
 
 		It("team doesn't exist, requested 2 users, imageRepositories don't exist, create team with and add 2 users", func() {

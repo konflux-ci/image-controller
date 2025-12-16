@@ -33,9 +33,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	appstudioapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
-	appstudioapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
-	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	routev1 "github.com/openshift/api/route/v1"
 )
 
 const (
@@ -149,7 +149,7 @@ type applicationConfig struct {
 	ApplicationKey types.NamespacedName
 }
 
-func getSampleApplicationData(config applicationConfig) *appstudioredhatcomv1alpha1.Application {
+func getSampleApplicationData(config applicationConfig) *appstudioapiv1alpha1.Application {
 	name := config.ApplicationKey.Name
 	if name == "" {
 		name = defaultComponentApplication
@@ -159,7 +159,7 @@ func getSampleApplicationData(config applicationConfig) *appstudioredhatcomv1alp
 		namespace = defaultNamespace
 	}
 
-	return &appstudioredhatcomv1alpha1.Application{
+	return &appstudioapiv1alpha1.Application{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "appstudio.redhat.com/v1alpha1",
 			Kind:       "Application",
@@ -172,7 +172,7 @@ func getSampleApplicationData(config applicationConfig) *appstudioredhatcomv1alp
 }
 
 // createApplication creates sample application resource and verifies it was properly created.
-func createApplication(config applicationConfig) *appstudioredhatcomv1alpha1.Application {
+func createApplication(config applicationConfig) *appstudioapiv1alpha1.Application {
 	application := getSampleApplicationData(config)
 
 	Expect(k8sClient.Create(ctx, application)).Should(Succeed())
@@ -181,8 +181,8 @@ func createApplication(config applicationConfig) *appstudioredhatcomv1alpha1.App
 	return getApplication(applicationKey)
 }
 
-func getApplication(applicationKey types.NamespacedName) *appstudioredhatcomv1alpha1.Application {
-	application := &appstudioredhatcomv1alpha1.Application{}
+func getApplication(applicationKey types.NamespacedName) *appstudioapiv1alpha1.Application {
+	application := &appstudioapiv1alpha1.Application{}
 	Eventually(func() bool {
 		Expect(k8sClient.Get(ctx, applicationKey, application)).Should(Succeed())
 		return application.ResourceVersion != ""
@@ -192,7 +192,7 @@ func getApplication(applicationKey types.NamespacedName) *appstudioredhatcomv1al
 
 // deleteApplication deletes the specified application resource and verifies it was properly deleted
 func deleteApplication(applicationKey types.NamespacedName) {
-	application := &appstudioredhatcomv1alpha1.Application{}
+	application := &appstudioapiv1alpha1.Application{}
 
 	// Check if the applicaiton exists
 	if err := k8sClient.Get(ctx, applicationKey, application); k8sErrors.IsNotFound(err) {
@@ -224,9 +224,6 @@ func getSampleComponentData(config componentConfig) *appstudioapiv1alpha1.Compon
 		namespace = defaultNamespace
 	}
 	application := config.ComponentApplication
-	if application == "" {
-		application = defaultComponentApplication
-	}
 	annotations := make(map[string]string)
 	if config.Annotations != nil {
 		annotations = config.Annotations
@@ -603,4 +600,20 @@ func generateDockerConfigJson(registry, username, password string) string {
 	marshaled, err := json.Marshal(dcj)
 	Expect(err).To(Succeed())
 	return string(marshaled)
+}
+
+func createRoute(routeKey types.NamespacedName, host string) {
+	route := routev1.Route{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      routeKey.Name,
+			Namespace: routeKey.Namespace,
+		},
+		Spec: routev1.RouteSpec{
+			Host: host,
+		},
+	}
+
+	if err := k8sClient.Create(ctx, &route); err != nil && !k8sErrors.IsAlreadyExists(err) {
+		Fail(err.Error())
+	}
 }

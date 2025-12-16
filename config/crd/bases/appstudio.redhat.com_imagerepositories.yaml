@@ -49,6 +49,11 @@ spec:
               credentials:
                 description: Credentials management.
                 properties:
+                  regenerate-namespace-pull-token:
+                    description: |-
+                      RegenerateNamespacePullToken defines a request to refresh namespace pull robot credentials.
+                      The field gets cleared after the refresh.
+                    type: boolean
                   regenerate-token:
                     description: |-
                       RegenerateToken defines a request to refresh image accessing credentials.
