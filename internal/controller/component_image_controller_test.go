@@ -44,10 +44,6 @@ var _ = Describe("Component image controller", func() {
 			Name:      fmt.Sprintf("imagerepository-for-%s-%s", defaultComponentApplication, resourceImageProvisionKey.Name),
 			Namespace: resourceImageProvisionKey.Namespace,
 		}
-		var imageRepositoryWithoutApplicationName = types.NamespacedName{
-			Name:      fmt.Sprintf("imagerepository-for-%s", resourceImageProvisionKey.Name),
-			Namespace: resourceImageProvisionKey.Namespace,
-		}
 		var applicationKey = types.NamespacedName{Name: defaultComponentApplication, Namespace: imageTestNamespace}
 		var componentSaName = getComponentSaName(resourceImageProvisionKey.Name)
 
@@ -78,8 +74,7 @@ var _ = Describe("Component image controller", func() {
 		It("should do image repository provision", func() {
 			expectedVisibility := imagerepositoryv1alpha1.ImageVisibility("private")
 			createComponent(componentConfig{
-				ComponentKey:         resourceImageProvisionKey,
-				ComponentApplication: defaultComponentApplication,
+				ComponentKey: resourceImageProvisionKey,
 				Annotations: map[string]string{
 					GenerateImageAnnotationName: "{\"visibility\": \"private\"}",
 				},
@@ -109,45 +104,10 @@ var _ = Describe("Component image controller", func() {
 			deleteImageRepository(imageRepositoryName)
 		})
 
-		It("should do image repository provision, component doesn't have application", func() {
-			expectedVisibility := imagerepositoryv1alpha1.ImageVisibility("private")
-			createComponent(componentConfig{
-				ComponentKey: resourceImageProvisionKey,
-				Annotations: map[string]string{
-					GenerateImageAnnotationName: "{\"visibility\": \"private\"}",
-				},
-			})
-			// wait for component_image_controller to finish
-			waitComponentAnnotationGone(resourceImageProvisionKey, GenerateImageAnnotationName)
-
-			imageRepositoriesList := &imagerepositoryv1alpha1.ImageRepositoryList{}
-			Expect(k8sClient.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: resourceImageProvisionKey.Namespace})).To(Succeed())
-			Expect(imageRepositoriesList.Items).To(HaveLen(1))
-
-			component := getComponent(resourceImageProvisionKey)
-			// wait for imagerepository_controller to finish
-			waitImageRepositoryFinalizerOnImageRepository(imageRepositoryWithoutApplicationName)
-			imageRepository := getImageRepository(imageRepositoryWithoutApplicationName)
-
-			_, applicationLabelExists := imageRepository.ObjectMeta.Labels[ApplicationNameLabelName]
-			Expect(applicationLabelExists).To(BeFalse())
-			Expect(imageRepository.ObjectMeta.Labels[ComponentNameLabelName]).To(Equal(component.Name))
-			Expect(imageRepository.Spec.Image.Visibility).To(Equal(expectedVisibility))
-			Expect(imageRepository.ObjectMeta.OwnerReferences[0].UID).To(Equal(component.UID))
-			Expect(imageRepository.ObjectMeta.Annotations[updateComponentAnnotationName]).To(BeEmpty())
-
-			component = getComponent(resourceImageProvisionKey)
-			Expect(component.Annotations[ImageAnnotationName]).To(BeEmpty())
-			Expect(component.Spec.ContainerImage).ToNot(BeEmpty())
-
-			deleteImageRepository(imageRepositoryWithoutApplicationName)
-		})
-
 		It("should accept deprecated true value for repository options", func() {
 			expectedVisibility := imagerepositoryv1alpha1.ImageVisibility("public")
 			createComponent(componentConfig{
-				ComponentKey:         resourceImageProvisionKey,
-				ComponentApplication: defaultComponentApplication,
+				ComponentKey: resourceImageProvisionKey,
 				Annotations: map[string]string{
 					GenerateImageAnnotationName: "true",
 				},
@@ -203,7 +163,7 @@ var _ = Describe("Component image controller", func() {
 		})
 
 		It("should do nothing if generate annotation is not set", func() {
-			createComponent(componentConfig{ComponentKey: resourceImageErrorKey, ComponentApplication: defaultComponentApplication})
+			createComponent(componentConfig{ComponentKey: resourceImageErrorKey})
 
 			time.Sleep(ensureTimeout)
 			waitComponentAnnotationGone(resourceImageErrorKey, GenerateImageAnnotationName)
