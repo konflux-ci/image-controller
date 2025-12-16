@@ -33,9 +33,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	appstudioapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
-	appstudioredhatcomv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
+	appstudioapiv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
+	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 )
 
 const (
@@ -224,6 +224,9 @@ func getSampleComponentData(config componentConfig) *appstudioapiv1alpha1.Compon
 		namespace = defaultNamespace
 	}
 	application := config.ComponentApplication
+	if application == "" {
+		application = defaultComponentApplication
+	}
 	annotations := make(map[string]string)
 	if config.Annotations != nil {
 		annotations = config.Annotations
@@ -388,13 +391,6 @@ func waitSecretExist(secretKey types.NamespacedName) *corev1.Secret {
 	return secret
 }
 
-func waitSecretGone(secretKey types.NamespacedName) {
-	secret := &corev1.Secret{}
-	Eventually(func() bool {
-		return k8sErrors.IsNotFound(k8sClient.Get(ctx, secretKey, secret))
-	}, timeout, interval).Should(BeTrue())
-}
-
 func deleteSecret(resourceKey types.NamespacedName) {
 	secret := &corev1.Secret{}
 	if err := k8sClient.Get(ctx, resourceKey, secret); err != nil {
@@ -556,11 +552,9 @@ func verifySecretAuthEmpty(secretDockerconfigJson string) {
 }
 
 func verifySecretSpec(secret *corev1.Secret, ownerKind, ownerName, secretName string) {
-	if ownerKind != "" && ownerName != "" {
-		Expect(secret.OwnerReferences).To(HaveLen(1))
-		Expect(secret.OwnerReferences[0].Kind).To(Equal(ownerKind))
-		Expect(secret.OwnerReferences[0].Name).To(Equal(ownerName))
-	}
+	Expect(secret.OwnerReferences).To(HaveLen(1))
+	Expect(secret.OwnerReferences[0].Kind).To(Equal(ownerKind))
+	Expect(secret.OwnerReferences[0].Name).To(Equal(ownerName))
 	Expect(secret.Labels[InternalSecretLabelName]).To(Equal("true"))
 	Expect(secret.Name).To(Equal(secretName))
 	Expect(secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
@@ -574,9 +568,6 @@ func createDockerConfigSecret(secretKey types.NamespacedName, dockerConfigData s
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      secretKey.Name,
 				Namespace: secretKey.Namespace,
-				Labels: map[string]string{
-					InternalSecretLabelName: "true",
-				},
 			},
 			Type: corev1.SecretTypeDockerConfigJson,
 			Data: map[string][]byte{
@@ -602,13 +593,11 @@ func createDockerConfigSecret(secretKey types.NamespacedName, dockerConfigData s
 
 // generateDockerConfigJson creates the raw JSON string for .dockerconfigjson
 func generateDockerConfigJson(registry, username, password string) string {
-	auths := map[string]dockerConfigAuth{}
+	authString := fmt.Sprintf("%s:%s", username, password)
+	encodedAuth := base64.StdEncoding.EncodeToString([]byte(authString))
 
-	if registry != "" && username != "" && password != "" {
-		authString := fmt.Sprintf("%s:%s", username, password)
-		encodedAuth := base64.StdEncoding.EncodeToString([]byte(authString))
-		auths[registry] = dockerConfigAuth{encodedAuth}
-	}
+	auths := map[string]dockerConfigAuth{}
+	auths[registry] = dockerConfigAuth{encodedAuth}
 
 	dcj := dockerConfigJson{Auths: auths}
 	marshaled, err := json.Marshal(dcj)

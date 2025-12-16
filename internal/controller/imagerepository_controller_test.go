@@ -286,7 +286,7 @@ var _ = Describe("Image repository controller", func() {
 		BeforeEach(func() {
 			quay.ResetTestQuayClientToFails()
 			createApplication(applicationConfig{})
-			createComponent(componentConfig{ComponentApplication: defaultComponentApplication})
+			createComponent(componentConfig{})
 		})
 
 		AfterEach(func() {
@@ -313,7 +313,7 @@ var _ = Describe("Image repository controller", func() {
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 		})
 
-		assertProvisionRepository := func(updateComponentAnnotation, grantRepoPermission, checkNamespaceSecret bool) {
+		assertProvisionRepository := func(updateComponentAnnotation, grantRepoPermission bool) {
 			quay.RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) {
 				return true, nil
 			}
@@ -489,18 +489,6 @@ var _ = Describe("Image repository controller", func() {
 			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
 
-			namespaceSecretName := namespacePullSecretName
-			namespaceSecretKey := types.NamespacedName{Name: namespaceSecretName, Namespace: defaultNamespace}
-
-			if checkNamespaceSecret {
-				namespaceSecret := waitSecretExist(namespaceSecretKey)
-				verifySecretSpec(namespaceSecret, "", "", namespaceSecretName)
-				namespaceSecretDockerconfigJson := string(namespaceSecret.Data[corev1.DockerConfigJsonKey])
-				verifySecretAuth(namespaceSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
-			} else {
-				waitSecretGone(namespaceSecretKey)
-			}
-
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
@@ -522,7 +510,7 @@ var _ = Describe("Image repository controller", func() {
 		}
 
 		It("should provision image repository for component, without update component annotation", func() {
-			assertProvisionRepository(false, false, false)
+			assertProvisionRepository(false, false)
 
 			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
 				return true, nil
@@ -572,7 +560,7 @@ var _ = Describe("Image repository controller", func() {
 			Eventually(func() int { return countAddUserToTeamInvoked }, timeout, interval).Should(Equal(2))
 			waitQuayTeamUsersFinalizerOnConfigMap(usersConfigMapKey)
 
-			assertProvisionRepository(true, true, false)
+			assertProvisionRepository(true, true)
 
 			quay.DeleteTeamFunc = func(organization, teamName string) error {
 				defer GinkgoRecover()
@@ -594,13 +582,8 @@ var _ = Describe("Image repository controller", func() {
 			assertSecretsGoneFromServiceAccounts()
 		})
 
-		It("should provision image repository for component, with update component annotation, update also namespace secret", func() {
-			namespaceSecretKey := types.NamespacedName{Name: namespacePullSecretName, Namespace: defaultNamespace}
-			namespaceSecretEmptyData := generateDockerConfigJson("", "", "")
-			// namespace secret will exist also for following tests
-			createDockerConfigSecret(namespaceSecretKey, namespaceSecretEmptyData, true)
-
-			assertProvisionRepository(true, false, true)
+		It("should provision image repository for component, with update component annotation", func() {
+			assertProvisionRepository(true, false)
 		})
 
 		It("should regenerate tokens and update secrets (secrets don't exist)", func() {
@@ -667,9 +650,6 @@ var _ = Describe("Image repository controller", func() {
 			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: imageRepository.Namespace}
 			applicationSecret := waitSecretExist(applicationSecretKey)
 
-			namespaceSecretKey := types.NamespacedName{Name: namespacePullSecretName, Namespace: defaultNamespace}
-			namespaceSecret := waitSecretExist(namespaceSecretKey)
-
 			Expect(pushSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, newPushToken)
@@ -681,10 +661,6 @@ var _ = Describe("Image repository controller", func() {
 			Expect(applicationSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
-
-			Expect(namespaceSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
-			namespaceSecretDockerconfigJson := string(namespaceSecret.Data[corev1.DockerConfigJsonKey])
-			verifySecretAuth(namespaceSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
 		})
 
 		It("should regenerate tokens and update secrets (secrets exist)", func() {
@@ -751,9 +727,6 @@ var _ = Describe("Image repository controller", func() {
 			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: imageRepository.Namespace}
 			applicationSecret := waitSecretExist(applicationSecretKey)
 
-			namespaceSecretKey := types.NamespacedName{Name: namespacePullSecretName, Namespace: defaultNamespace}
-			namespaceSecret := waitSecretExist(namespaceSecretKey)
-
 			Expect(pushSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, newPushToken)
@@ -765,10 +738,6 @@ var _ = Describe("Image repository controller", func() {
 			Expect(applicationSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
-
-			Expect(namespaceSecret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
-			namespaceSecretDockerconfigJson := string(namespaceSecret.Data[corev1.DockerConfigJsonKey])
-			verifySecretAuth(namespaceSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
 		})
 
 		It("verify and fix, secret is missing from SAs", func() {
@@ -873,11 +842,6 @@ var _ = Describe("Image repository controller", func() {
 			applicationSecret := waitSecretExist(applicationSecretKey)
 			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuthEmpty(applicationSecretDockerconfigJson)
-
-			namespaceSecretKey := types.NamespacedName{Name: namespacePullSecretName, Namespace: defaultNamespace}
-			namespaceSecret := waitSecretExist(namespaceSecretKey)
-			namespaceSecretDockerconfigJson := string(namespaceSecret.Data[corev1.DockerConfigJsonKey])
-			verifySecretAuthEmpty(namespaceSecretDockerconfigJson)
 
 			// verify that secret is unlinked from SAs
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
@@ -1336,7 +1300,7 @@ var _ = Describe("Image repository controller", func() {
 			componentKey := types.NamespacedName{Name: "nudging-component", Namespace: defaultNamespace}
 			componentSaName := getComponentSaName(componentKey.Name)
 			createApplication(applicationConfig{ApplicationKey: applicationKey})
-			createComponent(componentConfig{ComponentKey: componentKey, ComponentApplication: defaultComponentApplication})
+			createComponent(componentConfig{ComponentKey: componentKey})
 			createServiceAccount(defaultNamespace, componentSaName)
 			defer deleteComponent(componentKey)
 			defer deleteApplication(applicationKey)

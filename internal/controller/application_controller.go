@@ -31,9 +31,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
-	appstudioredhatcomv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	l "github.com/konflux-ci/image-controller/pkg/logs"
+	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 )
 
 const (
@@ -282,7 +282,7 @@ func (r *ApplicationPullSecretCreator) createApplicationPullSecret(ctx context.C
 	return nil
 }
 
-// updateServiceAccountWithApplicationPullSecret updates the ServiceAccount to include
+// udateServiceAccountWithApplicationPullSecret updates the ServiceAccount to include
 // the application pull secret as an imagePullSecret and as a Secret
 func (r *ApplicationPullSecretCreator) updateServiceAccountWithApplicationPullSecret(ctx context.Context, applicationPullSecretName string, namespace string) error {
 	log := ctrllog.FromContext(ctx)
