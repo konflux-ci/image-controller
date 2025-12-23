@@ -64,6 +64,9 @@ type ImageCredentials struct {
 	// Refreshes both, push and pull tokens.
 	// The field gets cleared after the refresh.
 	RegenerateToken *bool `json:"regenerate-token,omitempty"`
+	// RegenerateNamespacePullToken defines a request to refresh namespace pull robot credentials.
+	// The field gets cleared after the refresh.
+	RegenerateNamespacePullToken *bool `json:"regenerate-namespace-pull-token,omitempty"`
 	// VerifyLinking defines a request to verify and fix
 	// secret linking in pipeline service account.
 	// The field gets cleared after fixing.

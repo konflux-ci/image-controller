@@ -1589,36 +1589,41 @@ func TestQuayClient_GetRobotAccount(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name        string
-		robot       *RobotAccount
-		expectedErr string
-		statusCode  int
-		response    interface{}
+		name          string
+		robot         *RobotAccount
+		expectedErr   string
+		expectedFound bool
+		statusCode    int
+		response      interface{}
 	}{
 		{
-			name:        "Get existing robot account",
-			robot:       sampleRobot,
-			expectedErr: "",
-			statusCode:  200,
-			response:    fmt.Sprintf(`{"name": "%s+%s", "created": "Wed, 12 Jul 2023 10:25:41 -0000", "last_accessed": null, "description": "", "token": "abc123", "unstructured_metadata": {}}`, org, robotName),
+			name:          "Get existing robot account",
+			robot:         sampleRobot,
+			expectedErr:   "",
+			expectedFound: true,
+			statusCode:    200,
+			response:      fmt.Sprintf(`{"name": "%s+%s", "created": "Wed, 12 Jul 2023 10:25:41 -0000", "last_accessed": null, "description": "", "token": "abc123", "unstructured_metadata": {}}`, org, robotName),
 		},
 		{
-			name:        "return error when server responds non-200",
-			robot:       nil,
-			expectedErr: "Could not find robot with specified username",
-			statusCode:  400,
-			response:    map[string]string{"message": "Could not find robot with specified username"},
+			name:          "return error when server responds 400 not found",
+			robot:         sampleRobot,
+			expectedErr:   "",
+			expectedFound: false,
+			statusCode:    400,
+			response:      map[string]string{"message": "Could not find robot with specified username"},
 		},
 		{
-			name:        "server responds an invalid JSON string",
-			robot:       nil,
-			expectedErr: "failed to unmarshal response body",
-			statusCode:  400, // this field can be ignored for this case
-			response:    "{\"error\": \"something is wrong}",
+			name:          "server responds an invalid JSON string",
+			robot:         nil,
+			expectedErr:   "failed to unmarshal response body",
+			expectedFound: false,
+			statusCode:    400, // this field can be ignored for this case
+			response:      "{\"error\": \"something is wrong}",
 		},
 		{
-			name:        "stop if http request fails",
-			expectedErr: "failed to Do request:",
+			name:          "stop if http request fails",
+			expectedErr:   "failed to Do request:",
+			expectedFound: false,
 		},
 	}
 
@@ -1638,8 +1643,12 @@ func TestQuayClient_GetRobotAccount(t *testing.T) {
 
 			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
 			robot, err := quayClient.GetRobotAccount(org, robotName)
-			if !reflect.DeepEqual(robot, tc.robot) {
-				t.Error("robots are not the same")
+			if tc.expectedFound {
+				if !reflect.DeepEqual(robot, tc.robot) {
+					t.Error("robots are not the same")
+				}
+			} else {
+				assert.Assert(t, robot == nil)
 			}
 			if tc.expectedErr == "" {
 				assert.NilError(t, err)
