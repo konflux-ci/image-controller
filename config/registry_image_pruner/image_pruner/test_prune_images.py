@@ -331,7 +331,7 @@ class TestRemoveTags(unittest.TestCase):
             remove_tags(tags, QUAY_TOKEN, "some", "repository")
             logs_output = "\n".join(logs.output)
             for tag in tags:
-                self.assertIn(f"Removing tag {tag['name']} from some/repository", logs_output)
+                self.assertRegex(logs_output, rf"Removing tag \d+: {tag['name']} from some/repository")
 
         self.assertEqual(len(tags), delete_image_tag.call_count)
         calls = [call(QUAY_TOKEN, "some", "repository", tag["name"]) for tag in tags]
@@ -445,7 +445,7 @@ class TestRemoveTags(unittest.TestCase):
             remove_tags(tags, QUAY_TOKEN, "some", "repository")
             logs_output = "\n".join(logs.output)
             for tag in tags:
-                self.assertIn(f"Removing tag {tag['name']} from some/repository", logs_output)
+                self.assertRegex(logs_output, rf"Removing tag \d+: {tag['name']} from some/repository")
 
         self.assertEqual(len(tags), delete_image_tag.call_count)
         calls = [call(QUAY_TOKEN, "some", "repository", tag["name"]) for tag in tags]

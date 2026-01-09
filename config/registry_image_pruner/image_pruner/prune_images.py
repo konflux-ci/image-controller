@@ -19,6 +19,7 @@ QUAY_API_URL = "https://quay.io/api/v1"
 RETRY_LIMIT = 5
 
 processed_repos_counter = itertools.count()
+deleted_tags_counter = itertools.count()
 
 
 ImageRepo = Dict[str, Any]
@@ -223,7 +224,7 @@ def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, nam
             if dry_run:
                 LOGGER.info("Tag %s from %s/%s should be removed", tag_name, namespace, name)
             else:
-                LOGGER.info("Removing tag %s from %s/%s", tag_name, namespace, name)
+                LOGGER.info("Removing tag %s: %s from %s/%s", next(deleted_tags_counter), tag_name, namespace, name)
                 delete_image_tag(quay_token, namespace, name, tag_name)
 
 
@@ -291,6 +292,12 @@ def main():
 
     for image_repos in fetch_image_repos(token, args.namespace):
         process_repositories(image_repos, token, dry_run=args.dry_run, time_range=time_range)
+
+    LOGGER.info(
+        "Total: %s processed repositories, %s deleted tags.",
+        next(processed_repos_counter) - 1,
+        next(deleted_tags_counter) - 1,
+    )
 
 
 def parse_args():
