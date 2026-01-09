@@ -49,6 +49,11 @@ type ImageParameters struct {
 	// "public" is the default.
 	// +optional
 	Visibility ImageVisibility `json:"visibility,omitempty"`
+
+	// Description is a user-provided description for the image repository.
+	// If omitted, defaults to a description based on the component's Git source URL.
+	// +optional
+	Description string `json:"description,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=public;private

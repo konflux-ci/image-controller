@@ -32,6 +32,7 @@ type QuayService interface {
 	DeleteRepository(organization, imageRepository string) (bool, error)
 	RepositoryExists(organization, imageRepository string) (bool, error)
 	ChangeRepositoryVisibility(organization, imageRepository, visibility string) error
+	UpdateRepositoryDescription(organization, imageRepository, description string) error
 	GetRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
@@ -261,6 +262,39 @@ func (c *QuayClient) ChangeRepositoryVisibility(organization, imageRepositoryNam
 	if statusCode == 402 {
 		// Current plan doesn't allow private image repositories
 		return errors.New("payment required")
+	}
+
+	data := &QuayError{}
+	if err := resp.GetJson(data); err != nil {
+		return err
+	}
+	if data.ErrorMessage != "" {
+		return errors.New(data.ErrorMessage)
+	}
+	return errors.New(resp.response.Status)
+}
+
+// UpdateRepositoryDescription updates the description of an existing repository.
+func (c *QuayClient) UpdateRepositoryDescription(organization, imageRepositoryName, description string) error {
+	// PUT /api/v1/repository/{org}/{repo}
+	url := fmt.Sprintf("%s/repository/%s/%s", c.url, organization, imageRepositoryName)
+
+	// Marshal description properly to handle special characters
+	payload := map[string]string{"description": description}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal description update request: %w", err)
+	}
+
+	resp, err := c.doRequest(url, http.MethodPut, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+
+	statusCode := resp.GetStatusCode()
+
+	if statusCode == 200 {
+		return nil
 	}
 
 	data := &QuayError{}

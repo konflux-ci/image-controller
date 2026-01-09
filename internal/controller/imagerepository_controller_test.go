@@ -70,6 +70,15 @@ var _ = Describe("Image repository controller", func() {
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
+			isUpdateDescriptionInvoked := false
+			quay.UpdateRepositoryDescriptionFunc = func(organization, imageRepository, description string) error {
+				defer GinkgoRecover()
+				isUpdateDescriptionInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(imageRepository).To(Equal(expectedImageName))
+				Expect(description).ToNot(BeEmpty())
+				return nil
+			}
 			isCreatePushRobotAccountInvoked := false
 			isCreatePullRobotAccountInvoked := false
 			quay.CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
@@ -110,6 +119,7 @@ var _ = Describe("Image repository controller", func() {
 			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isUpdateDescriptionInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreatePullRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreatePushRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isAddPushPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
@@ -327,6 +337,15 @@ var _ = Describe("Image repository controller", func() {
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
+			isUpdateDescriptionInvoked := false
+			quay.UpdateRepositoryDescriptionFunc = func(organization, imageRepository, description string) error {
+				defer GinkgoRecover()
+				isUpdateDescriptionInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(imageRepository).To(Equal(expectedImageName))
+				Expect(description).ToNot(BeEmpty())
+				return nil
+			}
 			isCreatePushRobotAccountInvoked := false
 			isCreatePullRobotAccountInvoked := false
 			quay.CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
@@ -424,6 +443,7 @@ var _ = Describe("Image repository controller", func() {
 			createImageRepository(imageRepositoryConfigObject)
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isUpdateDescriptionInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreatePushRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreatePullRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isAddPushPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())

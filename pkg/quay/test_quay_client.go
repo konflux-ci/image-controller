@@ -34,6 +34,7 @@ var (
 	DeleteRepositoryFunc                      func(organization, imageRepository string) (bool, error)
 	RepositoryExistsFunc                      func(organization, imageRepository string) (bool, error)
 	ChangeRepositoryVisibilityFunc            func(organization, imageRepository string, visibility string) error
+	UpdateRepositoryDescriptionFunc           func(organization, imageRepository, description string) error
 	GetRobotAccountFunc                       func(organization string, robotName string) (*RobotAccount, error)
 	CreateRobotAccountFunc                    func(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccountFunc                    func(organization string, robotName string) (bool, error)
@@ -58,6 +59,7 @@ func ResetTestQuayClient() {
 	DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) { return true, nil }
 	RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) { return true, nil }
 	ChangeRepositoryVisibilityFunc = func(organization, imageRepository string, visibility string) error { return nil }
+	UpdateRepositoryDescriptionFunc = func(organization, imageRepository, description string) error { return nil }
 	GetRobotAccountFunc = func(organization, robotName string) (*RobotAccount, error) { return &RobotAccount{}, nil }
 	CreateRobotAccountFunc = func(organization, robotName string) (*RobotAccount, error) { return &RobotAccount{}, nil }
 	DeleteRobotAccountFunc = func(organization, robotName string) (bool, error) { return true, nil }
@@ -102,6 +104,11 @@ func ResetTestQuayClientToFails() {
 	ChangeRepositoryVisibilityFunc = func(organization, imageRepository string, visibility string) error {
 		defer GinkgoRecover()
 		Fail("ChangeRepositoryVisibility invoked")
+		return nil
+	}
+	UpdateRepositoryDescriptionFunc = func(organization, imageRepository, description string) error {
+		defer GinkgoRecover()
+		Fail("UpdateRepositoryDescription invoked")
 		return nil
 	}
 	GetRobotAccountFunc = func(organization, robotName string) (*RobotAccount, error) {
@@ -202,6 +209,9 @@ func (c TestQuayClient) RepositoryExists(organization, imageRepository string) (
 }
 func (TestQuayClient) ChangeRepositoryVisibility(organization, imageRepository string, visibility string) error {
 	return ChangeRepositoryVisibilityFunc(organization, imageRepository, visibility)
+}
+func (TestQuayClient) UpdateRepositoryDescription(organization, imageRepository, description string) error {
+	return UpdateRepositoryDescriptionFunc(organization, imageRepository, description)
 }
 func (c TestQuayClient) GetRobotAccount(organization string, robotName string) (*RobotAccount, error) {
 	return GetRobotAccountFunc(organization, robotName)
