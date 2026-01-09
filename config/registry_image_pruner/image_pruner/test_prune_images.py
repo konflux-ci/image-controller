@@ -274,6 +274,7 @@ class TestPruner(unittest.TestCase):
             main()
 
     @patch("sys.argv", ["prune_images", "--namespace", "sample"])
+    @patch.object(os, "environ", new={})
     def test_missing_quay_token_in_env(self):
         with self.assertRaisesRegex(ValueError, r"The token .+ is missing"):
             main()
