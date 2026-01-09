@@ -13,9 +13,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 QUAY_API_URL = "https://quay.io/api/v1"
 RETRY_LIMIT = 5
@@ -38,9 +36,12 @@ def get_quay_tags(quay_token: str, namespace: str, name: str) -> List[ImageRepo]
             query_args["page"] = next_page
 
         api_url = f"{QUAY_API_URL}/repository/{namespace}/{name}/tag/?{urlencode(query_args)}"
-        request = Request(api_url, headers={
-            "Authorization": f"Bearer {quay_token}",
-        })
+        request = Request(
+            api_url,
+            headers={
+                "Authorization": f"Bearer {quay_token}",
+            },
+        )
 
         try:
             with urlopen(request) as resp:
@@ -86,9 +87,13 @@ def get_quay_tags(quay_token: str, namespace: str, name: str) -> List[ImageRepo]
 
 def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> None:
     api_url = f"{QUAY_API_URL}/repository/{namespace}/{name}/tag/{tag}"
-    request = Request(api_url, method="DELETE", headers={
-        "Authorization": f"Bearer {quay_token}",
-    })
+    request = Request(
+        api_url,
+        method="DELETE",
+        headers={
+            "Authorization": f"Bearer {quay_token}",
+        },
+    )
     resp: HTTPResponse
     try:
         with urlopen(request) as resp:
@@ -98,14 +103,17 @@ def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> No
     except HTTPError as ex:
         # ignore if not found
         if ex.status != 404:
-            raise(ex)
+            raise (ex)
 
 
 def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -> bool:
     api_url = f"{QUAY_API_URL}/repository/{namespace}/{name}/manifest/{manifest}"
-    request = Request(api_url, headers={
-        "Authorization": f"Bearer {quay_token}",
-    })
+    request = Request(
+        api_url,
+        headers={
+            "Authorization": f"Bearer {quay_token}",
+        },
+    )
     resp: HTTPResponse
     manifest_exists = True
     try:
@@ -115,7 +123,7 @@ def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -
 
     except HTTPError as ex:
         if ex.status != 404:
-            raise(ex)
+            raise (ex)
         else:
             manifest_exists = False
 
@@ -125,7 +133,7 @@ def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -
 def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
     tags_map = {tag_info["name"]: tag_info["manifest_digest"] for tag_info in tags}
     # delete tags to save memory
-    del(tags)
+    del tags
     image_digests = [digest for _, digest in tags_map.items()]
     tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src|\.sig|\.dockerfile)$")
     manifests_checked = {}
@@ -133,7 +141,9 @@ def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, nam
         # attestation or sbom image
         if (match := tag_regex.match(tag_name)) is not None:
             if f"sha256:{match.group(1)}" not in image_digests:
-                # verify that manifest really doesn't exist, because if tag was removed, it won't be in tag list, but may still be in the registry
+                # verify that manifest really doesn't exist, because if tag was
+                # removed, it won't be in tag list, but may still be in the
+                # registry
                 manifest_existence = manifests_checked.get(f"sha256:{match.group(1)}")
                 if manifest_existence is None:
                     manifest_existence = manifest_exists(quay_token, namespace, name, f"sha256:{match.group(1)}")
@@ -187,9 +197,12 @@ def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageR
             query_args["next_page"] = next_page
 
         api_url = f"{QUAY_API_URL}/repository?{urlencode(query_args)}"
-        request = Request(api_url, headers={
-            "Authorization": f"Bearer {access_token}",
-        })
+        request = Request(
+            api_url,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+            },
+        )
 
         with urlopen(request) as resp:
             if resp.status != 200:
@@ -220,12 +233,8 @@ def main():
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--namespace", required=True, help="Quay organization name, e.g. redhat-user-workloads."
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Dry run without actually deleting tags."
-    )
+    parser.add_argument("--namespace", required=True, help="Quay organization name, e.g. redhat-user-workloads.")
+    parser.add_argument("--dry-run", action="store_true", help="Dry run without actually deleting tags.")
     args = parser.parse_args()
     return args
 
