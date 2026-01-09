@@ -11,7 +11,7 @@ spec:
         spec:
           containers:
           - name: image-pruner
-            image: registry.redhat.io/rhel8/python-39:1-120.1684740828
+            image: quay.io/konflux-ci/task-runner:1.1.0@sha256:19851d9fcc05a45adbaf830fba404743e5254f71b30842be57e526fdc9c1d3c5
             env:
               - name: QUAY_TOKEN
                 valueFrom:
@@ -27,7 +27,7 @@ spec:
             command:
               - /bin/bash
               - '-c'
-              - python /image-pruner/prune_images.py --namespace $(NAMESPACE)
+              - python3 /image-pruner/prune_images.py --namespace $(NAMESPACE)
             volumeMounts:
               - name: image-pruner-volume
                 mountPath: /image-pruner
