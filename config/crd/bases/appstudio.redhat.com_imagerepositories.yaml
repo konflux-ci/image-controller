@@ -65,6 +65,11 @@ spec:
               image:
                 description: Requested image repository configuration.
                 properties:
+                  description:
+                    description: |-
+                      Description is a user-provided description for the image repository.
+                      If omitted, defaults to a description based on the component's Git source URL.
+                    type: string
                   name:
                     description: |-
                       Name of the image within configured Quay organization.

@@ -446,11 +446,26 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	}
 	visibility := string(imageRepository.Spec.Image.Visibility)
 
+	// Build repository description with priority order:
+	// 1. User-specified description in ImageRepository spec
+	// 2. Component Git source URL
+	// 3. Default fallback text
+	description := "AppStudio repository for the user" // Default fallback
+
+	if imageRepository.Spec.Image.Description != "" {
+		// Priority 1: Use user-provided description
+		description = imageRepository.Spec.Image.Description
+	} else if component != nil && component.Spec.Source.GitSource != nil && component.Spec.Source.GitSource.URL != "" {
+		// Priority 2: Build description from component Git source URL
+		gitURL := component.Spec.Source.GitSource.URL
+		description = fmt.Sprintf("This container is built from: %s\nPlease get more details there.", gitURL)
+	}
+
 	repository, err := r.QuayClient.CreateRepository(quay.RepositoryRequest{
 		Namespace:   r.QuayOrganization,
 		Repository:  imageRepositoryName,
 		Visibility:  visibility,
-		Description: "AppStudio repository for the user",
+		Description: description,
 	})
 	if err != nil {
 		log.Error(err, "failed to create image repository", l.Action, l.ActionAdd, l.Audit, "true")
@@ -469,6 +484,14 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		err := fmt.Errorf("unexpected response from Quay: created image repository data object is nil")
 		log.Error(err, "nil repository")
 		return err
+	}
+
+	// Update repository description via PUT endpoint
+	// This is done separately because POST may not reliably set the description
+	if err := r.QuayClient.UpdateRepositoryDescription(r.QuayOrganization, imageRepositoryName, description); err != nil {
+		log.Error(err, "failed to update repository description", "repository", imageRepositoryName, l.Action, l.ActionUpdate)
+		// Non-critical error - repository is still usable without a description
+		// Continue with provisioning
 	}
 
 	pushCredentialsInfo, err := r.ProvisionImageRepositoryAccess(ctx, imageRepository, false)
