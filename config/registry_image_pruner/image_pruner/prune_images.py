@@ -117,20 +117,16 @@ def get_quay_tags(quay_token: str, namespace: str, name: str, time_range: TimeRa
         tags = json_data.get("tags", [])
 
         for tag in tags:
+            # store only name & manifest_digest keys, as others aren't used and take memory
+            tag_info = {"name": tag["name"], "manifest_digest": tag["manifest_digest"]}
             if time_range:
                 if to_ts <= tag["start_ts"] <= from_ts:
-                    # store only name & manifest_digest keys, as others aren't used and take memory
-                    all_tags.append(
-                        {
-                            "name": tag["name"],
-                            "manifest_digest": tag["manifest_digest"],
-                        }
-                    )
+                    all_tags.append(tag_info)
                 else:
                     stop_query = True
                     break
             else:
-                all_tags.append(tag)
+                all_tags.append(tag_info)
 
         if stop_query:
             break
@@ -193,10 +189,6 @@ def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -
             manifest_exists = False
 
     return manifest_exists
-
-
-def remove_tags_2(quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
-    pass
 
 
 def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
