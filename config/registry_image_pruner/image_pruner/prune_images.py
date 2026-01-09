@@ -227,6 +227,9 @@ def main():
 
     args = parse_args()
 
+    if args.verbose:
+        LOGGER.setLevel(logging.DEBUG)
+
     for image_repos in fetch_image_repos(token, args.namespace):
         process_repositories(image_repos, token, dry_run=args.dry_run)
 
@@ -235,6 +238,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--namespace", required=True, help="Quay organization name, e.g. redhat-user-workloads.")
     parser.add_argument("--dry-run", action="store_true", help="Dry run without actually deleting tags.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Run in verbose mode.")
     args = parser.parse_args()
     return args
 
