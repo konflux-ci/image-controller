@@ -32,10 +32,10 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/go-logr/logr"
+	applicationapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	l "github.com/konflux-ci/image-controller/pkg/logs"
 	"github.com/konflux-ci/image-controller/pkg/quay"
-	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 )
 
 const (
@@ -71,7 +71,7 @@ type ComponentReconciler struct {
 // SetupWithManager sets up the controller with the Manager.
 func (r *ComponentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&appstudioredhatcomv1alpha1.Component{}).
+		For(&applicationapiv1alpha1.Component{}).
 		Complete(r)
 }
 
@@ -85,7 +85,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	ctx = ctrllog.IntoContext(ctx, log)
 
 	// Fetch the Component instance
-	component := &appstudioredhatcomv1alpha1.Component{}
+	component := &applicationapiv1alpha1.Component{}
 	err := r.Client.Get(ctx, req.NamespacedName, component)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -107,7 +107,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 			log.Info("Image repository finalizer removed from the Component", l.Action, l.ActionDelete, "componentName", component.Name)
 
-			r.waitComponentUpdateInCache(ctx, req.NamespacedName, func(component *appstudioredhatcomv1alpha1.Component) bool {
+			r.waitComponentUpdateInCache(ctx, req.NamespacedName, func(component *applicationapiv1alpha1.Component) bool {
 				return !controllerutil.ContainsFinalizer(component, ImageRepositoryComponentFinalizer)
 			})
 		}
@@ -156,7 +156,12 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if imageRepositoryFound == "" {
-		imageRepositoryName := fmt.Sprintf("imagerepository-for-%s-%s", component.Spec.Application, component.Name)
+		imageRepositoryName := ""
+		if component.Spec.Application != "" {
+			imageRepositoryName = fmt.Sprintf("imagerepository-for-%s-%s", component.Spec.Application, component.Name)
+		} else {
+			imageRepositoryName = fmt.Sprintf("imagerepository-for-%s", component.Name)
+		}
 		log.Info("Will create image repository", "ImageRepositoryName", imageRepositoryName, "ComponentName", component.Name)
 
 		imageRepository := &imagerepositoryv1alpha1.ImageRepository{
@@ -168,8 +173,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				Name:      imageRepositoryName,
 				Namespace: component.Namespace,
 				Labels: map[string]string{
-					ApplicationNameLabelName: component.Spec.Application,
-					ComponentNameLabelName:   component.Name,
+					ComponentNameLabelName: component.Name,
 				},
 				Annotations: map[string]string{
 					updateComponentAnnotationName: "true",
@@ -180,6 +184,10 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 					Visibility: imagerepositoryv1alpha1.ImageVisibility(requestRepositoryOpts.Visibility),
 				},
 			},
+		}
+
+		if component.Spec.Application != "" {
+			imageRepository.ObjectMeta.Labels[ApplicationNameLabelName] = component.Spec.Application
 		}
 
 		if err := r.Client.Create(ctx, imageRepository); err != nil {
@@ -203,7 +211,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	log.Info("Component updated successfully, 'generate' annotation removed", "ComponentName", component.Name)
 
-	r.waitComponentUpdateInCache(ctx, req.NamespacedName, func(component *appstudioredhatcomv1alpha1.Component) bool {
+	r.waitComponentUpdateInCache(ctx, req.NamespacedName, func(component *applicationapiv1alpha1.Component) bool {
 		_, exists := component.Annotations[GenerateImageAnnotationName]
 		return !exists
 	})
@@ -211,7 +219,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return ctrl.Result{}, nil
 }
 
-func (r *ComponentReconciler) reportError(ctx context.Context, component *appstudioredhatcomv1alpha1.Component, messsage string) error {
+func (r *ComponentReconciler) reportError(ctx context.Context, component *applicationapiv1alpha1.Component, messsage string) error {
 	lookUpKey := types.NamespacedName{Name: component.Name, Namespace: component.Namespace}
 	if err := r.Client.Get(ctx, lookUpKey, component); err != nil {
 		return err
@@ -231,10 +239,10 @@ func (r *ComponentReconciler) reportError(ctx context.Context, component *appstu
 // For example, instead of one initial pipeline run we could get two.
 // To resolve the problem above, instead of just ending the reconcile loop here,
 // we are waiting for the cache update. This approach prevents next reconciles with outdated cache.
-func (r *ComponentReconciler) waitComponentUpdateInCache(ctx context.Context, componentKey types.NamespacedName, componentUpdated func(component *appstudioredhatcomv1alpha1.Component) bool) {
+func (r *ComponentReconciler) waitComponentUpdateInCache(ctx context.Context, componentKey types.NamespacedName, componentUpdated func(component *applicationapiv1alpha1.Component) bool) {
 	log := ctrllog.FromContext(ctx).WithName("waitComponentUpdateInCache")
 
-	component := &appstudioredhatcomv1alpha1.Component{}
+	component := &applicationapiv1alpha1.Component{}
 	isComponentInCacheUpToDate := false
 	for i := 0; i < 10; i++ {
 		if err := r.Client.Get(ctx, componentKey, component); err == nil {

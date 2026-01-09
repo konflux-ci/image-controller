@@ -31,13 +31,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
+	applicationapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	l "github.com/konflux-ci/image-controller/pkg/logs"
-	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 )
 
 const (
-	IntegrationTestsServiceAccountName = "konflux-integration-runner"
+	IntegrationServiceAccountName      = "konflux-integration-runner"
 	ApplicationSecretLinkToSaFinalizer = "application-secret-link-to-integration-tests-sa.appstudio.openshift.io/finalizer"
 )
 
@@ -58,7 +58,7 @@ type ApplicationPullSecretCreator struct {
 // SetupWithManager sets up the controller with the Manager.
 func (r *ApplicationPullSecretCreator) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&appstudioredhatcomv1alpha1.Application{}).
+		For(&applicationapiv1alpha1.Application{}).
 		Complete(r)
 }
 
@@ -73,7 +73,7 @@ func (r *ApplicationPullSecretCreator) Reconcile(ctx context.Context, req ctrl.R
 	ctx = ctrllog.IntoContext(ctx, log)
 
 	// fetch the application instance
-	application := &appstudioredhatcomv1alpha1.Application{}
+	application := &applicationapiv1alpha1.Application{}
 	err := r.Client.Get(ctx, req.NamespacedName, application)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -132,7 +132,7 @@ func (r *ApplicationPullSecretCreator) Reconcile(ctx context.Context, req ctrl.R
 		}
 	}
 
-	if err := r.updateServiceAccountWithApplicationPullSecret(ctx, applicationPullSecretName, application.Namespace); err != nil {
+	if err := r.updateIntegrationServiceAccountWithApplicationPullSecret(ctx, applicationPullSecretName, application.Namespace); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -147,7 +147,7 @@ func getApplicationPullSecretName(applicationName string) string {
 // getComponentIdsForApplication returns components id for all components owned by the application
 func (r *ApplicationPullSecretCreator) getComponentIdsForApplication(ctx context.Context, applicationId types.UID, namespace string) ([]types.UID, error) {
 	log := ctrllog.FromContext(ctx)
-	componentsList := &appstudioredhatcomv1alpha1.ComponentList{}
+	componentsList := &applicationapiv1alpha1.ComponentList{}
 	if err := r.Client.List(ctx, componentsList, &client.ListOptions{Namespace: namespace}); err != nil {
 		log.Error(err, "failed to list components")
 		return nil, err
@@ -198,7 +198,7 @@ func (r *ApplicationPullSecretCreator) getImageRepositoryPullSecretNamesForCompo
 
 // createApplicationPullSecret creates or updates a single kubernetes.io/dockerconfigjson secret
 // by combining data from individual pull secrets.
-func (r *ApplicationPullSecretCreator) createApplicationPullSecret(ctx context.Context, applicationPullSecretName string, application *appstudioredhatcomv1alpha1.Application, individualSecretNames []string) error {
+func (r *ApplicationPullSecretCreator) createApplicationPullSecret(ctx context.Context, applicationPullSecretName string, application *applicationapiv1alpha1.Application, individualSecretNames []string) error {
 	log := ctrllog.FromContext(ctx)
 
 	log.Info("Creating application pull secret", "secretName", applicationPullSecretName)
@@ -282,19 +282,19 @@ func (r *ApplicationPullSecretCreator) createApplicationPullSecret(ctx context.C
 	return nil
 }
 
-// udateServiceAccountWithApplicationPullSecret updates the ServiceAccount to include
+// updateIntegrationServiceAccountWithApplicationPullSecret updates the ServiceAccount to include
 // the application pull secret as an imagePullSecret and as a Secret
-func (r *ApplicationPullSecretCreator) updateServiceAccountWithApplicationPullSecret(ctx context.Context, applicationPullSecretName string, namespace string) error {
+func (r *ApplicationPullSecretCreator) updateIntegrationServiceAccountWithApplicationPullSecret(ctx context.Context, applicationPullSecretName string, namespace string) error {
 	log := ctrllog.FromContext(ctx)
 
 	// fetch namespace SA
 	namespaceServiceAccount := &corev1.ServiceAccount{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: IntegrationTestsServiceAccountName, Namespace: namespace}, namespaceServiceAccount); err != nil {
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: namespace}, namespaceServiceAccount); err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("Namespace ServiceAccount not found", "serviceAccountName", IntegrationTestsServiceAccountName, "namespace", namespace)
+			log.Info("Integration ServiceAccount not found", "serviceAccountName", IntegrationServiceAccountName, "namespace", namespace)
 			return nil
 		}
-		log.Error(err, "failed to read namespace ServiceAccount", "serviceAccountName", IntegrationTestsServiceAccountName, "namespace", namespace, l.Action, l.ActionView)
+		log.Error(err, "failed to read integration ServiceAccount", "serviceAccountName", IntegrationServiceAccountName, "namespace", namespace, l.Action, l.ActionView)
 		return err
 	}
 
@@ -337,7 +337,7 @@ func (r *ApplicationPullSecretCreator) updateServiceAccountWithApplicationPullSe
 	return nil
 }
 
-func (r *ApplicationPullSecretCreator) doesApplicationPullSecretExist(ctx context.Context, applicationPullSecretName string, application *appstudioredhatcomv1alpha1.Application) (bool, error) {
+func (r *ApplicationPullSecretCreator) doesApplicationPullSecretExist(ctx context.Context, applicationPullSecretName string, application *applicationapiv1alpha1.Application) (bool, error) {
 	log := ctrllog.FromContext(ctx)
 
 	applicationPullSecret := &corev1.Secret{}
@@ -355,15 +355,15 @@ func (r *ApplicationPullSecretCreator) doesApplicationPullSecretExist(ctx contex
 
 // unlinkApplicationSecretFromIntegrationTestsSa ensures that the given secret is not linked with the integration tests service account.
 func (r *ApplicationPullSecretCreator) unlinkApplicationSecretFromIntegrationTestsSa(ctx context.Context, secretNameToRemove, namespace string) error {
-	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", IntegrationTestsServiceAccountName, "SecretName", secretNameToRemove)
+	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", IntegrationServiceAccountName, "SecretName", secretNameToRemove)
 
 	serviceAccount := &corev1.ServiceAccount{}
-	err := r.Client.Get(ctx, types.NamespacedName{Name: IntegrationTestsServiceAccountName, Namespace: namespace}, serviceAccount)
+	err := r.Client.Get(ctx, types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: namespace}, serviceAccount)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return nil
 		}
-		log.Error(err, "failed to read namespace service account", l.Action, l.ActionView)
+		log.Error(err, "failed to read integration service account", l.Action, l.ActionView)
 		return err
 	}
 

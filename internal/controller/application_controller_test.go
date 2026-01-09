@@ -46,13 +46,13 @@ var _ = Describe("Application controller", func() {
 	var registrySecret1 = "registry1.example.com"
 	var registrySecret2 = "registry2.example.com"
 
-	Context("Create application secret and link it to Namespace ServiceAccount when it exists", func() {
+	Context("Create application secret and link it to Integration ServiceAccount when it exists", func() {
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
 		})
 
 		AfterEach(func() {
-			deleteServiceAccount(types.NamespacedName{Name: IntegrationTestsServiceAccountName, Namespace: appSecretTestNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: appSecretTestNamespace})
 			deleteSecret(namespacePullSecretName)
 			deleteImageRepository(imageRepository2Key)
 			deleteImageRepository(imageRepository1Key)
@@ -86,7 +86,7 @@ var _ = Describe("Application controller", func() {
 		})
 
 		It("should create empty application pull secret and link it to namespace SA, because no components are owned by application", func() {
-			createServiceAccount(appSecretTestNamespace, IntegrationTestsServiceAccountName)
+			createServiceAccount(appSecretTestNamespace, IntegrationServiceAccountName)
 			createComponent(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
 			createApplication(applicationConfig{ApplicationKey: applicationKey})
 
@@ -105,7 +105,7 @@ var _ = Describe("Application controller", func() {
 
 			saList := getServiceAccountList(appSecretTestNamespace)
 			Expect(len(saList)).Should(Equal(1))
-			Expect(saList[0].Name).Should(Equal(IntegrationTestsServiceAccountName))
+			Expect(saList[0].Name).Should(Equal(IntegrationServiceAccountName))
 			Expect(len(saList[0].Secrets)).Should(Equal(1))
 			Expect(len(saList[0].ImagePullSecrets)).Should(Equal(1))
 
@@ -118,7 +118,7 @@ var _ = Describe("Application controller", func() {
 		})
 
 		It("should create an application pull secret with 2 secrets and link it to namespace SA", func() {
-			createServiceAccount(appSecretTestNamespace, IntegrationTestsServiceAccountName)
+			createServiceAccount(appSecretTestNamespace, IntegrationServiceAccountName)
 			pullSecret1Data := generateDockerConfigJson(registrySecret1, "user1", "pass1")
 			pullSecret1Key := types.NamespacedName{Name: pullSecret1, Namespace: appSecretTestNamespace}
 			createDockerConfigSecret(pullSecret1Key, pullSecret1Data, true)
@@ -146,10 +146,10 @@ var _ = Describe("Application controller", func() {
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 
 			// delete application SA and empty secret as it will be created on next reconcile
-			deleteServiceAccount(types.NamespacedName{Name: IntegrationTestsServiceAccountName, Namespace: appSecretTestNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: appSecretTestNamespace})
 			deleteSecret(namespacePullSecretName)
 			// recreate empty SA
-			createServiceAccount(appSecretTestNamespace, IntegrationTestsServiceAccountName)
+			createServiceAccount(appSecretTestNamespace, IntegrationServiceAccountName)
 
 			// set component's owner to application
 			component1.OwnerReferences = []metav1.OwnerReference{{
@@ -251,7 +251,7 @@ var _ = Describe("Application controller", func() {
 			Expect(decodedSecret.Auths).To(HaveKey(registrySecret2))
 			Expect(decodedSecret.Auths[registrySecret2].Auth).To(Equal(base64.StdEncoding.EncodeToString([]byte(authSecret2))))
 
-			konfluxSA := getServiceAccount(appSecretTestNamespace, IntegrationTestsServiceAccountName)
+			konfluxSA := getServiceAccount(appSecretTestNamespace, IntegrationServiceAccountName)
 			Expect(konfluxSA.ImagePullSecrets).To(HaveLen(1))
 			Expect(konfluxSA.ImagePullSecrets[0].Name).To(Equal(namespacePullSecretName.Name))
 			Expect(konfluxSA.Secrets).To(HaveLen(1))
@@ -259,13 +259,13 @@ var _ = Describe("Application controller", func() {
 
 			// verify that after application removal application secret is no longer linked in namespace SA
 			deleteApplication(applicationKey)
-			konfluxSA = getServiceAccount(appSecretTestNamespace, IntegrationTestsServiceAccountName)
+			konfluxSA = getServiceAccount(appSecretTestNamespace, IntegrationServiceAccountName)
 			Expect(konfluxSA.ImagePullSecrets).To(HaveLen(0))
 			Expect(konfluxSA.Secrets).To(HaveLen(0))
 		})
 
 		It("should create an application pull secret with 1 secret because other secret isn't SecretTypeDockerConfigJson and link it to namespace SA", func() {
-			createServiceAccount(appSecretTestNamespace, IntegrationTestsServiceAccountName)
+			createServiceAccount(appSecretTestNamespace, IntegrationServiceAccountName)
 			pullSecret1Data := generateDockerConfigJson(registrySecret1, "user1", "pass1")
 			pullSecret1Key := types.NamespacedName{Name: pullSecret1, Namespace: appSecretTestNamespace}
 			createDockerConfigSecret(pullSecret1Key, pullSecret1Data, true)
@@ -293,10 +293,10 @@ var _ = Describe("Application controller", func() {
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 
 			// delete application SA and empty secret as it will be created on next reconcile
-			deleteServiceAccount(types.NamespacedName{Name: IntegrationTestsServiceAccountName, Namespace: appSecretTestNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: appSecretTestNamespace})
 			deleteSecret(namespacePullSecretName)
 			// recreate empty SA
-			createServiceAccount(appSecretTestNamespace, IntegrationTestsServiceAccountName)
+			createServiceAccount(appSecretTestNamespace, IntegrationServiceAccountName)
 
 			// set component's owner to application
 			component1.OwnerReferences = []metav1.OwnerReference{{
@@ -396,7 +396,7 @@ var _ = Describe("Application controller", func() {
 			Expect(decodedSecret.Auths).To(HaveKey(registrySecret1))
 			Expect(decodedSecret.Auths[registrySecret1].Auth).To(Equal(base64.StdEncoding.EncodeToString([]byte(authSecret1))))
 
-			konfluxSA := getServiceAccount(appSecretTestNamespace, IntegrationTestsServiceAccountName)
+			konfluxSA := getServiceAccount(appSecretTestNamespace, IntegrationServiceAccountName)
 			Expect(konfluxSA.ImagePullSecrets).To(HaveLen(1))
 			Expect(konfluxSA.ImagePullSecrets[0].Name).To(Equal(namespacePullSecretName.Name))
 			Expect(konfluxSA.Secrets).To(HaveLen(1))
