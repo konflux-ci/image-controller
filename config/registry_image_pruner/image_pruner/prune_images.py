@@ -159,7 +159,8 @@ def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, nam
 
             if to_delete:
                 LOGGER.info("Removing deprecated tag %s", tag_name)
-                delete_image_tag(quay_token, namespace, name, tag_name)
+                if not dry_run:
+                    delete_image_tag(quay_token, namespace, name, tag_name)
         else:
             LOGGER.debug("%s is not in a known type to be deleted.", tag_name)
 
