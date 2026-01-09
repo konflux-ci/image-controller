@@ -7,11 +7,12 @@ toolchain go1.24.6
 require (
 	github.com/go-logr/logr v1.4.3
 	github.com/h2non/gock v1.2.0
+	github.com/konflux-ci/coverport/instrumentation/go v0.0.0-20251127103713-95b5b5e04a62
 	github.com/onsi/ginkgo/v2 v2.26.0
 	github.com/onsi/gomega v1.38.2
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redhat-appstudio/application-api v0.0.0-20231026192857-89515ad2504f
-	go.uber.org/zap v1.27.0
+	go.uber.org/zap v1.27.1
 	gotest.tools/v3 v3.5.2
 	k8s.io/api v0.31.0
 	k8s.io/apimachinery v0.31.0
@@ -56,7 +57,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/konflux-ci/coverport/instrumentation/go v0.0.0-20251127103713-95b5b5e04a62 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
@@ -94,7 +94,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20251014184007-4626949a642f // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251007200510-49b9836ed3ff // indirect
 	google.golang.org/grpc v1.71.0 // indirect
-	google.golang.org/protobuf v1.36.10 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
