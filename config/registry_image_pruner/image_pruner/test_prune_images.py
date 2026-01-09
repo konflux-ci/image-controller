@@ -2,6 +2,9 @@ import json
 import os
 import re
 import unittest
+import pytest
+
+from datetime import datetime, UTC
 from email.message import Message
 from typing import Final
 from unittest.mock import call, patch, MagicMock
@@ -9,6 +12,7 @@ from urllib.parse import parse_qsl, urlparse
 from urllib.request import Request
 from urllib.error import HTTPError
 
+from prune_images import TimeRange, get_quay_tags
 from prune_images import fetch_image_repos, main, remove_tags, LOGGER, QUAY_API_URL
 
 QUAY_TOKEN: Final = "1234"
@@ -478,6 +482,52 @@ class TestRemoveTags(unittest.TestCase):
         self.assertEqual(len(tags), delete_image_tag.call_count)
         calls = [call(QUAY_TOKEN, "some", "repository", tag["name"]) for tag in tags]
         delete_image_tag.assert_has_calls(calls)
+
+
+def test_time_range_past_days():
+    since = datetime.now(UTC)
+    tr = TimeRange.past_days(2, since=since)
+    assert tr.from_ts == since.timestamp()
+    to_dt = datetime.fromtimestamp(tr.to_ts, UTC)
+    assert (since - to_dt).days == 2
+
+
+@patch("prune_images.urlopen")
+@pytest.mark.parametrize("find_in_time_range", [True, False])
+def test_get_quay_tags_in_time_range(urlopen, find_in_time_range):
+    since = datetime.now(UTC)
+    since_ts = int(since.timestamp())
+    seconds_4_days = 345600
+
+    tags_info = {
+        "tags": [
+            {"name": "tag1", "manifest_digest": "sha256:123", "start_ts": since_ts - 10},
+            {"name": "tag2", "manifest_digest": "sha256:345", "start_ts": since_ts - 100},
+            {"name": "tag3", "manifest_digest": "sha256:789", "start_ts": since_ts - seconds_4_days},
+        ],
+    }
+
+    response = MagicMock()
+    response.status = 200
+    response.read.return_value = json.dumps(tags_info).encode()
+    urlopen.return_value.__enter__.return_value = response
+
+    token = "1234"
+    namespace = "test"
+    name = "test"
+
+    time_range = None
+    if find_in_time_range:
+        time_range = TimeRange.past_days(2, since=since)
+
+    tags = get_quay_tags(token, namespace, name, time_range=time_range)
+
+    if find_in_time_range:
+        assert len(tags) == 2
+        assert tags[0]["name"] == "tag1"
+        assert tags[1]["name"] == "tag2"
+    else:
+        assert len(tags) == 3
 
 
 if __name__ == "__main__":

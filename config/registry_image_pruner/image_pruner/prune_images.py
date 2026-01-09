@@ -5,8 +5,8 @@ import logging
 import os
 import re
 import time
-
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from http.client import HTTPResponse
 from typing import Any, Dict, List
 from urllib.error import HTTPError
@@ -24,12 +24,61 @@ processed_repos_counter = itertools.count()
 ImageRepo = Dict[str, Any]
 
 
-def get_quay_tags(quay_token: str, namespace: str, name: str) -> List[ImageRepo]:
+class TimeRange:
+    __slots__ = ("from_ts", "to_ts")
+
+    def __init__(self, from_ts: float, to_ts: float) -> None:
+        """Initialize an instance
+
+        :param from_ts: from this UTC timestamp (newer).
+        :type from_ts: int
+        :param to_ts: to this UTC timestamp (older).
+        :type to_ts: int
+        """
+        self.from_ts = from_ts
+        self.to_ts = to_ts
+
+    @classmethod
+    def past_days(cls, days: int, since: datetime | None = None) -> "TimeRange":
+        if since is None:
+            since = datetime.now(UTC)
+        to = since - timedelta(days=days)
+        return TimeRange(from_ts=since.timestamp(), to_ts=to.timestamp())
+
+    def __str__(self) -> str:
+        from_dt = datetime.fromtimestamp(self.from_ts, UTC)
+        to_dt = datetime.fromtimestamp(self.to_ts, UTC)
+        return f"Time range from {from_dt} ({self.from_ts}) to {to_dt} ({self.to_ts})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
+def get_quay_tags(quay_token: str, namespace: str, name: str, time_range: TimeRange | None = None) -> List[ImageRepo]:
+    """Fetch tags information from Quay.io
+
+    :param quay_token: Quay.io OAuth2 token used to access repositories.
+    :type quay_token: str
+    :param namespace: Quay organization. For a given repository ``quay.io/redhat-user-workloads/someone-tenant/image``,
+        ``redhat-user-workloads`` is the one.
+    :type namespace: str
+    :param name: The image repository name without namespace. Take the example of argument ``namespace``,
+        ``someone-tenant/image`` is the name.
+    :type quay_token: str
+    :param time_range: return tags whose creation time is in this time range.
+        If omitted, time is not considered as a filter condition.
+    :type time_range: :class:`TimeRange`
+    """
     next_page = None
     resp: HTTPResponse
 
     all_tags = []
     retry_count = 0
+    if time_range:
+        from_ts, to_ts = time_range.from_ts, time_range.to_ts
+    else:
+        from_ts, to_ts = None, None
+    stop_query = False
     while True:
         query_args = {"limit": 100, "onlyActiveTags": True}
         if next_page is not None:
@@ -66,9 +115,25 @@ def get_quay_tags(quay_token: str, namespace: str, name: str) -> List[ImageRepo]
             raise
 
         tags = json_data.get("tags", [])
-        # store only name & manifest_digest keys, as others aren't used and take memory
-        new_tags = [{"name": tag["name"], "manifest_digest": tag["manifest_digest"]} for tag in tags]
-        all_tags.extend(new_tags)
+
+        for tag in tags:
+            if time_range:
+                if to_ts <= tag["start_ts"] <= from_ts:
+                    # store only name & manifest_digest keys, as others aren't used and take memory
+                    all_tags.append(
+                        {
+                            "name": tag["name"],
+                            "manifest_digest": tag["manifest_digest"],
+                        }
+                    )
+                else:
+                    stop_query = True
+                    break
+            else:
+                all_tags.append(tag)
+
+        if stop_query:
+            break
 
         if not tags:
             LOGGER.debug("No tags found.")
@@ -130,6 +195,10 @@ def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -
     return manifest_exists
 
 
+def remove_tags_2(quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
+    pass
+
+
 def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
     tags_map = {tag_info["name"]: tag_info["manifest_digest"] for tag_info in tags}
     # delete tags to save memory
@@ -175,12 +244,15 @@ def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, nam
             LOGGER.debug("%s is not in a known type to be deleted.", tag_name)
 
 
-def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool = False) -> None:
+def process_repositories(
+    repos: List[ImageRepo], quay_token: str, dry_run: bool = False, time_range: TimeRange | None = None
+) -> None:
     for repo in repos:
         namespace = repo["namespace"]
         name = repo["name"]
         LOGGER.info("Processing repository %s: %s/%s", next(processed_repos_counter), namespace, name)
-        all_tags = get_quay_tags(quay_token, namespace, name)
+
+        all_tags = get_quay_tags(quay_token, namespace, name, time_range=time_range)
 
         if not all_tags:
             continue
@@ -230,8 +302,12 @@ def main():
     if not token:
         raise ValueError("The token required for access to Quay API is missing!")
 
+    time_range = None
+    if args.past_days:
+        time_range = TimeRange.past_days(args.past_days)
+
     for image_repos in fetch_image_repos(token, args.namespace):
-        process_repositories(image_repos, token, dry_run=args.dry_run)
+        process_repositories(image_repos, token, dry_run=args.dry_run, time_range=time_range)
 
 
 def parse_args():
@@ -239,6 +315,14 @@ def parse_args():
     parser.add_argument("--namespace", required=True, help="Quay organization name, e.g. redhat-user-workloads.")
     parser.add_argument("--dry-run", action="store_true", help="Dry run without actually deleting tags.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Run in verbose mode.")
+    parser.add_argument(
+        "-d",
+        "--in-past-days",
+        dest="past_days",
+        metavar="DAYS",
+        type=int,
+        help="Handle tags generated in the past N days since script starts to run.",
+    )
     args = parser.parse_args()
     return args
 
