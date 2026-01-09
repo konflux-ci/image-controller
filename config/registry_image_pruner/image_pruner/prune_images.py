@@ -219,8 +219,12 @@ def main():
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--namespace", required=True)
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--namespace", required=True, help="Quay organization name, e.g. redhat-user-workloads."
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Dry run without actually deleting tags."
+    )
     args = parser.parse_args()
     return args
 
