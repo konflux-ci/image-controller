@@ -195,45 +195,36 @@ def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, nam
     tags_map = {tag_info["name"]: tag_info["manifest_digest"] for tag_info in tags}
     # delete tags to save memory
     del tags
-    image_digests = [digest for _, digest in tags_map.items()]
-    tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src|\.sig|\.dockerfile)$")
+    image_digests = set([digest for _, digest in tags_map.items()])
+    # attestation, sbom, sig, etc.
+    tag_regex = re.compile(r"^(?P<digest>sha256-[0-9a-f]+)(\.sbom|\.att|\.src|\.sig|\.dockerfile)$")
     manifests_checked = {}
     for tag_name in tags_map:
-        # attestation or sbom image
-        if (match := tag_regex.match(tag_name)) is not None:
-            if f"sha256:{match.group(1)}" not in image_digests:
-                # verify that manifest really doesn't exist, because if tag was
-                # removed, it won't be in tag list, but may still be in the
-                # registry
-                manifest_existence = manifests_checked.get(f"sha256:{match.group(1)}")
-                if manifest_existence is None:
-                    manifest_existence = manifest_exists(quay_token, namespace, name, f"sha256:{match.group(1)}")
-                    manifests_checked[f"sha256:{match.group(1)}"] = manifest_existence
+        match = tag_regex.match(tag_name)
 
-                if not manifest_existence:
-                    if dry_run:
-                        LOGGER.info("Tag %s from %s/%s should be removed", tag_name, namespace, name)
-                    else:
-                        LOGGER.info("Removing tag %s from %s/%s", tag_name, namespace, name)
-                        delete_image_tag(quay_token, namespace, name, tag_name)
-
-        elif tag_name.endswith(".src"):
-            to_delete = False
-
-            binary_tag = tag_name.removesuffix(".src")
-            if binary_tag not in tags_map:
-                to_delete = True
-            else:
-                manifest_digest = tags_map[binary_tag]
-                new_src_tag = f"{manifest_digest.replace(':', '-')}.src"
-                to_delete = new_src_tag in tags_map
-
-            if to_delete:
-                LOGGER.info("Removing deprecated tag %s", tag_name)
-                if not dry_run:
-                    delete_image_tag(quay_token, namespace, name, tag_name)
-        else:
+        if not match:
             LOGGER.debug("%s is not in a known type to be deleted.", tag_name)
+            continue
+
+        image_digest = match.group("digest").replace("-", ":")
+
+        if image_digest in image_digests:
+            continue
+
+        # verify that manifest really doesn't exist, because if tag was
+        # removed, it won't be in tag list, but may still be in the
+        # registry
+        manifest_existence = manifests_checked.get(image_digest)
+        if manifest_existence is None:
+            manifest_existence = manifest_exists(quay_token, namespace, name, image_digest)
+            manifests_checked[image_digest] = manifest_existence
+
+        if not manifest_existence:
+            if dry_run:
+                LOGGER.info("Tag %s from %s/%s should be removed", tag_name, namespace, name)
+            else:
+                LOGGER.info("Removing tag %s from %s/%s", tag_name, namespace, name)
+                delete_image_tag(quay_token, namespace, name, tag_name)
 
 
 def process_repositories(

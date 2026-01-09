@@ -156,19 +156,6 @@ class TestPruner(unittest.TestCase):
                         "name": "sha256-071c766795a0.src",
                         "manifest_digest": "sha256:0ab207f62413",
                     },
-                    # single deprecated source image tag remains
-                    {"name": "123abcd.src", "manifest_digest": "sha256:1234566"},
-                    # old image has only the deprecated source image, which should not be removed
-                    {"name": "donotdelete", "manifest_digest": "sha256:1234567"},
-                    {"name": "donotdelete.src", "manifest_digest": "sha256:1234568"},
-                    # the binary image was deleted before. Now, these should be deleted.
-                    {"name": "build-100.src", "manifest_digest": "sha256:1345678"},
-                    {"name": "sha256-4567890.src", "manifest_digest": "sha256:1345678"},
-                    # existent image has a source image tagged with a deprecated tag as well.
-                    # That should be removed.
-                    {"name": "1a2b3c4df", "manifest_digest": "sha256:1237890"},
-                    {"name": "1a2b3c4df.src", "manifest_digest": "sha256:2345678"},
-                    {"name": "sha256-1237890.src", "manifest_digest": "sha256:2345678"},
                 ],
             }
         ).encode()
@@ -191,24 +178,9 @@ class TestPruner(unittest.TestCase):
             delete_tag_rv,
             delete_tag_rv,
             delete_tag_rv,
-            delete_tag_rv,
-            delete_tag_rv,
-            delete_tag_rv,
-            delete_tag_rv,
         ]
 
-        manifest_exists.side_effect = [
-            False,
-            False,
-            False,
-            False,
-            False,
-            False,
-            False,
-            False,
-            False,
-            False,
-        ]
+        manifest_exists.side_effect = [False, False, False, False, False, False]
 
         main()
 
@@ -225,12 +197,8 @@ class TestPruner(unittest.TestCase):
             "sha256-071c766795a0.sbom",
             "sha256-071c766795a0.att",
             "sha256-071c766795a0.src",
-            "123abcd.src",
-            "build-100.src",
-            "sha256-4567890.src",
-            "1a2b3c4df.src",
         )
-        test_pairs = zip(tags_to_remove, urlopen.mock_calls[-10:])
+        test_pairs = zip(tags_to_remove, urlopen.mock_calls[-6:])
         for tag, urlopen_call in test_pairs:
             _assert_deletion_request(urlopen_call.args[0], tag)
 
