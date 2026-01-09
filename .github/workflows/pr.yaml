@@ -67,10 +67,12 @@ jobs:
       uses: actions/checkout@v3
     - uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.13'
     - run: |
         cd config/registry_image_pruner/image_pruner/
-        python3.9 test_prune_images.py
+        python3 -m venv .venv
+        .venv/bin/python3 -m pip install tox
+        .venv/bin/python3 -m tox
 
   detect_changes_for_tests:
     name: Check if notification resetter code changed
