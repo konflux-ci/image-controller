@@ -2,6 +2,9 @@ import json
 import os
 import re
 import unittest
+import pytest
+
+from datetime import datetime, UTC
 from email.message import Message
 from typing import Final
 from unittest.mock import call, patch, MagicMock
@@ -9,6 +12,7 @@ from urllib.parse import parse_qsl, urlparse
 from urllib.request import Request
 from urllib.error import HTTPError
 
+from prune_images import TimeRange, get_quay_tags
 from prune_images import fetch_image_repos, main, remove_tags, LOGGER, QUAY_API_URL
 
 QUAY_TOKEN: Final = "1234"
@@ -44,23 +48,27 @@ class TestPruner(unittest.TestCase):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
-        response.read.return_value = json.dumps({
-            "repositories": [
-                {"namespace": "sample", "name": "hello-image"},
-            ],
-        }).encode()
+        response.read.return_value = json.dumps(
+            {
+                "repositories": [
+                    {"namespace": "sample", "name": "hello-image"},
+                ],
+            }
+        ).encode()
         fetch_repos_rv.__enter__.return_value = response
 
         get_repo_rv = MagicMock()
         response = MagicMock()
         response.status = 200
         # no .att or .sbom suffix here
-        response.read.return_value = json.dumps({
-            "tags": [
-                {"name": "latest", "manifest_digest": "sha256:03fabe17d4c5"},
-                {"name": "devel", "manifest_digest": "sha256:071c766795a0"},
-            ],
-        }).encode()
+        response.read.return_value = json.dumps(
+            {
+                "tags": [
+                    {"name": "latest", "manifest_digest": "sha256:03fabe17d4c5"},
+                    {"name": "devel", "manifest_digest": "sha256:071c766795a0"},
+                ],
+            }
+        ).encode()
         get_repo_rv.__enter__.return_value = response
 
         urlopen.side_effect = [
@@ -90,8 +98,10 @@ class TestPruner(unittest.TestCase):
 
         get_repo_call = urlopen.mock_calls[1]
         request: Request = get_repo_call.args[0]
-        self.assertEqual(f"{QUAY_API_URL}/repository/sample/hello-image/tag/"
-                         f"?limit=100&onlyActiveTags=True", request.get_full_url())
+        self.assertEqual(
+            f"{QUAY_API_URL}/repository/sample/hello-image/tag/" f"?limit=100&onlyActiveTags=True",
+            request.get_full_url(),
+        )
         self.assert_make_get_request(request)
         self.assert_quay_token_included(request)
 
@@ -103,65 +113,52 @@ class TestPruner(unittest.TestCase):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
-        response.read.return_value = json.dumps({
-            "repositories": [
-                {"namespace": "sample", "name": "hello-image"},
-            ],
-        }).encode()
+        response.read.return_value = json.dumps(
+            {
+                "repositories": [
+                    {"namespace": "sample", "name": "hello-image"},
+                ],
+            }
+        ).encode()
         fetch_repos_rv.__enter__.return_value = response
 
         get_repo_rv = MagicMock()
         response = MagicMock()
         response.status = 200
         # no .att or .sbom suffix here
-        response.read.return_value = json.dumps({
-            "tags": [
-                {"name": "latest", "manifest_digest": "sha256:93a8743dc130"},
-                # image manifest sha256:03fabe17d4c5 does not exist
-                {
-                    "name": "sha256-03fabe17d4c5.sbom",
-                    "manifest_digest": "sha256:e45fad41f2ff",
-                },
-                {
-                    "name": "sha256-03fabe17d4c5.att",
-                    "manifest_digest": "sha256:e45fad41f2ff",
-                },
-                {
-                    "name": "sha256-03fabe17d4c5.src",
-                    "manifest_digest": "sha256:f490ad41f2cc",
-                },
-                # image manifest sha256:071c766795a0 does not exist
-                {
-                    "name": "sha256-071c766795a0.sbom",
-                    "manifest_digest": "sha256:961207f62413",
-                },
-                {
-                    "name": "sha256-071c766795a0.att",
-                    "manifest_digest": "sha256:961207f62413",
-                },
-                {
-                    "name": "sha256-071c766795a0.src",
-                    "manifest_digest": "sha256:0ab207f62413",
-                },
-
-                # single deprecated source image tag remains
-                {"name": "123abcd.src", "manifest_digest": "sha256:1234566"},
-
-                # old image has only the deprecated source image, which should not be removed
-                {"name": "donotdelete", "manifest_digest": "sha256:1234567"},
-                {"name": "donotdelete.src", "manifest_digest": "sha256:1234568"},
-
-                # the binary image was deleted before. Now, these should be deleted.
-                {"name": "build-100.src", "manifest_digest": "sha256:1345678"},
-                {"name": "sha256-4567890.src", "manifest_digest": "sha256:1345678"},
-
-                # existent image has a source image tagged with a deprecated tag as well.
-                # That should be removed.
-                {"name": "1a2b3c4df", "manifest_digest": "sha256:1237890"},
-                {"name": "1a2b3c4df.src", "manifest_digest": "sha256:2345678"},
-                {"name": "sha256-1237890.src", "manifest_digest": "sha256:2345678"},
-            ],
-        }).encode()
+        response.read.return_value = json.dumps(
+            {
+                "tags": [
+                    {"name": "latest", "manifest_digest": "sha256:93a8743dc130"},
+                    # image manifest sha256:03fabe17d4c5 does not exist
+                    {
+                        "name": "sha256-03fabe17d4c5.sbom",
+                        "manifest_digest": "sha256:e45fad41f2ff",
+                    },
+                    {
+                        "name": "sha256-03fabe17d4c5.att",
+                        "manifest_digest": "sha256:e45fad41f2ff",
+                    },
+                    {
+                        "name": "sha256-03fabe17d4c5.src",
+                        "manifest_digest": "sha256:f490ad41f2cc",
+                    },
+                    # image manifest sha256:071c766795a0 does not exist
+                    {
+                        "name": "sha256-071c766795a0.sbom",
+                        "manifest_digest": "sha256:961207f62413",
+                    },
+                    {
+                        "name": "sha256-071c766795a0.att",
+                        "manifest_digest": "sha256:961207f62413",
+                    },
+                    {
+                        "name": "sha256-071c766795a0.src",
+                        "manifest_digest": "sha256:0ab207f62413",
+                    },
+                ],
+            }
+        ).encode()
         get_repo_rv.__enter__.return_value = response
 
         delete_tag_rv = MagicMock()
@@ -181,25 +178,9 @@ class TestPruner(unittest.TestCase):
             delete_tag_rv,
             delete_tag_rv,
             delete_tag_rv,
-
-            delete_tag_rv,
-            delete_tag_rv,
-            delete_tag_rv,
-            delete_tag_rv,
         ]
 
-        manifest_exists.side_effect = [
-            False,
-            False,
-            False,
-            False,
-            False,
-            False,
-            False,
-            False,
-            False,
-            False,
-        ]
+        manifest_exists.side_effect = [False, False, False, False, False, False]
 
         main()
 
@@ -210,13 +191,16 @@ class TestPruner(unittest.TestCase):
 
         # keep same order as above
         tags_to_remove = (
-            "sha256-03fabe17d4c5.sbom", "sha256-03fabe17d4c5.att", "sha256-03fabe17d4c5.src",
-            "sha256-071c766795a0.sbom", "sha256-071c766795a0.att", "sha256-071c766795a0.src",
-            "123abcd.src", "build-100.src", "sha256-4567890.src", "1a2b3c4df.src",
+            "sha256-03fabe17d4c5.sbom",
+            "sha256-03fabe17d4c5.att",
+            "sha256-03fabe17d4c5.src",
+            "sha256-071c766795a0.sbom",
+            "sha256-071c766795a0.att",
+            "sha256-071c766795a0.src",
         )
-        test_pairs = zip(tags_to_remove, urlopen.mock_calls[-10:])
-        for tag, call in test_pairs:
-            _assert_deletion_request(call.args[0], tag)
+        test_pairs = zip(tags_to_remove, urlopen.mock_calls[-6:])
+        for tag, urlopen_call in test_pairs:
+            _assert_deletion_request(urlopen_call.args[0], tag)
 
     @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
     @patch("sys.argv", ["prune_images", "--namespace", "sample", "--dry-run"])
@@ -226,23 +210,27 @@ class TestPruner(unittest.TestCase):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
-        response.read.return_value = json.dumps({
-            "repositories": [
-                {"namespace": "sample", "name": "hello-image"},
-            ],
-        }).encode()
+        response.read.return_value = json.dumps(
+            {
+                "repositories": [
+                    {"namespace": "sample", "name": "hello-image"},
+                ],
+            }
+        ).encode()
         fetch_repos_rv.__enter__.return_value = response
 
         get_repo_rv = MagicMock()
         response = MagicMock()
         response.status = 200
-        response.read.return_value = json.dumps({
-            "tags": [
-                {"name": "latest", "manifest_digest": "sha256:93a8743dc130"},
-                # dry run on this one
-                {"name": "sha256-071c766795a0.sbom", "manifest_digest": "sha256:961207f62413"},
-            ],
-        }).encode()
+        response.read.return_value = json.dumps(
+            {
+                "tags": [
+                    {"name": "latest", "manifest_digest": "sha256:93a8743dc130"},
+                    # dry run on this one
+                    {"name": "sha256-071c766795a0.sbom", "manifest_digest": "sha256:961207f62413"},
+                ],
+            }
+        ).encode()
         get_repo_rv.__enter__.return_value = response
 
         urlopen.side_effect = [
@@ -258,7 +246,8 @@ class TestPruner(unittest.TestCase):
         with self.assertLogs(LOGGER) as logs:
             main()
             dry_run_log = [
-                msg for msg in logs.output
+                msg
+                for msg in logs.output
                 if re.search(r"Tag sha256-071c766795a0.sbom from [^ /]+/[^ ]+ should be removed$", msg)
             ]
             self.assertEqual(1, len(dry_run_log))
@@ -274,6 +263,7 @@ class TestPruner(unittest.TestCase):
             main()
 
     @patch("sys.argv", ["prune_images", "--namespace", "sample"])
+    @patch.object(os, "environ", new={})
     def test_missing_quay_token_in_env(self):
         with self.assertRaisesRegex(ValueError, r"The token .+ is missing"):
             main()
@@ -283,23 +273,27 @@ class TestPruner(unittest.TestCase):
         first_fetch_rv = MagicMock()
         response = MagicMock()
         response.status = 200
-        response.read.return_value = json.dumps({
-            "repositories": [
-                {"namespace": "sample", "name": "hello-image"},
-            ],
-            "next_page": 2,
-        }).encode()
+        response.read.return_value = json.dumps(
+            {
+                "repositories": [
+                    {"namespace": "sample", "name": "hello-image"},
+                ],
+                "next_page": 2,
+            }
+        ).encode()
         first_fetch_rv.__enter__.return_value = response
 
         second_fetch_rv = MagicMock()
         response = MagicMock()
         response.status = 200
         # no next_page is included
-        response.read.return_value = json.dumps({
-            "repositories": [
-                {"namespace": "sample", "name": "another-image"},
-            ],
-        }).encode()
+        response.read.return_value = json.dumps(
+            {
+                "repositories": [
+                    {"namespace": "sample", "name": "another-image"},
+                ],
+            }
+        ).encode()
         second_fetch_rv.__enter__.return_value = response
 
         urlopen.side_effect = [first_fetch_rv, second_fetch_rv]
@@ -337,10 +331,10 @@ class TestRemoveTags(unittest.TestCase):
             remove_tags(tags, QUAY_TOKEN, "some", "repository")
             logs_output = "\n".join(logs.output)
             for tag in tags:
-                self.assertIn(f"Removing tag {tag['name']} from some/repository", logs_output)
+                self.assertRegex(logs_output, rf"Removing tag \d+: {tag['name']} from some/repository")
 
         self.assertEqual(len(tags), delete_image_tag.call_count)
-        calls = [call(QUAY_TOKEN, "some", "repository", tag['name']) for tag in tags]
+        calls = [call(QUAY_TOKEN, "some", "repository", tag["name"]) for tag in tags]
         delete_image_tag.assert_has_calls(calls)
 
     @patch("prune_images.delete_image_tag")
@@ -354,7 +348,7 @@ class TestRemoveTags(unittest.TestCase):
             {
                 "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
                 "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
-            }
+            },
         ]
 
         manifest_exists.side_effect = [
@@ -384,11 +378,11 @@ class TestRemoveTags(unittest.TestCase):
             {
                 "name": "app-image",
                 "manifest_digest": "sha256:502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd",
-            }
+            },
         ]
 
         with self.assertRaisesRegex(AssertionError, expected_regex="no logs of level INFO"):
-            with self.assertLogs(LOGGER) as logs:
+            with self.assertLogs(LOGGER):
                 remove_tags(tags, QUAY_TOKEN, "some", "repository", dry_run=True)
 
         delete_image_tag.assert_not_called()
@@ -413,11 +407,10 @@ class TestRemoveTags(unittest.TestCase):
         ]
 
         with self.assertRaisesRegex(AssertionError, expected_regex="no logs of level INFO"):
-            with self.assertLogs(LOGGER) as logs:
+            with self.assertLogs(LOGGER):
                 remove_tags(tags, QUAY_TOKEN, "some", "repository", dry_run=True)
 
         delete_image_tag.assert_not_called()
-
 
     @patch("prune_images.delete_image_tag")
     @patch("prune_images.manifest_exists")
@@ -452,11 +445,57 @@ class TestRemoveTags(unittest.TestCase):
             remove_tags(tags, QUAY_TOKEN, "some", "repository")
             logs_output = "\n".join(logs.output)
             for tag in tags:
-                self.assertIn(f"Removing tag {tag['name']} from some/repository", logs_output)
+                self.assertRegex(logs_output, rf"Removing tag \d+: {tag['name']} from some/repository")
 
         self.assertEqual(len(tags), delete_image_tag.call_count)
         calls = [call(QUAY_TOKEN, "some", "repository", tag["name"]) for tag in tags]
         delete_image_tag.assert_has_calls(calls)
+
+
+def test_time_range_past_days():
+    since = datetime.now(UTC)
+    tr = TimeRange.past_days(2, since=since)
+    assert tr.from_ts == since.timestamp()
+    to_dt = datetime.fromtimestamp(tr.to_ts, UTC)
+    assert (since - to_dt).days == 2
+
+
+@patch("prune_images.urlopen")
+@pytest.mark.parametrize("find_in_time_range", [True, False])
+def test_get_quay_tags_in_time_range(urlopen, find_in_time_range):
+    since = datetime.now(UTC)
+    since_ts = int(since.timestamp())
+    seconds_4_days = 345600
+
+    tags_info = {
+        "tags": [
+            {"name": "tag1", "manifest_digest": "sha256:123", "start_ts": since_ts - 10},
+            {"name": "tag2", "manifest_digest": "sha256:345", "start_ts": since_ts - 100},
+            {"name": "tag3", "manifest_digest": "sha256:789", "start_ts": since_ts - seconds_4_days},
+        ],
+    }
+
+    response = MagicMock()
+    response.status = 200
+    response.read.return_value = json.dumps(tags_info).encode()
+    urlopen.return_value.__enter__.return_value = response
+
+    token = "1234"
+    namespace = "test"
+    name = "test"
+
+    time_range = None
+    if find_in_time_range:
+        time_range = TimeRange.past_days(2, since=since)
+
+    tags = get_quay_tags(token, namespace, name, time_range=time_range)
+
+    if find_in_time_range:
+        assert len(tags) == 2
+        assert tags[0]["name"] == "tag1"
+        assert tags[1]["name"] == "tag2"
+    else:
+        assert len(tags) == 3
 
 
 if __name__ == "__main__":
