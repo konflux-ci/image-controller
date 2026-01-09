@@ -221,14 +221,14 @@ def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageR
 
 
 def main():
-    token = os.getenv("QUAY_TOKEN")
-    if not token:
-        raise ValueError("The token required for access to Quay API is missing!")
-
     args = parse_args()
 
     if args.verbose:
         LOGGER.setLevel(logging.DEBUG)
+
+    token = os.getenv("QUAY_TOKEN")
+    if not token:
+        raise ValueError("The token required for access to Quay API is missing!")
 
     for image_repos in fetch_image_repos(token, args.namespace):
         process_repositories(image_repos, token, dry_run=args.dry_run)
