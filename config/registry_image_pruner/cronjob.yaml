@@ -27,7 +27,7 @@ spec:
             command:
               - /bin/bash
               - '-c'
-              - python3 /image-pruner/prune_images.py --namespace $(NAMESPACE)
+              - python3 /image-pruner/prune_images.py --namespace $(NAMESPACE) --in-past-days 70
             volumeMounts:
               - name: image-pruner-volume
                 mountPath: /image-pruner
