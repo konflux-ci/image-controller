@@ -1,8 +1,6 @@
 import json
 import os
-import re
 import unittest
-import pytest
 
 from datetime import datetime, UTC
 from email.message import Message
@@ -12,7 +10,7 @@ from urllib.parse import parse_qsl, urlparse
 from urllib.request import Request
 from urllib.error import HTTPError
 
-from prune_images import TimeRange, get_quay_tags
+from prune_images import TimeRange, ARTIFACTS_TAGS_SUFFIX, SubjectImageDigestCollector
 from prune_images import fetch_image_repos, main, remove_tags, LOGGER, QUAY_API_URL
 
 QUAY_TOKEN: Final = "1234"
@@ -64,8 +62,8 @@ class TestPruner(unittest.TestCase):
         response.read.return_value = json.dumps(
             {
                 "tags": [
-                    {"name": "latest", "manifest_digest": "sha256:03fabe17d4c5"},
-                    {"name": "devel", "manifest_digest": "sha256:071c766795a0"},
+                    {"name": "latest", "manifest_digest": "sha256:03fabe17d4c5", "start_ts": 1000},
+                    {"name": "devel", "manifest_digest": "sha256:071c766795a0", "start_ts": 900},
                 ],
             }
         ).encode()
@@ -99,7 +97,7 @@ class TestPruner(unittest.TestCase):
         get_repo_call = urlopen.mock_calls[1]
         request: Request = get_repo_call.args[0]
         self.assertEqual(
-            f"{QUAY_API_URL}/repository/sample/hello-image/tag/" f"?limit=100&onlyActiveTags=True",
+            f"{QUAY_API_URL}/repository/sample/hello-image/tag/?limit=100&onlyActiveTags=True&page=1",
             request.get_full_url(),
         )
         self.assert_make_get_request(request)
@@ -122,43 +120,50 @@ class TestPruner(unittest.TestCase):
         ).encode()
         fetch_repos_rv.__enter__.return_value = response
 
+        quay_tags = {
+            "tags": [
+                {"name": "latest", "manifest_digest": "sha256:93a8743dc130", "start_ts": 1000},
+                # manifest sha256:502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd does not exist
+                {
+                    "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
+                    "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+                    "start_ts": 900,
+                },
+                {
+                    "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
+                    "manifest_digest": "sha256:789c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+                    "start_ts": 800,
+                },
+                {
+                    "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.src",
+                    "manifest_digest": "sha256:f490ad41f2cc789c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9c",
+                    "start_ts": 700,
+                },
+                # manifest sha256:5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4 does not exist
+                {
+                    "name": "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.sbom",
+                    "manifest_digest": "sha256:961207f62413f490ad41f2cc789c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0",
+                    "start_ts": 600,
+                },
+                {
+                    "name": "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.att",
+                    "manifest_digest": "sha256:96961207f62413f490ad41f2cc789c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9",
+                    "start_ts": 500,
+                },
+                {
+                    "name": "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.src",
+                    "manifest_digest": "sha256:0ab2096961207f62413f490ad41f2cc789c1d18ee1c3b9bde0c7810fcb0d4ffb",
+                    "start_ts": 400,
+                },
+            ],
+        }
+        subject_image_digests = set([tag["name"].split(".")[0] for tag in quay_tags["tags"][1:]])
+        number_of_tag_deletions = len(subject_image_digests) * len(ARTIFACTS_TAGS_SUFFIX)
+
         get_repo_rv = MagicMock()
         response = MagicMock()
         response.status = 200
-        # no .att or .sbom suffix here
-        response.read.return_value = json.dumps(
-            {
-                "tags": [
-                    {"name": "latest", "manifest_digest": "sha256:93a8743dc130"},
-                    # image manifest sha256:03fabe17d4c5 does not exist
-                    {
-                        "name": "sha256-03fabe17d4c5.sbom",
-                        "manifest_digest": "sha256:e45fad41f2ff",
-                    },
-                    {
-                        "name": "sha256-03fabe17d4c5.att",
-                        "manifest_digest": "sha256:e45fad41f2ff",
-                    },
-                    {
-                        "name": "sha256-03fabe17d4c5.src",
-                        "manifest_digest": "sha256:f490ad41f2cc",
-                    },
-                    # image manifest sha256:071c766795a0 does not exist
-                    {
-                        "name": "sha256-071c766795a0.sbom",
-                        "manifest_digest": "sha256:961207f62413",
-                    },
-                    {
-                        "name": "sha256-071c766795a0.att",
-                        "manifest_digest": "sha256:961207f62413",
-                    },
-                    {
-                        "name": "sha256-071c766795a0.src",
-                        "manifest_digest": "sha256:0ab207f62413",
-                    },
-                ],
-            }
-        ).encode()
+        response.read.return_value = json.dumps(quay_tags).encode()
         get_repo_rv.__enter__.return_value = response
 
         delete_tag_rv = MagicMock()
@@ -166,41 +171,27 @@ class TestPruner(unittest.TestCase):
         response.status = 204
         delete_tag_rv.__enter__.return_value = response
 
-        urlopen.side_effect = [
+        side_effects = [
             # yield repositories
             fetch_repos_rv,
             # return the repo info including tags
             get_repo_rv,
-            # return value for deleting tags
-            delete_tag_rv,
-            delete_tag_rv,
-            delete_tag_rv,
-            delete_tag_rv,
-            delete_tag_rv,
-            delete_tag_rv,
         ]
+        # return value for deleting tags
+        side_effects.extend([delete_tag_rv] * number_of_tag_deletions)
+        urlopen.side_effect = side_effects
 
         manifest_exists.side_effect = [False, False, False, False, False, False]
 
         main()
 
-        def _assert_deletion_request(request: Request, tag: str) -> None:
-            expected_url_path = f"{QUAY_API_URL}/repository/sample/hello-image/tag/{tag}"
-            self.assertEqual(expected_url_path, request.get_full_url())
-            self.assertEqual("DELETE", request.get_method())
-
         # keep same order as above
-        tags_to_remove = (
-            "sha256-03fabe17d4c5.sbom",
-            "sha256-03fabe17d4c5.att",
-            "sha256-03fabe17d4c5.src",
-            "sha256-071c766795a0.sbom",
-            "sha256-071c766795a0.att",
-            "sha256-071c766795a0.src",
-        )
-        test_pairs = zip(tags_to_remove, urlopen.mock_calls[-6:])
-        for tag, urlopen_call in test_pairs:
-            _assert_deletion_request(urlopen_call.args[0], tag)
+        tags_to_remove = [digest + suffix for digest in subject_image_digests for suffix in ARTIFACTS_TAGS_SUFFIX]
+
+        for urlopen_call in urlopen.mock_calls[2:]:
+            arg_request = urlopen_call.args[0]
+            self.assertEqual(arg_request.get_method(), "DELETE")
+            self.assertIn(os.path.basename(arg_request.get_full_url()), tags_to_remove)
 
     @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
     @patch("sys.argv", ["prune_images", "--namespace", "sample", "--dry-run"])
@@ -225,9 +216,13 @@ class TestPruner(unittest.TestCase):
         response.read.return_value = json.dumps(
             {
                 "tags": [
-                    {"name": "latest", "manifest_digest": "sha256:93a8743dc130"},
+                    {"name": "latest", "manifest_digest": "sha256:93a8743dc130", "start_ts": 1000},
                     # dry run on this one
-                    {"name": "sha256-071c766795a0.sbom", "manifest_digest": "sha256:961207f62413"},
+                    {
+                        "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
+                        "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
+                        "start_ts": 999,
+                    },
                 ],
             }
         ).encode()
@@ -245,12 +240,13 @@ class TestPruner(unittest.TestCase):
 
         with self.assertLogs(LOGGER) as logs:
             main()
-            dry_run_log = [
-                msg
-                for msg in logs.output
-                if re.search(r"Tag sha256-071c766795a0.sbom from [^ /]+/[^ ]+ should be removed$", msg)
-            ]
-            self.assertEqual(1, len(dry_run_log))
+
+            log_text = "\n".join(logs.output)
+            self.assertIn(
+                "Tag sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom from "
+                "sample/hello-image should be removed",
+                log_text,
+            )
 
         self.assertEqual(2, urlopen.call_count)
 
@@ -322,19 +318,29 @@ class TestRemoveTags(unittest.TestCase):
             },
         ]
 
-        manifest_exists.side_effect = [
-            False,
-            False,
+        manifest_exists.side_effect = [False, False]
+
+        subject_image_digests = [
+            tag["name"].removesuffix(".att").removesuffix(".sbom").replace("-", ":") for tag in tags
         ]
 
         with self.assertLogs(LOGGER) as logs:
-            remove_tags(tags, QUAY_TOKEN, "some", "repository")
+            remove_tags(subject_image_digests, QUAY_TOKEN, "some", "repository")
             logs_output = "\n".join(logs.output)
             for tag in tags:
                 self.assertRegex(logs_output, rf"Removing tag \d+: {tag['name']} from some/repository")
 
-        self.assertEqual(len(tags), delete_image_tag.call_count)
-        calls = [call(QUAY_TOKEN, "some", "repository", tag["name"]) for tag in tags]
+        self.assertEqual(manifest_exists.call_count, 2)
+        manifest_exists.assert_has_calls(
+            [call(QUAY_TOKEN, "some", "repository", digest) for digest in subject_image_digests]
+        )
+
+        self.assertEqual(len(subject_image_digests) * len(ARTIFACTS_TAGS_SUFFIX), delete_image_tag.call_count)
+        calls = [
+            call(QUAY_TOKEN, "some", "repository", digest.replace(":", "-") + suffix)
+            for digest in subject_image_digests
+            for suffix in ARTIFACTS_TAGS_SUFFIX
+        ]
         delete_image_tag.assert_has_calls(calls)
 
     @patch("prune_images.delete_image_tag")
@@ -351,39 +357,17 @@ class TestRemoveTags(unittest.TestCase):
             },
         ]
 
-        manifest_exists.side_effect = [
-            False,
-            False,
+        manifest_exists.side_effect = [False, False]
+
+        subject_image_digests = [
+            tag["name"].removesuffix(".att").removesuffix(".sbom").replace("-", ":") for tag in tags
         ]
 
         with self.assertLogs(LOGGER) as logs:
-            remove_tags(tags, QUAY_TOKEN, "some", "repository", dry_run=True)
+            remove_tags(subject_image_digests, QUAY_TOKEN, "some", "repository", dry_run=True)
             logs_output = "\n".join(logs.output)
             for tag in tags:
                 self.assertIn(f"Tag {tag['name']} from some/repository should be removed", logs_output)
-
-        delete_image_tag.assert_not_called()
-
-    @patch("prune_images.delete_image_tag")
-    def test_remove_tags_nothing_to_remove(self, delete_image_tag):
-        tags = [
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
-                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
-            },
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
-                "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
-            },
-            {
-                "name": "app-image",
-                "manifest_digest": "sha256:502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd",
-            },
-        ]
-
-        with self.assertRaisesRegex(AssertionError, expected_regex="no logs of level INFO"):
-            with self.assertLogs(LOGGER):
-                remove_tags(tags, QUAY_TOKEN, "some", "repository", dry_run=True)
 
         delete_image_tag.assert_not_called()
 
@@ -401,14 +385,17 @@ class TestRemoveTags(unittest.TestCase):
             },
         ]
 
-        manifest_exists.side_effect = [
-            True,
-            True,
+        manifest_exists.side_effect = [True, True]
+
+        subject_image_digests = [
+            tag["name"].removesuffix(".att").removesuffix(".sbom").replace("-", ":") for tag in tags
         ]
 
-        with self.assertRaisesRegex(AssertionError, expected_regex="no logs of level INFO"):
-            with self.assertLogs(LOGGER):
-                remove_tags(tags, QUAY_TOKEN, "some", "repository", dry_run=True)
+        with self.assertLogs(LOGGER) as logs:
+            remove_tags(subject_image_digests, QUAY_TOKEN, "some", "repository", dry_run=True)
+            log_text = "\n".join(logs.output)
+            for digest in subject_image_digests:
+                self.assertIn(f"Image manifest still exists: {digest}", log_text)
 
         delete_image_tag.assert_not_called()
 
@@ -434,21 +421,24 @@ class TestRemoveTags(unittest.TestCase):
             },
         ]
 
-        manifest_exists.side_effect = [
-            False,
-            False,
-            False,
-            False,
-        ]
+        manifest_exists.side_effect = [False, False, False, False]
+
+        subject_image_digests = list(
+            set([tag["name"].removesuffix(".att").removesuffix(".sbom").replace("-", ":") for tag in tags])
+        )
 
         with self.assertLogs(LOGGER) as logs:
-            remove_tags(tags, QUAY_TOKEN, "some", "repository")
+            remove_tags(subject_image_digests, QUAY_TOKEN, "some", "repository")
             logs_output = "\n".join(logs.output)
             for tag in tags:
                 self.assertRegex(logs_output, rf"Removing tag \d+: {tag['name']} from some/repository")
 
-        self.assertEqual(len(tags), delete_image_tag.call_count)
-        calls = [call(QUAY_TOKEN, "some", "repository", tag["name"]) for tag in tags]
+        self.assertEqual(len(subject_image_digests) * len(ARTIFACTS_TAGS_SUFFIX), delete_image_tag.call_count)
+        calls = [
+            call(QUAY_TOKEN, "some", "repository", digest.replace(":", "-") + suffix)
+            for digest in subject_image_digests
+            for suffix in ARTIFACTS_TAGS_SUFFIX
+        ]
         delete_image_tag.assert_has_calls(calls)
 
 
@@ -460,42 +450,54 @@ def test_time_range_past_days():
     assert (since - to_dt).days == 2
 
 
-@patch("prune_images.urlopen")
-@pytest.mark.parametrize("find_in_time_range", [True, False])
-def test_get_quay_tags_in_time_range(urlopen, find_in_time_range):
-    since = datetime.now(UTC)
-    since_ts = int(since.timestamp())
-    seconds_4_days = 345600
+class TestSubjectImageDigestCollector:
 
-    tags_info = {
+    tags_list = {
         "tags": [
-            {"name": "tag1", "manifest_digest": "sha256:123", "start_ts": since_ts - 10},
-            {"name": "tag2", "manifest_digest": "sha256:345", "start_ts": since_ts - 100},
-            {"name": "tag3", "manifest_digest": "sha256:789", "start_ts": since_ts - seconds_4_days},
+            {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
+                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+                "start_ts": 1000,
+            },
+            {
+                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
+                "manifest_digest": "sha256:789c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+                "start_ts": 950,
+            },
+            {
+                "name": "sha256-8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd3145",
+                "manifest_digest": "sha256:502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd",
+                "start_ts": 800,
+            },
+            {
+                "name": "sha256-774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd2c8c35e31459e87a.sbom",
+                "manifest_digest": "sha256:89c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457d",
+                "start_ts": 750,
+            },
+            {
+                "name": "sha256-774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd2c8c35e31459e87a.att",
+                "manifest_digest": "sha256:1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457dd18",
+                "start_ts": 600,
+            },
         ],
     }
 
-    response = MagicMock()
-    response.status = 200
-    response.read.return_value = json.dumps(tags_info).encode()
-    urlopen.return_value.__enter__.return_value = response
+    def test_collect(self):
+        collector = SubjectImageDigestCollector()
+        json.loads(json.dumps(self.tags_list), object_pairs_hook=collector)
 
-    token = "1234"
-    namespace = "test"
-    name = "test"
+        expected = ["sha256:774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd2c8c35e31459e87a"]
+        assert collector.image_digests == expected
 
-    time_range = None
-    if find_in_time_range:
-        time_range = TimeRange.past_days(2, since=since)
+    def test_collect_with_time_range(self):
+        tr = TimeRange(from_ts=1000, to_ts=980)
+        collector = SubjectImageDigestCollector(tr)
+        json_data = json.loads(json.dumps(self.tags_list), object_pairs_hook=collector)
 
-    tags = get_quay_tags(token, namespace, name, time_range=time_range)
+        expected = ["sha256:502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd"]
+        assert collector.image_digests == expected
 
-    if find_in_time_range:
-        assert len(tags) == 2
-        assert tags[0]["name"] == "tag1"
-        assert tags[1]["name"] == "tag2"
-    else:
-        assert len(tags) == 3
+        assert json_data["out_of_time_range"]
 
 
 if __name__ == "__main__":

@@ -5,10 +5,12 @@ import logging
 import os
 import re
 import time
-from collections.abc import Iterator
+
+from collections.abc import Iterator, Sequence, Generator
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from http.client import HTTPResponse
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Final
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -17,6 +19,10 @@ logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=lo
 LOGGER = logging.getLogger(__name__)
 QUAY_API_URL = "https://quay.io/api/v1"
 RETRY_LIMIT = 5
+
+ARTIFACTS_TAGS_SUFFIX: Final = [".sbom", ".att", ".src", ".sig", ".dockerfile"]
+SUFFIX_PATTERN: Final = "|".join(ARTIFACTS_TAGS_SUFFIX).replace(".", "\\.")
+ARTIFACT_TAG_REGEX: Final = rf"(?P<digest>sha256-[0-9a-f]{{64}})({SUFFIX_PATTERN})"
 
 processed_repos_counter = itertools.count()
 deleted_tags_counter = itertools.count()
@@ -55,8 +61,67 @@ class TimeRange:
         return self.__str__()
 
 
-def get_quay_tags(quay_token: str, namespace: str, name: str, time_range: TimeRange | None = None) -> List[ImageRepo]:
-    """Fetch tags information from Quay.io
+class SubjectImageDigestCollector:
+    """Collect digests of subject images that have artifacts"""
+
+    def __init__(self, time_range: TimeRange | None = None) -> None:
+        self._tr = time_range
+        self._image_digests = set([])
+        self._artifact_tag_regex = re.compile(ARTIFACT_TAG_REGEX)
+        self._is_out_of_time_range = False
+        self._handled_tags_count = 0
+
+    @property
+    def image_digests(self) -> list[str]:
+        return sorted(self._image_digests)
+
+    @property
+    def handled_tags_count(self) -> int:
+        return self._handled_tags_count
+
+    @staticmethod
+    def _get_required_attributes(pairs: list[tuple[str, Any]]) -> tuple[Any, Any, Any]:
+        name = None
+        manifest_digest = None
+        start_ts = None
+        for key, val in pairs:
+            if key == "name":
+                name = val
+            elif key == "manifest_digest":
+                manifest_digest = val
+            elif key == "start_ts":
+                start_ts = val
+        return name, manifest_digest, start_ts
+
+    def __call__(self, pairs: list[tuple[str, Any]]) -> dict[str, Any] | None:
+        name, manifest_digest, start_ts = self._get_required_attributes(pairs)
+
+        if not (name and manifest_digest and start_ts):
+            obj = dict(pairs)
+            if "tags" in obj and self._is_out_of_time_range:
+                obj["out_of_time_range"] = self._is_out_of_time_range
+            return obj
+
+        self._handled_tags_count += 1
+
+        if self._tr and (start_ts < self._tr.to_ts or start_ts > self._tr.from_ts):
+            self._is_out_of_time_range = True
+            return None
+
+        if match := self._artifact_tag_regex.fullmatch(name):
+            image_digest = match.group("digest").replace("-", ":")
+            self._image_digests.add(image_digest)
+            return None
+
+        # Assume this is the subject image, remove this digest from candidate list
+        with suppress(KeyError):
+            self._image_digests.remove(manifest_digest)
+
+        return None
+
+
+def get_quay_tags(quay_token: str, namespace: str, name: str) -> Generator[bytes]:
+    """Fetch tags information from Quay.io and yield them by page
 
     :param quay_token: Quay.io OAuth2 token used to access repositories.
     :type quay_token: str
@@ -66,43 +131,34 @@ def get_quay_tags(quay_token: str, namespace: str, name: str, time_range: TimeRa
     :param name: The image repository name without namespace. Take the example of argument ``namespace``,
         ``someone-tenant/image`` is the name.
     :type quay_token: str
-    :param time_range: return tags whose creation time is in this time range.
-        If omitted, time is not considered as a filter condition.
-    :type time_range: :class:`TimeRange`
     """
-    next_page = None
     resp: HTTPResponse
 
-    all_tags = []
     retry_count = 0
-    if time_range:
-        from_ts, to_ts = time_range.from_ts, time_range.to_ts
-    else:
-        from_ts, to_ts = None, None
-    stop_query = False
-    while True:
-        query_args = {"limit": 100, "onlyActiveTags": True}
-        if next_page is not None:
-            query_args["page"] = next_page
+    query_args = {"limit": 100, "onlyActiveTags": True, "page": 0}
+    request = Request(QUAY_API_URL, headers={"Authorization": f"Bearer {quay_token}"})
+    total_content_len = 0
 
+    while True:
+        query_args["page"] += 1
         api_url = f"{QUAY_API_URL}/repository/{namespace}/{name}/tag/?{urlencode(query_args)}"
-        request = Request(
-            api_url,
-            headers={
-                "Authorization": f"Bearer {quay_token}",
-            },
-        )
+        request.full_url = api_url
+        LOGGER.debug("Request tags: %s", api_url)
 
         try:
             with urlopen(request) as resp:
                 if resp.status != 200:
                     raise RuntimeError(resp.reason)
-                json_data = json.loads(resp.read())
+                content = resp.read()
+                content_len = len(content)
+                total_content_len += content_len
+                LOGGER.debug("Length of got response: %s. In total so far: %s", content_len, total_content_len)
+                yield content
                 retry_count = 0
         except HTTPError as ex:
             if ex.status == 404:
                 LOGGER.info("Repository doesn't exist anymore %s/%s", namespace, name)
-                return []
+                return
 
             if ex.status == 502 or ex.status == 504:
                 if retry_count > RETRY_LIMIT:
@@ -115,36 +171,20 @@ def get_quay_tags(quay_token: str, namespace: str, name: str, time_range: TimeRa
                 continue
             raise
 
+
+def collect_subject_image_digests(list_quay_tags: Generator[bytes], collector: SubjectImageDigestCollector) -> None:
+    for content in list_quay_tags:
+        json_data = json.loads(content, object_pairs_hook=collector)
         tags = json_data.get("tags", [])
-
-        for tag in tags:
-            # store only name & manifest_digest keys, as others aren't used and take memory
-            tag_info = {"name": tag["name"], "manifest_digest": tag["manifest_digest"]}
-            if time_range:
-                if to_ts <= tag["start_ts"] <= from_ts:
-                    all_tags.append(tag_info)
-                else:
-                    stop_query = True
-                    break
-            else:
-                all_tags.append(tag_info)
-
-        if stop_query:
-            break
-
         if not tags:
             LOGGER.debug("No tags found.")
             break
-
-        page = json_data.get("page", None)
-        additional = json_data.get("has_additional", False)
-
-        if additional:
-            next_page = page + 1
-        else:
+        if json_data.get("out_of_time_range"):
+            LOGGER.info("Reached tag which is out of time range. Stop handling additional tags.")
             break
-
-    return all_tags
+        if not json_data.get("has_additional", False):
+            LOGGER.info("No additional tags found.")
+            break
 
 
 def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> None:
@@ -168,6 +208,7 @@ def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> No
             raise (ex)
 
 
+# FIXME: use HEAD
 def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -> bool:
     api_url = f"{QUAY_API_URL}/repository/{namespace}/{name}/manifest/{manifest}"
     request = Request(
@@ -192,39 +233,22 @@ def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -
     return manifest_exists
 
 
-def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
-    tags_map = {tag_info["name"]: tag_info["manifest_digest"] for tag_info in tags}
-    # delete tags to save memory
-    del tags
-    image_digests = set([digest for _, digest in tags_map.items()])
-    # attestation, sbom, sig, etc.
-    tag_regex = re.compile(r"^(?P<digest>sha256-[0-9a-f]+)(\.sbom|\.att|\.src|\.sig|\.dockerfile)$")
-    manifests_checked = {}
-    for tag_name in tags_map:
-        match = tag_regex.match(tag_name)
-
-        if not match:
-            LOGGER.debug("%s is not in a known type to be deleted.", tag_name)
+def remove_tags(
+    image_digests: Sequence[str], quay_token: str, namespace: str, name: str, dry_run: bool = False
+) -> None:
+    for image_digest in image_digests:
+        if manifest_exists(quay_token, namespace, name, image_digest):
+            LOGGER.info("Image manifest still exists: %s", image_digest)
             continue
 
-        image_digest = match.group("digest").replace("-", ":")
-
-        if image_digest in image_digests:
-            continue
-
-        # verify that manifest really doesn't exist, because if tag was
-        # removed, it won't be in tag list, but may still be in the
-        # registry
-        manifest_existence = manifests_checked.get(image_digest)
-        if manifest_existence is None:
-            manifest_existence = manifest_exists(quay_token, namespace, name, image_digest)
-            manifests_checked[image_digest] = manifest_existence
-
-        if not manifest_existence:
+        digest_in_tag = image_digest.replace(":", "-")
+        tags_to_remove = [f"{digest_in_tag}{suffix}" for suffix in ARTIFACTS_TAGS_SUFFIX]
+        for tag_name in tags_to_remove:
             if dry_run:
                 LOGGER.info("Tag %s from %s/%s should be removed", tag_name, namespace, name)
             else:
-                LOGGER.info("Removing tag %s: %s from %s/%s", next(deleted_tags_counter), tag_name, namespace, name)
+                tags_count = next(deleted_tags_counter)
+                LOGGER.info("Removing tag %s: %s from %s/%s", tags_count, tag_name, namespace, name)
                 delete_image_tag(quay_token, namespace, name, tag_name)
 
 
@@ -236,12 +260,13 @@ def process_repositories(
         name = repo["name"]
         LOGGER.info("Processing repository %s: %s/%s", next(processed_repos_counter), namespace, name)
 
-        all_tags = get_quay_tags(quay_token, namespace, name, time_range=time_range)
-
-        if not all_tags:
-            continue
-
-        remove_tags(all_tags, quay_token, namespace, name, dry_run=dry_run)
+        collector = SubjectImageDigestCollector(time_range)
+        list_quay_tags = get_quay_tags(quay_token, namespace, name)
+        collect_subject_image_digests(list_quay_tags, collector)
+        LOGGER.info("Handled tags in total: %s", collector.handled_tags_count)
+        image_digests = collector.image_digests
+        LOGGER.debug("Collected subject image digests: %s", len(image_digests))
+        remove_tags(image_digests, quay_token, namespace, name, dry_run=dry_run)
 
 
 def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageRepo]]:
