@@ -51,14 +51,18 @@ def get_quay_notifications(
         },
     )
 
-    with urlopen(request) as resp:
-        if resp.status != 200:
-            # do not fail the job if we can't fetch notifications
-            # for single repository
-            LOGGER.warning("Failed to fetch notifications for %s/%s", namespace, name)
-            json_data = {}
-        else:
-            json_data = json.loads(resp.read())
+    try:
+        with urlopen(request) as resp:
+            if resp.status != 200:
+                # do not fail the job if we can't fetch notifications
+                # for single repository
+                LOGGER.warning("Failed to fetch notifications for %s/%s", namespace, name)
+                json_data = {}
+            else:
+                json_data = json.loads(resp.read())
+    except HTTPError:
+        LOGGER.warning("Failed to fetch notifications for %s/%s", namespace, name)
+        json_data = {}
 
     return json_data.get("notifications", [])
 

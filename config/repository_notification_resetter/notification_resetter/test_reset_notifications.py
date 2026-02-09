@@ -361,6 +361,50 @@ class TestResetter(unittest.TestCase):
         self.assert_make_post_request(request)
         self.assert_quay_token_included(request)
 
+    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])
+    @patch("reset_notifications.urlopen")
+    def test_get_notifications_http_error_returns_empty(self, urlopen):
+        """When fetching notifications returns 504 (or any HTTPError), job continues with empty list."""
+        fetch_repos = MagicMock()
+        response = MagicMock()
+        response.status = 200
+        response.read.return_value = json.dumps(
+            {
+                "repositories": [
+                    {"namespace": "sample", "name": "hello-image"},
+                ],
+            }
+        ).encode()
+        fetch_repos.__enter__.return_value = response
+
+        mock_error = HTTPError(
+            url="http://example.com",
+            code=504,
+            msg="Gateway Timeout",
+            hdrs=None,
+            fp=io.BytesIO(b""),
+        )
+
+        urlopen.side_effect = [
+            fetch_repos,
+            mock_error,  # get_quay_notifications raises
+        ]
+
+        with self.assertLogs(LOGGER) as logs:
+            main()
+            run_log = [
+                msg
+                for msg in logs.output
+                if re.search(
+                    r"Failed to fetch notifications for sample/hello-image",
+                    msg,
+                )
+            ]
+            self.assertEqual(1, len(run_log))
+
+        self.assertEqual(2, urlopen.call_count)
+
     @patch("reset_notifications.urlopen")
     def test_handle_image_repos_pagination(self, urlopen):
         first_fetch_rv = MagicMock()
