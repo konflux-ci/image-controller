@@ -27,7 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-logr/logr"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	l "github.com/konflux-ci/image-controller/pkg/logs"
 	"github.com/konflux-ci/image-controller/pkg/metrics"
@@ -70,7 +69,7 @@ type ImageRepositoryReconciler struct {
 	Scheme *runtime.Scheme
 
 	QuayClient       quay.QuayService
-	BuildQuayClient  func(logr.Logger) quay.QuayService
+	BuildQuayClient  func() (quay.QuayService, error)
 	QuayOrganization string
 }
 
@@ -120,7 +119,10 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		delete(metrics.RepositoryTimesForMetrics, repositoryIdForMetrics)
 
 		// Reread quay token
-		r.QuayClient = r.BuildQuayClient(log)
+		r.QuayClient, err = r.BuildQuayClient()
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 
 		if isComponentLinked(imageRepository) {
 			// unlink secret from component SA
@@ -185,7 +187,10 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Reread quay token
-	r.QuayClient = r.BuildQuayClient(log)
+	r.QuayClient, err = r.BuildQuayClient()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	// Provision image repository if it hasn't been done yet
 	if !controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {

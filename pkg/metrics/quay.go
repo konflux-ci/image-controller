@@ -4,23 +4,25 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/go-logr/logr"
 	"github.com/konflux-ci/image-controller/pkg/quay"
 	"github.com/prometheus/client_golang/prometheus"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type QuayAvailabilityProbe struct {
-	BuildQuayClient  func(logr.Logger) quay.QuayService
+	BuildQuayClient  func() (quay.QuayService, error)
 	QuayOrganization string
 	gauge            prometheus.Gauge
 }
 
 const testRobotAccountName = "robot_konflux_api_healthcheck"
 
-func NewQuayAvailabilityProbe(ctx context.Context, clientBuilder func(logr.Logger) quay.QuayService, quayOrganization string) (*QuayAvailabilityProbe, error) {
-	client := clientBuilder(ctrllog.FromContext(ctx))
-	_, err := client.CreateRobotAccount(quayOrganization, testRobotAccountName)
+func NewQuayAvailabilityProbe(ctx context.Context, clientBuilder func() (quay.QuayService, error), quayOrganization string) (*QuayAvailabilityProbe, error) {
+	client, err := clientBuilder()
+	if err != nil {
+		return nil, fmt.Errorf("could not create quay client: %w", err)
+	}
+
+	_, err = client.CreateRobotAccount(quayOrganization, testRobotAccountName)
 	if err != nil {
 		return nil, fmt.Errorf("could not create test robot account: %w", err)
 	}
@@ -38,8 +40,11 @@ func NewQuayAvailabilityProbe(ctx context.Context, clientBuilder func(logr.Logge
 }
 
 func (q *QuayAvailabilityProbe) CheckAvailability(ctx context.Context) error {
-	client := q.BuildQuayClient(ctrllog.FromContext(ctx))
-	_, err := client.GetRobotAccount(q.QuayOrganization, testRobotAccountName)
+	client, err := q.BuildQuayClient()
+	if err != nil {
+		return fmt.Errorf("could not create quay client: %w", err)
+	}
+	_, err = client.GetRobotAccount(q.QuayOrganization, testRobotAccountName)
 	return err
 }
 

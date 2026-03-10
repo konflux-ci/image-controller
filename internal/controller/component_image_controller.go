@@ -31,10 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/go-logr/logr"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	l "github.com/konflux-ci/image-controller/pkg/logs"
-	"github.com/konflux-ci/image-controller/pkg/quay"
 	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 )
 
@@ -63,9 +61,6 @@ type ImageRepositoryStatus struct {
 type ComponentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-
-	BuildQuayClient  func(logr.Logger) quay.QuayService
-	QuayOrganization string
 }
 
 // SetupWithManager sets up the controller with the Manager.

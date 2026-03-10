@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -48,7 +47,7 @@ type QuayUsersConfigMapReconciler struct {
 	Scheme *runtime.Scheme
 
 	QuayClient       quay.QuayService
-	BuildQuayClient  func(logr.Logger) quay.QuayService
+	BuildQuayClient  func() (quay.QuayService, error)
 	QuayOrganization string
 }
 
@@ -144,7 +143,11 @@ func (r *QuayUsersConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	// reread quay token
-	r.QuayClient = r.BuildQuayClient(log)
+	var err error
+	r.QuayClient, err = r.BuildQuayClient()
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	// remove team if config map is being removed, or doesn't contain key additionalUsersConfigMapKey
 	if removeTeam {

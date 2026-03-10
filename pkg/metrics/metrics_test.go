@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/konflux-ci/image-controller/pkg/quay"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -36,7 +35,7 @@ func TestRegisterMetrics(t *testing.T) {
 	})
 }
 
-func getTestClient(logger logr.Logger) quay.QuayService {
+func getTestClient() (quay.QuayService, error) {
 	quay.ResetTestQuayClient()
-	return &quay.TestQuayClient{}
+	return &quay.TestQuayClient{}, nil
 }
