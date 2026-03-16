@@ -1,5 +1,5 @@
 /*
-Copyright 2023-2025 Red Hat, Inc.
+Copyright 2023-2026 Red Hat, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package main
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -189,6 +190,7 @@ func main() {
 		}
 		return strings.TrimSpace(string(tokenContent)), nil
 	}
+
 	quayApiUrl, err := readConfig(quayApiPath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -199,18 +201,24 @@ func main() {
 		quayApiUrl = "https://quay.io/api/v1"
 	}
 	setupLog.Info(fmt.Sprintf("using Quay API URL: %s", quayApiUrl))
+
 	quayOrganization, err := readConfig(quayOrgPath)
 	if err != nil {
 		setupLog.Error(err, "unable to read Quay Org")
 		os.Exit(2)
 	}
 	setupLog.Info(fmt.Sprintf("using Quay Org: %s", quayOrganization))
+
+	quayHttpClient, err := buildQuayHttpClient()
+	if err != nil {
+		setupLog.Error(err, "unable to build Quay http client")
+	}
 	buildQuayClientFunc := func() (quay.QuayService, error) {
 		token, err := readConfig(quayTokenPath)
 		if err != nil {
 			return nil, fmt.Errorf("unable to get quay token: %w", err)
 		}
-		quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, token, quayApiUrl)
+		quayClient := quay.NewQuayClient(quayHttpClient, token, quayApiUrl)
 		return quayClient, nil
 	}
 
@@ -287,4 +295,44 @@ func getCacheExcludedObjectsTypes() []client.Object {
 		&corev1.Secret{},
 		&corev1.ConfigMap{},
 	}
+}
+
+// buildQuayHttpClient creates an http client with optional custom CA certificates.
+// If the QUAY_ADDITIONAL_CA environment variable is set, it reads the CA certificate
+// from the specified file path and adds it to the system CA pool.
+func buildQuayHttpClient() (*http.Client, error) {
+	transport := &http.Transport{}
+
+	// Check if additional CA certificate path is provided
+	caCertPath := os.Getenv("QUAY_ADDITIONAL_CA")
+	if caCertPath != "" {
+		setupLog.Info(fmt.Sprintf("Loading additional CA certificate from: %s", caCertPath))
+
+		// Read the CA certificate file
+		caCert, err := os.ReadFile(caCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA certificate from %s: %w", caCertPath, err)
+		}
+
+		// Get the system CA pool
+		caCertPool, err := x509.SystemCertPool()
+		if err != nil {
+			setupLog.Info("Failed to load system cert pool, creating new cert pool")
+			caCertPool = x509.NewCertPool()
+		}
+
+		// Append the additional CA certificate
+		if ok := caCertPool.AppendCertsFromPEM(caCert); !ok {
+			return nil, fmt.Errorf("failed to append CA certificate from %s", caCertPath)
+		}
+
+		// Configure TLS with the custom CA pool
+		transport.TLSClientConfig = &tls.Config{
+			RootCAs: caCertPool,
+		}
+
+		setupLog.Info("Additional CA certificate loaded successfully")
+	}
+
+	return &http.Client{Transport: transport}, nil
 }
