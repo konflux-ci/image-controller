@@ -1,11 +1,11 @@
 [![codecov](https://codecov.io/gh/konflux-ci/image-controller/branch/main/graph/badge.svg)](https://codecov.io/gh/konflux-ci/image-controller)
-# The Image Controller for AppStudio
-The Image Controller operator helps set up container image repositories on Quay.io for AppStudio.
+# The Image Repository Controller for Konflux
+The Image Controller operator helps set up container image repositories on Quay image registry for Konflux.
 
 ### Image Controller operator installation
 
 1. Install the project on your cluster by running `make deploy`.
-2. Set up the Quay.io token that would be used by the controller to set up image repositories under the `quay.io/redhat-user-workloads` organization.
+2. Set up the Quay.io token that would be used by the controller to set up image repositories under the `quay.io/user-workloads` organization.
 
 ```
 kind: Secret
@@ -14,7 +14,8 @@ metadata:
   name: quaytoken
   namespace: image-controller-system
 data:
-  organization: redhat-user-workloads
+  quayapiurl: https://quay.io/api/v1
+  organization: user-workloads
   quaytoken: redacted
 type: Opaque
 ```
@@ -154,7 +155,7 @@ in Quay will get deleted as well.
 
 In order to skip the deletion of the repository in Quay, the `image-controller.appstudio.redhat.com/skip-repository-deletion` annotation should be set to "true".
 
-## AppStudio Component image repository
+## Konflux Component image repository
 
 ### Image repository for Component builds
 
@@ -270,7 +271,7 @@ The `Image controller` would create the necessary resources on Quay.io and write
 
 ```json
 {
-   "image":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing",
+   "image":"quay.io/user-workloads/image-controller-system/city-transit/billing",
    "visibility":"public",
    "secret":"billing"
 }
@@ -283,7 +284,7 @@ metadata:
   annotations:
     image.redhat.com/generate: 'false'
     image.redhat.com/image: >-
-      {"image":"quay.io/redhat-user-workloads/image-controller-system/city-transit/billing","visibility":"public","secret":"billing"}
+      {"image":"quay.io/user-workloads/image-controller-system/city-transit/billing","visibility":"public","secret":"billing"}
   name: billing
   namespace: image-controller-system
   resourceVersion: '86424'
@@ -295,7 +296,7 @@ spec:
 
 ## License
 
-Copyright 2023.
+Copyright 2023-2026.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

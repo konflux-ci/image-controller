@@ -18,6 +18,7 @@ package main
 
 import (
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -46,7 +47,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/go-logr/logr"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	controllers "github.com/konflux-ci/image-controller/internal/controller"
 	controllermetrics "github.com/konflux-ci/image-controller/pkg/metrics"
@@ -56,6 +56,7 @@ import (
 )
 
 const (
+	quayApiPath string = "/workspace/quayapiurl"
 	/* #nosec it's the path to the token, not the token itself */
 	quayTokenPath string = "/workspace/quaytoken"
 	quayOrgPath   string = "/workspace/organization"
@@ -179,26 +180,43 @@ func main() {
 		os.Exit(1)
 	}
 
-	readConfig := func(l logr.Logger, path string) string {
+	// Read Quay config (from the mounted secret)
+	readConfig := func(path string) (string, error) {
 		/* #nosec we are sure the input path is clean */
 		tokenContent, err := os.ReadFile(path)
 		if err != nil {
-			l.Error(err, fmt.Sprintf("unable to read %s", path))
+			return "", fmt.Errorf("unable to read %s: %w", path, err)
 		}
-		return strings.TrimSpace(string(tokenContent))
+		return strings.TrimSpace(string(tokenContent)), nil
 	}
-	quayOrganization := readConfig(setupLog, quayOrgPath)
-	buildQuayClientFunc := func(l logr.Logger) quay.QuayService {
-		token := readConfig(l, quayTokenPath)
-		quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, token, "https://quay.io/api/v1")
-		return quayClient
+	quayApiUrl, err := readConfig(quayApiPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			setupLog.Error(err, "unable to read Quay API URL")
+			os.Exit(2)
+		}
+		// Quay API URL is not set, fall back to default
+		quayApiUrl = "https://quay.io/api/v1"
+	}
+	setupLog.Info(fmt.Sprintf("using Quay API URL: %s", quayApiUrl))
+	quayOrganization, err := readConfig(quayOrgPath)
+	if err != nil {
+		setupLog.Error(err, "unable to read Quay Org")
+		os.Exit(2)
+	}
+	setupLog.Info(fmt.Sprintf("using Quay Org: %s", quayOrganization))
+	buildQuayClientFunc := func() (quay.QuayService, error) {
+		token, err := readConfig(quayTokenPath)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get quay token: %w", err)
+		}
+		quayClient := quay.NewQuayClient(&http.Client{Transport: &http.Transport{}}, token, quayApiUrl)
+		return quayClient, nil
 	}
 
 	if err = (&controllers.ComponentReconciler{
-		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		BuildQuayClient:  buildQuayClientFunc,
-		QuayOrganization: quayOrganization,
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Controller")
 		os.Exit(1)

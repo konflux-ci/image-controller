@@ -106,23 +106,21 @@ var _ = BeforeSuite(func() {
 	err = (&ImageRepositoryReconciler{
 		Client:           k8sManager.GetClient(),
 		Scheme:           k8sManager.GetScheme(),
-		BuildQuayClient:  func(l logr.Logger) quay.QuayService { return quay.TestQuayClient{} },
+		BuildQuayClient:  func() (quay.QuayService, error) { return quay.TestQuayClient{}, nil },
 		QuayOrganization: quay.TestQuayOrg,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&ComponentReconciler{
-		Client:           k8sManager.GetClient(),
-		Scheme:           k8sManager.GetScheme(),
-		BuildQuayClient:  func(logr.Logger) quay.QuayService { return quay.TestQuayClient{} },
-		QuayOrganization: quay.TestQuayOrg,
+		Client: k8sManager.GetClient(),
+		Scheme: k8sManager.GetScheme(),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&QuayUsersConfigMapReconciler{
 		Client:           k8sManager.GetClient(),
 		Scheme:           k8sManager.GetScheme(),
-		BuildQuayClient:  func(l logr.Logger) quay.QuayService { return quay.TestQuayClient{} },
+		BuildQuayClient:  func() (quay.QuayService, error) { return quay.TestQuayClient{}, nil },
 		QuayOrganization: quay.TestQuayOrg,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
