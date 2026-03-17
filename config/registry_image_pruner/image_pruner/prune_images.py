@@ -18,7 +18,6 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger(__name__)
 QUAY_API_URL = "https://quay.io/api/v1"
-RETRY_LIMIT = 5
 
 processed_repos_counter = itertools.count()
 
@@ -26,12 +25,11 @@ processed_repos_counter = itertools.count()
 ImageRepo = Dict[str, Any]
 
 
-def get_quay_tags(quay_token: str, namespace: str, name: str) -> List[ImageRepo]:
+def get_quay_tags(quay_token: str, namespace: str, name: str) -> Dict[str, Any]:
     next_page = None
     resp: HTTPResponse
 
-    all_tags = []
-    retry_count = 0
+    all_tags = {}
     while True:
         query_args = {"limit": 100, "onlyActiveTags": True}
         if next_page is not None:
@@ -47,27 +45,23 @@ def get_quay_tags(quay_token: str, namespace: str, name: str) -> List[ImageRepo]
                 if resp.status != 200:
                     raise RuntimeError(resp.reason)
                 json_data = json.loads(resp.read())
-                retry_count = 0
         except HTTPError as ex:
             if ex.status == 404:
                 LOGGER.info("Repository doesn't exist anymore %s/%s", namespace, name)
-                return []
+                return {}
 
             if ex.status == 502 or ex.status == 504:
-                if retry_count > RETRY_LIMIT:
-                    LOGGER.info("Gateway error, retry reached retry limit %s", RETRY_LIMIT)
-                    raise
-
-                retry_count += 1
                 LOGGER.info("Gateway error, will retry")
-                time.sleep(2)
+                time.sleep(1)
                 continue
             raise
+        except json.JSONDecodeError:
+            LOGGER.info("Json decoder error, will retry")
+            continue
 
         tags = json_data.get("tags", [])
         # store only name & manifest_digest keys, as others aren't used and take memory
-        new_tags = [{"name": tag["name"], "manifest_digest": tag["manifest_digest"]} for tag in tags]
-        all_tags.extend(new_tags)
+        all_tags.update({tag["name"]: tag["manifest_digest"] for tag in tags})
 
         if not tags:
             LOGGER.debug("No tags found.")
@@ -122,12 +116,10 @@ def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -
     return manifest_exists
 
 
-def remove_tags(tags: List[Dict[str, Any]], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
-    tags_map = {tag_info["name"]: tag_info["manifest_digest"] for tag_info in tags}
-    # delete tags to save memory
-    del(tags)
-    image_digests = [digest for _, digest in tags_map.items()]
-    tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src|\.sig|\.dockerfile)$")
+def remove_tags(tags_map: Dict[str, Any], quay_token: str, namespace: str, name: str, dry_run: bool = False) -> None:
+    image_digests = set(tags_map.values())
+    # sha without any extension is clair report
+    tag_regex = re.compile(r"^sha256-([0-9a-f]+)(\.sbom|\.att|\.src|\.sig|\.dockerfile)?$")
     manifests_checked = {}
     for tag_name in tags_map:
         # attestation or sbom image
@@ -168,7 +160,11 @@ def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool 
     for repo in repos:
         namespace = repo["namespace"]
         name = repo["name"]
+        # skip huge repository for which we can't get all tags
+        if name == "ocp-art-tenant/art-images":
+            continue
         LOGGER.info("Processing repository %s: %s/%s", next(processed_repos_counter), namespace, name)
+
         all_tags = get_quay_tags(quay_token, namespace, name)
 
         if not all_tags:
@@ -190,10 +186,14 @@ def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageR
             "Authorization": f"Bearer {access_token}",
         })
 
-        with urlopen(request) as resp:
-            if resp.status != 200:
-                raise RuntimeError(resp.reason)
-            json_data = json.loads(resp.read())
+        try:
+            with urlopen(request) as resp:
+                if resp.status != 200:
+                    raise RuntimeError(resp.reason)
+                json_data = json.loads(resp.read())
+        except json.JSONDecodeError:
+            LOGGER.info("Json decoder error, will retry")
+            continue
 
         repos = json_data.get("repositories", [])
         if not repos:

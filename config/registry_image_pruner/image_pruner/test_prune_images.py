@@ -317,16 +317,10 @@ class TestRemoveTags(unittest.TestCase):
     @patch("prune_images.delete_image_tag")
     @patch("prune_images.manifest_exists")
     def test_remove_tags(self, manifest_exists, delete_image_tag):
-        tags = [
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
-                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
-            },
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
-                "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
-            },
-        ]
+        tags = {
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
+        }
 
         manifest_exists.side_effect = [
             False,
@@ -337,25 +331,19 @@ class TestRemoveTags(unittest.TestCase):
             remove_tags(tags, QUAY_TOKEN, "some", "repository")
             logs_output = "\n".join(logs.output)
             for tag in tags:
-                self.assertIn(f"Removing tag {tag['name']} from some/repository", logs_output)
+                self.assertIn(f"Removing tag {tag} from some/repository", logs_output)
 
         self.assertEqual(len(tags), delete_image_tag.call_count)
-        calls = [call(QUAY_TOKEN, "some", "repository", tag['name']) for tag in tags]
+        calls = [call(QUAY_TOKEN, "some", "repository", tag) for tag in tags]
         delete_image_tag.assert_has_calls(calls)
 
     @patch("prune_images.delete_image_tag")
     @patch("prune_images.manifest_exists")
     def test_remove_tags_dry_run(self, manifest_exists, delete_image_tag):
-        tags = [
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
-                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
-            },
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
-                "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
-            }
-        ]
+        tags = {
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
+        }
 
         manifest_exists.side_effect = [
             False,
@@ -366,26 +354,17 @@ class TestRemoveTags(unittest.TestCase):
             remove_tags(tags, QUAY_TOKEN, "some", "repository", dry_run=True)
             logs_output = "\n".join(logs.output)
             for tag in tags:
-                self.assertIn(f"Tag {tag['name']} from some/repository should be removed", logs_output)
+                self.assertIn(f"Tag {tag} from some/repository should be removed", logs_output)
 
         delete_image_tag.assert_not_called()
 
     @patch("prune_images.delete_image_tag")
     def test_remove_tags_nothing_to_remove(self, delete_image_tag):
-        tags = [
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
-                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
-            },
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
-                "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
-            },
-            {
-                "name": "app-image",
-                "manifest_digest": "sha256:502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd",
-            }
-        ]
+        tags = {
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
+            "app-image": "sha256:502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd",
+        }
 
         with self.assertRaisesRegex(AssertionError, expected_regex="no logs of level INFO"):
             with self.assertLogs(LOGGER) as logs:
@@ -396,16 +375,10 @@ class TestRemoveTags(unittest.TestCase):
     @patch("prune_images.delete_image_tag")
     @patch("prune_images.manifest_exists")
     def test_remove_tags_nothing_to_remove_digest_exists(self, manifest_exists, delete_image_tag):
-        tags = [
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
-                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
-            },
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
-                "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
-            },
-        ]
+        tags = {
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
+        }
 
         manifest_exists.side_effect = [
             True,
@@ -422,24 +395,12 @@ class TestRemoveTags(unittest.TestCase):
     @patch("prune_images.delete_image_tag")
     @patch("prune_images.manifest_exists")
     def test_remove_tags_multiple_tags(self, manifest_exists, delete_image_tag):
-        tags = [
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att",
-                "manifest_digest": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
-            },
-            {
-                "name": "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom",
-                "manifest_digest": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
-            },
-            {
-                "name": "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.att",
-                "manifest_digest": "sha256:5126ed26d60fffab5f82783af65b5a8e69da0820b723eea82a0eb71b0743c191",
-            },
-            {
-                "name": "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.sbom",
-                "manifest_digest": "sha256:9b1f70d94117c63ee73d53688a3e4d412c1ba58d86b8e45845cce9b8dab44113",
-            },
-        ]
+        tags = {
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.att": "sha256:125c1d18ee1c3b9bde0c7810fcb0d4ffbc67e9b0c5b88bb8df9ca039bc1c9457",
+            "sha256-502c8c35e31459e8774f88e115d50d2ad33ba0e9dfd80429bc70ed4c1fd9e0cd.sbom": "sha256:351326f899759a9a7ae3ca3c1cbdadcc8012f43231c145534820a68bdf36d55b",
+            "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.att": "sha256:5126ed26d60fffab5f82783af65b5a8e69da0820b723eea82a0eb71b0743c191",
+            "sha256-5c55025c0cfc402b2a42f9d35b14a92b1ba203407d2a81aad7ea3eae1a3737d4.sbom": "sha256:9b1f70d94117c63ee73d53688a3e4d412c1ba58d86b8e45845cce9b8dab44113",
+        }
 
         manifest_exists.side_effect = [
             False,
@@ -452,10 +413,10 @@ class TestRemoveTags(unittest.TestCase):
             remove_tags(tags, QUAY_TOKEN, "some", "repository")
             logs_output = "\n".join(logs.output)
             for tag in tags:
-                self.assertIn(f"Removing tag {tag['name']} from some/repository", logs_output)
+                self.assertIn(f"Removing tag {tag} from some/repository", logs_output)
 
         self.assertEqual(len(tags), delete_image_tag.call_count)
-        calls = [call(QUAY_TOKEN, "some", "repository", tag["name"]) for tag in tags]
+        calls = [call(QUAY_TOKEN, "some", "repository", tag) for tag in tags]
         delete_image_tag.assert_has_calls(calls)
 
 
