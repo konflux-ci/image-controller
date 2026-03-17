@@ -22,10 +22,18 @@ type: Opaque
 
 To generate organization-wide token:
 
-1. Create your own organization on [Quay.io](https://quay.io)
+1. Create your own organization on the desired Quay instance (e.g. [Quay.io](https://quay.io))
 2. Go to the organization and select applications, then create a new one.
 3. Select the application and choose generate token.
 4. Select `Administer organizations`, `Adminster repositories`, `Create Repositories` permissions.
+
+### Connect to self-hosted Quay with self-signed TLS certificate
+
+In order to connect to a self-hosted Quay instance, set `quayapiurl` filed in `quaytoken` secret.
+For example: `quayapiurl: https://quay.local:8443/api/v1`
+
+If a self-signed TLS certifiacte is used in self-hosted Quay instance,
+mount CA cert into the operator pod and set `QUAY_ADDITIONAL_CA` environament variable to point to the CA cert file.
 
 ## General purpose image repository
 
