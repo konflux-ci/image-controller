@@ -51,6 +51,11 @@ func (in *ImageCredentials) DeepCopyInto(out *ImageCredentials) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.RegenerateNamespacePullToken != nil {
+		in, out := &in.RegenerateNamespacePullToken, &out.RegenerateNamespacePullToken
+		*out = new(bool)
+		**out = **in
+	}
 	if in.VerifyLinking != nil {
 		in, out := &in.VerifyLinking, &out.VerifyLinking
 		*out = new(bool)

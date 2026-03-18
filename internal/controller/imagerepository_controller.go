@@ -27,11 +27,11 @@ import (
 	"strings"
 	"time"
 
+	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 	l "github.com/konflux-ci/image-controller/pkg/logs"
 	"github.com/konflux-ci/image-controller/pkg/metrics"
 	"github.com/konflux-ci/image-controller/pkg/quay"
-	appstudioredhatcomv1alpha1 "github.com/redhat-appstudio/application-api/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,6 +61,12 @@ const (
 	componentSaNamePrefix                   = "build-pipeline-"
 	imageRepositoryNameChangedMessagePrefix = "Image repository name changed after creation"
 	imageRepositoryNameChangedMessageSuffix = "That doesn't change image name in the registry. To do that, delete ImageRepository object and re-create it with new image name."
+
+	kubeSystemNamespace     = "kube-system"
+	namespacePullSecretName = "components-namespace-pull"
+	// when missing, will ensure namespace pull secret and namespace pull robot account and add the annotation
+	// when true, namespace pull secret and namespace pull robot account created
+	namespacePullSecretEnsuredAnnotation = "image-controller.appstudio.redhat.com/namespace-pull-secret-ensured"
 )
 
 // ImageRepositoryReconciler reconciles a ImageRepository object
@@ -94,6 +100,7 @@ func setMetricsTime(idForMetrics string, reconcileStartTime time.Time) {
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
 
 func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx).WithName("ImageRepository")
@@ -133,10 +140,13 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			}
 
 			// remove pull secret entry from application pull secret
-			err := r.removePullSecretFromApplicationPullSecret(ctx, imageRepository)
-			if err != nil {
-				log.Error(err, "failed to remove entry from application pull secret", "application", imageRepository.Labels[ApplicationNameLabelName], "secret", imageRepository.Status.Credentials.PullSecretName)
-				return ctrl.Result{}, err
+			applicationName := imageRepository.Labels[ApplicationNameLabelName]
+			if applicationName != "" {
+				err := r.removePullSecretFromApplicationPullSecret(ctx, imageRepository)
+				if err != nil {
+					log.Error(err, "failed to remove entry from application pull secret", "application", imageRepository.Labels[ApplicationNameLabelName], "secret", imageRepository.Status.Credentials.PullSecretName)
+					return ctrl.Result{}, err
+				}
 			}
 
 			// unlink pull secret for nudging component from nudged components SA
@@ -161,6 +171,16 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			if skipDeletion {
 				log.Info("Skip deletion was configured for image repository", "ImageRepository", imageRepository.Name)
 			}
+
+			// Remove permissions for repository from namespace robot account
+			if namespaceRobotName, err := r.getNamespaceRobotName(ctx, imageRepository.Namespace); err == nil {
+				namespaceRobot, err := r.QuayClient.GetRobotAccount(r.QuayOrganization, namespaceRobotName)
+				if err == nil && namespaceRobot != nil {
+					log.Info("Removing permissions from namespace robot account", "repoName", imageRepository.Spec.Image.Name, "robotName", namespaceRobot.Name)
+					_ = r.QuayClient.RemovePermissionsForRepositoryFromAccount(r.QuayOrganization, imageRepository.Spec.Image.Name, namespaceRobot.Name, true)
+				}
+			}
+
 			// Do not block deletion on failures
 			r.CleanupImageRepository(ctx, imageRepository, !(imageRepositoryFound || skipDeletion))
 
@@ -220,22 +240,63 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	// Update component
-	if isComponentLinked(imageRepository) {
-		// update application pull secret
-		applicationName := imageRepository.Labels[ApplicationNameLabelName]
-		pullSecretName := getSecretName(imageRepository, true)
-		err := r.addPullSecretAuthToApplicationPullSecret(ctx, applicationName, imageRepository.Namespace, pullSecretName, imageRepository.Status.Image.URL, false)
+	// ensure that namespace pull secret and namespace pull robot account exist, and set annotation afterwards
+	_, namespacePullSecretEnsuredExists := imageRepository.Annotations[namespacePullSecretEnsuredAnnotation]
+	if !namespacePullSecretEnsuredExists {
+		namespaceRobot, err := r.getOrCreateNamespaceRobot(ctx, imageRepository.Namespace)
 		if err != nil {
-			log.Error(err, "failed to update application pull secret with individual pull secret", "application", applicationName, "secret", pullSecretName)
+			return ctrl.Result{}, err
+		}
+		if err := r.ensureNamespacePullSecret(ctx, imageRepository, namespaceRobot); err != nil {
 			return ctrl.Result{}, err
 		}
 
-		// link secret to component SA
+		if imageRepository.Annotations == nil {
+			imageRepository.Annotations = make(map[string]string)
+		}
+		imageRepository.Annotations[namespacePullSecretEnsuredAnnotation] = "true"
+
+		if err := r.Client.Update(ctx, imageRepository); err != nil {
+			log.Error(err, "failed to update imageRepository after setting namespace pull secret annotation", l.Action, l.ActionUpdate)
+			return ctrl.Result{}, err
+		}
+		log.Info("updated imageRepository after setting namespace pull secret annotation", l.Action, l.ActionUpdate)
+
+		return ctrl.Result{}, nil
+	}
+
+	// Update component's containerImage and link push secret to component SA, add pull secret to application secret
+	// link namespace pull secret to integration and component SA
+	if isComponentLinked(imageRepository) {
+		pullSecretName := getSecretName(imageRepository, true)
+		applicationName := imageRepository.Labels[ApplicationNameLabelName]
+
+		// update application pull secret
+		if applicationName != "" {
+			err := r.addPullSecretAuthToApplicationPullSecret(ctx, applicationName, imageRepository.Namespace, pullSecretName, imageRepository.Status.Image.URL, false)
+			if err != nil {
+				log.Error(err, "failed to update application pull secret with individual pull secret", "applicationPullSecret", getApplicationPullSecretName(applicationName), "secret", pullSecretName)
+				return ctrl.Result{}, err
+			}
+		}
+
+		// link push secret to component SA
 		pushSecretName := getSecretName(imageRepository, false)
 		componentSaName := getComponentSaName(imageRepository.Labels[ComponentNameLabelName])
-		if err := r.linkSecretToServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace, false); err != nil {
-			log.Error(err, "failed to link secret to service account", "SaName", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
+		if err := r.linkSecretToServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace, false, false); err != nil {
+			log.Error(err, "failed to link push secret to component service account", "SaName", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
+			return ctrl.Result{}, err
+		}
+
+		// link namespace pull secret to component SA
+		if err := r.linkSecretToServiceAccount(ctx, componentSaName, namespacePullSecretName, imageRepository.Namespace, false, false); err != nil {
+			log.Error(err, "failed to link namespace pull secret to component service account", "SaName", componentSaName, "SecretName", namespacePullSecretName, l.Action, l.ActionUpdate)
+			return ctrl.Result{}, err
+		}
+
+		// link namespace pull secret to integration SA
+		if err := r.linkSecretToServiceAccount(ctx, IntegrationServiceAccountName, namespacePullSecretName, imageRepository.Namespace, true, true); err != nil {
+			log.Error(err, "failed to link namespace pull secret to integration service account", "SaName", IntegrationServiceAccountName, "SecretName", namespacePullSecretName, l.Action, l.ActionUpdate)
 			return ctrl.Result{}, err
 		}
 
@@ -243,7 +304,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if updateComponentAnnotationExists && updateComponentAnnotation == "true" {
 
 			componentName := imageRepository.Labels[ComponentNameLabelName]
-			component := &appstudioredhatcomv1alpha1.Component{}
+			component := &compapiv1alpha1.Component{}
 			componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
 			if err := r.Client.Get(ctx, componentKey, component); err != nil {
 				if errors.IsNotFound(err) {
@@ -322,6 +383,15 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, nil
 		}
 
+		// Rotate credentials for namespace robot
+		regenerateNamespacePullToken := imageRepository.Spec.Credentials.RegenerateNamespacePullToken
+		if regenerateNamespacePullToken != nil && *regenerateNamespacePullToken {
+			if err := r.RegenerateNamespaceRobotCredentials(ctx, imageRepository); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
+
 		// Check and fix linking is requested
 		verifyLinking := imageRepository.Spec.Credentials.VerifyLinking
 		if verifyLinking != nil && *verifyLinking {
@@ -360,7 +430,7 @@ func (r *ImageRepositoryReconciler) CheckComponentExistence(ctx context.Context,
 	log := ctrllog.FromContext(ctx).WithName("CheckComponentExistence")
 
 	componentName := imageRepository.Labels[ComponentNameLabelName]
-	component := &appstudioredhatcomv1alpha1.Component{}
+	component := &compapiv1alpha1.Component{}
 	componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
 	if err := r.Client.Get(ctx, componentKey, component); err != nil {
 		if errors.IsNotFound(err) {
@@ -408,10 +478,10 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	log := ctrllog.FromContext(ctx).WithName("ImageRepositoryProvision")
 	ctx = ctrllog.IntoContext(ctx, log)
 
-	var component *appstudioredhatcomv1alpha1.Component
+	var component *compapiv1alpha1.Component
 	if isComponentLinked(imageRepository) {
 		componentName := imageRepository.Labels[ComponentNameLabelName]
-		component = &appstudioredhatcomv1alpha1.Component{}
+		component = &compapiv1alpha1.Component{}
 		componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
 		if err := r.Client.Get(ctx, componentKey, component); err != nil {
 			if errors.IsNotFound(err) {
@@ -423,6 +493,18 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 				}
 			}
 			log.Error(err, "failed to get component", "ComponentName", componentName, l.Action, l.ActionView)
+			return err
+		}
+	}
+
+	namespaceRobot, err := r.getOrCreateNamespaceRobot(ctx, imageRepository.Namespace)
+	if err != nil {
+		return err
+	}
+
+	_, namespacePullSecretEnsuredExists := imageRepository.Annotations[namespacePullSecretEnsuredAnnotation]
+	if !namespacePullSecretEnsuredExists {
+		if err := r.ensureNamespacePullSecret(ctx, imageRepository, namespaceRobot); err != nil {
 			return err
 		}
 	}
@@ -476,6 +558,11 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		return err
 	}
 
+	// add permission to the repository for namespace robot account
+	if err := r.QuayClient.AddPermissionsForRepositoryToAccount(r.QuayOrganization, imageRepositoryName, namespaceRobot.Name, true, false); err != nil {
+		return err
+	}
+
 	pushCredentialsInfo, err := r.ProvisionImageRepositoryAccess(ctx, imageRepository, false)
 	if err != nil {
 		return err
@@ -505,6 +592,11 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	status.Credentials.PullRobotAccountName = pullCredentialsInfo.RobotAccountName
 	status.Credentials.PullSecretName = pullCredentialsInfo.SecretName
 	status.Notifications = notificationStatus
+
+	if imageRepository.Annotations == nil {
+		imageRepository.Annotations = make(map[string]string)
+	}
+	imageRepository.Annotations[namespacePullSecretEnsuredAnnotation] = "true"
 
 	imageRepository.Spec.Image.Name = imageRepositoryName
 	controllerutil.AddFinalizer(imageRepository, ImageRepositoryFinalizer)
@@ -563,7 +655,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 	}
 
 	secretName := getSecretName(imageRepository, isPullOnly)
-	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, quayImageURL); err != nil {
+	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, quayImageURL, true); err != nil {
 		return nil, err
 	}
 
@@ -640,6 +732,28 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx con
 	return nil
 }
 
+// RegenerateNamespaceRobotCredentials rotates namespace robot token and updates corresponding secret
+func (r *ImageRepositoryReconciler) RegenerateNamespaceRobotCredentials(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
+	log := ctrllog.FromContext(ctx)
+
+	namespaceRobotName, err := r.getNamespaceRobotName(ctx, imageRepository.Namespace)
+	if err != nil {
+		return err
+	}
+
+	if err := r.RegenerateNamespaceRobotAccessToken(ctx, imageRepository, namespaceRobotName); err != nil {
+		return err
+	}
+
+	imageRepository.Spec.Credentials.RegenerateNamespacePullToken = nil
+	if err := r.Client.Update(ctx, imageRepository); err != nil {
+		log.Error(err, "failed to update imageRepository", l.Action, l.ActionUpdate)
+		return err
+	}
+
+	return nil
+}
+
 // RegenerateImageRepositoryAccessToken rotates robot account token and updates new one to the corresponding Secret.
 func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, isPullOnly bool) error {
 	log := ctrllog.FromContext(ctx).WithName("RegenerateImageRepositoryAccessToken").WithValues("IsPullOnly", isPullOnly)
@@ -663,18 +777,42 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx con
 	if isPullOnly {
 		secretName = imageRepository.Status.Credentials.PullSecretName
 	}
-	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, quayImageURL); err != nil {
+	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, quayImageURL, true); err != nil {
 		return err
 	}
 
 	// update also secret in application secret
 	if isComponentLinked(imageRepository) && isPullOnly {
 		applicationName := imageRepository.Labels[ApplicationNameLabelName]
-		err := r.addPullSecretAuthToApplicationPullSecret(ctx, applicationName, imageRepository.Namespace, secretName, imageRepository.Status.Image.URL, true)
-		if err != nil {
-			log.Error(err, "failed to update application pull secret after individual pull secret change", "application", applicationName, "secret", secretName)
-			return err
+		if applicationName != "" {
+			err := r.addPullSecretAuthToApplicationPullSecret(ctx, applicationName, imageRepository.Namespace, secretName, imageRepository.Status.Image.URL, true)
+			if err != nil {
+				log.Error(err, "failed to update application pull secret after individual pull secret change", "applicationPullSecret", getApplicationPullSecretName(applicationName), "secret", secretName)
+				return err
+			}
 		}
+	}
+
+	return nil
+}
+
+// RegenerateNamespaceRobotAccessToken rotates namespace robot account token and updates new one to the corresponding Secret.
+func (r *ImageRepositoryReconciler) RegenerateNamespaceRobotAccessToken(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, namespaceRobotName string) error {
+	log := ctrllog.FromContext(ctx).WithName("RegenerateNamespaceRobotAccessToken")
+	ctx = ctrllog.IntoContext(ctx, log)
+
+	namespaceRobotAccount, err := r.QuayClient.RegenerateRobotAccountToken(r.QuayOrganization, namespaceRobotName)
+	if err != nil {
+		log.Error(err, "failed to refresh namespace robot account token")
+		return err
+	} else {
+		log.Info("Refreshed quay namespace robot account token")
+	}
+
+	quayImageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, imageRepository.Namespace)
+
+	if err := r.EnsureSecret(ctx, imageRepository, namespacePullSecretName, namespaceRobotAccount, quayImageURL, false); err != nil {
+		return err
 	}
 
 	return nil
@@ -761,7 +899,7 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 	return err
 }
 
-func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, secretName string, robotAccount *quay.RobotAccount, imageURL string) error {
+func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, secretName string, robotAccount *quay.RobotAccount, imageURL string, setOwnership bool) error {
 	log := ctrllog.FromContext(ctx).WithValues("SecretName", secretName)
 
 	secret := &corev1.Secret{}
@@ -784,9 +922,11 @@ func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepos
 			StringData: generateDockerconfigSecretData(imageURL, robotAccount),
 		}
 
-		if err := controllerutil.SetOwnerReference(imageRepository, secret, r.Scheme); err != nil {
-			log.Error(err, "failed to set owner for image repository secret")
-			return err
+		if setOwnership {
+			if err := controllerutil.SetOwnerReference(imageRepository, secret, r.Scheme); err != nil {
+				log.Error(err, "failed to set owner for image repository secret")
+				return err
+			}
 		}
 
 		if err := r.Client.Create(ctx, secret); err != nil {
@@ -815,9 +955,8 @@ func generateQuayRobotAccountName(imageRepositoryName string, isPullOnly bool) s
 	if len(imageNamePrefix) > 220 {
 		imageNamePrefix = imageNamePrefix[:220]
 	}
-	imageNamePrefix = strings.ReplaceAll(imageNamePrefix, "/", "_")
-	imageNamePrefix = strings.ReplaceAll(imageNamePrefix, ".", "_")
-	imageNamePrefix = strings.ReplaceAll(imageNamePrefix, "-", "_")
+
+	imageNamePrefix = sanitizeNameForQuay(imageNamePrefix)
 
 	randomSuffix := getRandomString(10)
 
@@ -827,6 +966,14 @@ func generateQuayRobotAccountName(imageRepositoryName string, isPullOnly bool) s
 	}
 	robotAccountName = removeDuplicateUnderscores(robotAccountName)
 	return robotAccountName
+}
+
+func sanitizeNameForQuay(name string) string {
+	name = strings.ReplaceAll(name, "/", "_")
+	name = strings.ReplaceAll(name, ".", "_")
+	name = strings.ReplaceAll(name, "-", "_")
+
+	return name
 }
 
 // removeDuplicateUnderscores replaces sequence of underscores with only one.
@@ -849,7 +996,7 @@ func getSecretName(imageRepository *imagerepositoryv1alpha1.ImageRepository, isP
 }
 
 func isComponentLinked(imageRepository *imagerepositoryv1alpha1.ImageRepository) bool {
-	return imageRepository.Labels[ApplicationNameLabelName] != "" && imageRepository.Labels[ComponentNameLabelName] != ""
+	return imageRepository.Labels[ComponentNameLabelName] != ""
 }
 
 func getRandomString(length int) string {
@@ -912,7 +1059,7 @@ func getComponentSaName(componentName string) string {
 func (r *ImageRepositoryReconciler) addPullSecretAuthToApplicationPullSecret(ctx context.Context, applicationName, namespace, pullSecretName, imageURL string, overwrite bool) error {
 	log := ctrllog.FromContext(ctx)
 
-	application := &appstudioredhatcomv1alpha1.Application{}
+	application := &compapiv1alpha1.Application{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: applicationName, Namespace: namespace}, application); err != nil {
 		log.Error(err, "failed to get Application", "application", applicationName)
 		return err
@@ -1141,4 +1288,79 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 
 	log.Info("Application pull secret updated after removing registry auth", "application", imageRepository.Labels[ApplicationNameLabelName])
 	return nil
+}
+
+// ensureNamespacePullSecret ensures that namespace pull secret exists and add permissions for all image repositories in the namespace
+func (r *ImageRepositoryReconciler) ensureNamespacePullSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, namespaceRobot *quay.RobotAccount) error {
+	log := ctrllog.FromContext(ctx)
+
+	quayImageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, imageRepository.Namespace)
+	if err := r.EnsureSecret(ctx, imageRepository, namespacePullSecretName, namespaceRobot, quayImageURL, false); err != nil {
+		return err
+	}
+
+	imageRepositoriesList := &imagerepositoryv1alpha1.ImageRepositoryList{}
+	if err := r.Client.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: imageRepository.Namespace}); err != nil {
+		log.Error(err, "failed to list image repositories")
+		return err
+	}
+
+	for _, namespaceImageRepository := range imageRepositoriesList.Items {
+		if namespaceImageRepository.Status.State != imagerepositoryv1alpha1.ImageRepositoryStateReady {
+			continue
+		}
+		imageRepositoryName := imageRepository.Spec.Image.Name
+		if err := r.QuayClient.AddPermissionsForRepositoryToAccount(r.QuayOrganization, imageRepositoryName, namespaceRobot.Name, true, false); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// getOrCreateNamespaceRobot gets the namespace robot account, creating it if it doesn't exist
+func (r *ImageRepositoryReconciler) getOrCreateNamespaceRobot(ctx context.Context, namespace string) (*quay.RobotAccount, error) {
+	log := ctrllog.FromContext(ctx)
+
+	namespaceRobotName, err := r.getNamespaceRobotName(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	namespaceRobot, err := r.QuayClient.GetRobotAccount(r.QuayOrganization, namespaceRobotName)
+	if err != nil {
+		log.Error(err, "failed to get namespace robot account", "RobotAccountName", namespaceRobotName)
+		return nil, err
+	}
+
+	if namespaceRobot == nil {
+		namespaceRobot, err = r.QuayClient.CreateRobotAccount(r.QuayOrganization, namespaceRobotName)
+		if err != nil {
+			log.Error(err, "failed to create robot account", "RobotAccountName", namespaceRobotName, l.Action, l.ActionAdd, l.Audit, "true")
+			return nil, err
+		}
+	}
+
+	return namespaceRobot, nil
+}
+
+func (r *ImageRepositoryReconciler) getNamespaceRobotName(ctx context.Context, namespace string) (string, error) {
+	log := ctrllog.FromContext(ctx)
+
+	ns, err := r.getKubeSystemNamespace(ctx)
+	if err != nil {
+		log.Error(err, "failed to get the kube system namespace.", "KubeSystemNamespaceName", kubeSystemNamespace)
+		return "", err
+	}
+
+	namespaceRobotName := fmt.Sprintf("%s_%s", namespace, ns.UID)
+	namespaceRobotName = sanitizeNameForQuay(namespaceRobotName)
+
+	return namespaceRobotName, nil
+}
+
+func (r *ImageRepositoryReconciler) getKubeSystemNamespace(ctx context.Context) (*corev1.Namespace, error) {
+	ns := &corev1.Namespace{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: kubeSystemNamespace}, ns)
+	return ns, err
 }

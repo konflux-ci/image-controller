@@ -122,6 +122,25 @@ spec:
 ```
 After token rotation, the `spec.credentials.regenerate-token` section will be deleted and `status.credentials.generationTimestamp` updated.
 
+
+It's possible to request namespace robot account token rotation by adding (it will also re-create secret if it doesn't exist):
+```yaml
+...
+spec:
+  ...
+  credentials:
+    regenerate-namespace-pull-token: true
+  ...
+```
+After token rotation, the `spec.credentials.regenerate-namespace-pull-token` section will be deleted.
+
+
+**NOTE**
+
+ImageRepository will have annotation `image-controller.appstudio.redhat.com/namespace-pull-secret-ensured` set to `true` which means that namespace secret was created and namespace robot account was created with proper permissions.
+
+When secret is removed by mistake, it can be recreated by removal of that annotation.
+
 ---
 
 ### Verify and fix secrets links
