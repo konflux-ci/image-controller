@@ -49,8 +49,6 @@ const (
 	ImageRepositoryFinalizer = "appstudio.openshift.io/image-repository"
 
 	updateComponentAnnotationName        = "image-controller.appstudio.redhat.com/update-component-image"
-	additionalUsersConfigMapName         = "image-controller-additional-users"
-	additionalUsersConfigMapKey          = "quay.io"
 	skipRepositoryDeletionAnnotationName = "image-controller.appstudio.redhat.com/skip-repository-deletion"
 
 	waitForRelatedComponentInitialDelay           = 5
@@ -573,10 +571,6 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		return err
 	}
 
-	if err = r.GrantRepositoryAccessToTeam(ctx, imageRepository); err != nil {
-		return err
-	}
-
 	var notificationStatus []imagerepositoryv1alpha1.NotificationStatus
 	if notificationStatus, err = r.SetNotifications(ctx, imageRepository); err != nil {
 		return err
@@ -664,46 +658,6 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 		SecretName:       secretName,
 	}
 	return data, nil
-}
-
-// GrantRepositoryAccessToTeam will add additional repository access to team, based on config map
-func (r *ImageRepositoryReconciler) GrantRepositoryAccessToTeam(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
-	log := ctrllog.FromContext(ctx).WithName("GrantAdditionalRepositoryAccessToTeam")
-
-	additionalUsersConfigMap := &corev1.ConfigMap{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: additionalUsersConfigMapName, Namespace: imageRepository.Namespace}, additionalUsersConfigMap); err != nil {
-		if errors.IsNotFound(err) {
-			log.Info("Config map with additional users doesn't exist", "ConfigMapName", additionalUsersConfigMapName, l.Action, l.ActionView)
-			return nil
-		}
-		log.Error(err, "failed to read config map with additional users", "ConfigMapName", additionalUsersConfigMapName, l.Action, l.ActionView)
-		return err
-	}
-	_, usersExist := additionalUsersConfigMap.Data[additionalUsersConfigMapKey]
-	if !usersExist {
-		log.Info("Config map with additional users doesn't have the key", "ConfigMapName", additionalUsersConfigMapName, "ConfigMapKey", additionalUsersConfigMapKey, l.Action, l.ActionView)
-		return nil
-	}
-
-	imageRepositoryName := imageRepository.Spec.Image.Name
-	teamName := getQuayTeamName(imageRepository.Namespace)
-
-	// get team, if team doesn't exist it will be created, we don't care about users as that will be taken care of by config map controller
-	// so in this case if config map exists, team already exists as well with appropriate users
-	log.Info("Ensure team", "TeamName", teamName)
-	if _, err := r.QuayClient.EnsureTeam(r.QuayOrganization, teamName); err != nil {
-		log.Error(err, "failed to get or create team", "TeamName", teamName, l.Action, l.ActionView)
-		return err
-	}
-
-	// add repo permission to the team
-	log.Info("Adding repository permission to the team", "TeamName", teamName, "RepositoryName", imageRepositoryName)
-	if err := r.QuayClient.AddReadPermissionsForRepositoryToTeam(r.QuayOrganization, imageRepositoryName, teamName); err != nil {
-		log.Error(err, "failed to grant repo permission to the team", "TeamName", teamName, "RepositoryName", imageRepositoryName, l.Action, l.ActionAdd)
-		return err
-	}
-
-	return nil
 }
 
 // RegenerateImageRepositoryCredentials rotates robot account(s) token and updates corresponding secret(s)

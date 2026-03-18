@@ -117,14 +117,6 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
-	err = (&QuayUsersConfigMapReconciler{
-		Client:           k8sManager.GetClient(),
-		Scheme:           k8sManager.GetScheme(),
-		BuildQuayClient:  func() (quay.QuayService, error) { return quay.TestQuayClient{}, nil },
-		QuayOrganization: quay.TestQuayOrg,
-	}).SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
-
 	err = (&ApplicationPullSecretCreator{
 		Client: k8sManager.GetClient(),
 		Scheme: k8sManager.GetScheme(),
