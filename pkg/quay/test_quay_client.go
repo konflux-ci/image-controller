@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	TestQuayOrg = "user-workloads"
+	TestQuayDomain = "quay.domain"
+	TestQuayOrg    = "user-workloads"
 )
 
 // TestQuayClient is a QuayClient for testing the controller

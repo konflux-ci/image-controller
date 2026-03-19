@@ -74,6 +74,7 @@ type ImageRepositoryReconciler struct {
 
 	QuayClient       quay.QuayService
 	BuildQuayClient  func() (quay.QuayService, error)
+	QuayHost         string
 	QuayOrganization string
 }
 
@@ -337,7 +338,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Make sure, that image repository name is the same as on creation.
 	// If it isn't set message
-	imageRepositoryName := strings.TrimPrefix(imageRepository.Status.Image.URL, fmt.Sprintf("quay.io/%s/", r.QuayOrganization))
+	imageRepositoryName := strings.TrimPrefix(imageRepository.Status.Image.URL, fmt.Sprintf("%s/%s/", r.QuayHost, r.QuayOrganization))
 	if imageRepository.Spec.Image.Name != imageRepositoryName {
 		imageNameDiffersMessage := fmt.Sprintf("%s from '%s' to '%s'. %s", imageRepositoryNameChangedMessagePrefix, imageRepositoryName, imageRepository.Spec.Image.Name, imageRepositoryNameChangedMessageSuffix)
 
@@ -523,7 +524,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	}
 	imageRepository.Spec.Image.Name = imageRepositoryName
 
-	quayImageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, imageRepositoryName)
+	quayImageURL := fmt.Sprintf("%s/%s/%s", r.QuayHost, r.QuayOrganization, imageRepositoryName)
 	imageRepository.Status.Image.URL = quayImageURL
 
 	if imageRepository.Spec.Image.Visibility == "" {
@@ -763,7 +764,7 @@ func (r *ImageRepositoryReconciler) RegenerateNamespaceRobotAccessToken(ctx cont
 		log.Info("Refreshed quay namespace robot account token")
 	}
 
-	quayImageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, imageRepository.Namespace)
+	quayImageURL := fmt.Sprintf("%s/%s/%s", r.QuayHost, r.QuayOrganization, imageRepository.Namespace)
 
 	if err := r.EnsureSecret(ctx, imageRepository, namespacePullSecretName, namespaceRobotAccount, quayImageURL, false); err != nil {
 		return err
@@ -1248,7 +1249,7 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 func (r *ImageRepositoryReconciler) ensureNamespacePullSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, namespaceRobot *quay.RobotAccount) error {
 	log := ctrllog.FromContext(ctx)
 
-	quayImageURL := fmt.Sprintf("quay.io/%s/%s", r.QuayOrganization, imageRepository.Namespace)
+	quayImageURL := fmt.Sprintf("%s/%s/%s", r.QuayHost, r.QuayOrganization, imageRepository.Namespace)
 	if err := r.EnsureSecret(ctx, imageRepository, namespacePullSecretName, namespaceRobot, quayImageURL, false); err != nil {
 		return err
 	}
