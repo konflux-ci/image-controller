@@ -45,7 +45,7 @@ var responseUnauthorized = map[string]string{
 	"error_message": "Unauthorized",
 	"error_type":    "insufficient_scope",
 	"title":         "insufficient_scope",
-	"type":          "https://quay.io/api/v1/error/insufficient_scope",
+	"type":          "https://quay.domain/api/v1/error/insufficient_scope",
 	"status":        "403",
 }
 
@@ -1256,7 +1256,7 @@ func TestQuayClient_RepositoryExists(t *testing.T) {
 				"error_message": "Not Found",
 				"error_type":    "not_found",
 				"title":         "not_found",
-				"type":          "https://quay.io/api/v1/error/not_found",
+				"type":          "https://quay.domain/api/v1/error/not_found",
 				"status":        "404",
 			},
 		},
@@ -1345,7 +1345,7 @@ func TestQuayClient_IsRepositoryPublic(t *testing.T) {
 			isPublic:   false,
 			err:        fmt.Errorf("repository %s does not exist in %s organization", repo, org),
 			statusCode: 404,
-			response:   []byte(`{"detail": "Not Found", "error_message": "Not Found", "error_type": "not_found", "title": "not_found", "type": "https://quay.io/api/v1/error/not_found", "status": 404}`),
+			response:   []byte(`{"detail": "Not Found", "error_message": "Not Found", "error_type": "not_found", "title": "not_found", "type": "https://quay.domain/api/v1/error/not_found", "status": 404}`),
 		},
 		{
 			name: "stop if http request fails",
@@ -1510,7 +1510,7 @@ func TestQuayClient_ChangeRepositoryVisibility(t *testing.T) {
 				"error_message": "Payment Required",
 				"error_type":    "exceeds_license",
 				"title":         "exceeds_license",
-				"type":          "https://quay.io/api/v1/error/exceeds_license",
+				"type":          "https://quay.domain/api/v1/error/exceeds_license",
 				"status":        "402",
 			},
 		},

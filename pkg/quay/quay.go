@@ -115,7 +115,7 @@ func (c *QuayClient) doRequest(url, method string, body io.Reader) (*QuayRespons
 	return &QuayResponse{response: resp}, nil
 }
 
-// CreateRepository creates a new Quay.io image repository.
+// CreateRepository creates a new image repository.
 func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Repository, error) {
 	url := fmt.Sprintf("%s/%s", c.url, "repository")
 
@@ -304,7 +304,7 @@ func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*Ro
 	return data, nil
 }
 
-// CreateRobotAccount creates a new Quay.io robot account in the organization.
+// CreateRobotAccount creates a new robot account in the organization.
 func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (*RobotAccount, error) {
 	robotName, err := handleRobotName(robotName)
 	if err != nil {
@@ -312,7 +312,7 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 	}
 
 	url := fmt.Sprintf("%s/%s/%s/%s/%s", c.url, "organization", organization, "robots", robotName)
-	payload := strings.NewReader(`{"description": "Robot account for AppStudio Component"}`)
+	payload := strings.NewReader(`{"description": "Robot account for Konflux Component"}`)
 	resp, err := c.doRequest(url, http.MethodPut, payload)
 	if err != nil {
 		return nil, err
@@ -359,7 +359,7 @@ func (c *QuayClient) CreateRobotAccount(organization string, robotName string) (
 	return nil, fmt.Errorf("failed to create robot account. Status code: %d, message: %s", statusCode, message)
 }
 
-// DeleteRobotAccount deletes given Quay.io robot account in the organization.
+// DeleteRobotAccount deletes given robot account in the organization.
 func (c *QuayClient) DeleteRobotAccount(organization string, robotName string) (bool, error) {
 	robotName, err := handleRobotName(robotName)
 	if err != nil {

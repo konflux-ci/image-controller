@@ -26,7 +26,7 @@ import (
 	g "github.com/onsi/gomega"
 )
 
-func TestBuildQuayHttpClient(t *testing.T) {
+func Test_buildQuayHttpClient(t *testing.T) {
 	t.Run("NoCustomCA", func(t *testing.T) {
 		g.RegisterTestingT(t)
 
@@ -138,4 +138,68 @@ cG3Kp1aafIjtenvEY2y9gYClEx7q4OIsN1Lw/OUQsUbTm50=
 		_, err = buildQuayHttpClient()
 		g.Expect(err).To(g.HaveOccurred(), "should have failed due to invalid CA cert")
 	})
+}
+
+func Test_getQuayHost(t *testing.T) {
+	testCases := []struct {
+		name          string
+		apiUrl        string
+		expected      string
+		errorExpected bool
+	}{
+		{
+			name:     "should parse quay.io host",
+			apiUrl:   "https://quay.io/api/v1",
+			expected: "quay.io",
+		},
+		{
+			name:     "should parse self-hosted quay host",
+			apiUrl:   "https://quay.local/api/v1",
+			expected: "quay.local",
+		},
+		{
+			name:     "should parse self-hosted quay host with port",
+			apiUrl:   "https://quay.local:8443/api/v1",
+			expected: "quay.local:8443",
+		},
+		{
+			name:     "should parse quay host with different api version",
+			apiUrl:   "https://quay.local/api/v2",
+			expected: "quay.local",
+		},
+		{
+			name:     "should parse quay host without subdomains",
+			apiUrl:   "https://localhost/api/v1",
+			expected: "localhost",
+		},
+		{
+			name:     "should parse quay with http protocol",
+			apiUrl:   "http://quay.local/api/v1",
+			expected: "quay.local",
+		},
+		{
+			name:          "should fail if api url is invalid",
+			apiUrl:        "://invalid-url/api/v1",
+			errorExpected: true,
+		},
+		{
+			name:          "should fail if empty api url",
+			apiUrl:        "",
+			errorExpected: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g.RegisterTestingT(t)
+
+			quayHost, err := getQuayHost(tc.apiUrl)
+			if tc.errorExpected {
+				g.Expect(err).To(g.HaveOccurred())
+			} else {
+				g.Expect(err).ToNot(g.HaveOccurred())
+				g.Expect(quayHost).To(g.Equal(tc.expected))
+			}
+		})
+	}
 }

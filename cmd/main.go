@@ -23,6 +23,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -221,6 +222,11 @@ func main() {
 		quayClient := quay.NewQuayClient(quayHttpClient, token, quayApiUrl)
 		return quayClient, nil
 	}
+	quayHost, err := getQuayHost(quayApiUrl)
+	if err != nil {
+		setupLog.Error(err, "unable to obtain Quay host from API URL")
+		os.Exit(2)
+	}
 
 	if err = (&controllers.ComponentReconciler{
 		Client: mgr.GetClient(),
@@ -234,6 +240,7 @@ func main() {
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
 		BuildQuayClient:  buildQuayClientFunc,
+		QuayHost:         quayHost,
 		QuayOrganization: quayOrganization,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ImageRepository")
@@ -325,4 +332,22 @@ func buildQuayHttpClient() (*http.Client, error) {
 	}
 
 	return &http.Client{Transport: transport}, nil
+}
+
+// getQuayHost takes quay API URL and returns the host (domain and port if present).
+// Examples:
+//
+//	https://my-domain.net:1234/api/v1 -> my-domain.net:1234
+//	https://quay.io/api/v1 -> quay.io
+func getQuayHost(quayApiUrl string) (string, error) {
+	parsedUrl, err := url.Parse(quayApiUrl)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse Quay API URL: %s: %w", quayApiUrl, err)
+	}
+
+	quayHost := parsedUrl.Host
+	if quayHost == "" {
+		return "", fmt.Errorf("failed to get host from Quay API URL: %s", quayApiUrl)
+	}
+	return quayHost, nil
 }

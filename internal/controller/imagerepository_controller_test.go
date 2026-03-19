@@ -63,12 +63,12 @@ var _ = Describe("Image repository controller", func() {
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
-			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
+			expectedImage = fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
 			kubeSystemNamespace := getNamespace(kubeSystemNamespace)
 			expectedNamespaceRobotAccountName = fmt.Sprintf("%s_%s", resourceKey.Namespace, kubeSystemNamespace.UID)
 			expectedNamespaceRobotAccountName = sanitizeNameForQuay(expectedNamespaceRobotAccountName)
-			expectedNamespaceImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, resourceKey.Namespace)
+			expectedNamespaceImage = fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, resourceKey.Namespace)
 		})
 
 		It("should provision image repository", func() {
@@ -445,7 +445,7 @@ var _ = Describe("Image repository controller", func() {
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, defaultComponentName)
-			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
+			expectedImage = fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
 			kubeSystemNamespace := getNamespace(kubeSystemNamespace)
 			expectedNamespaceRobotAccountName = fmt.Sprintf("%s_%s", resourceKey.Namespace, kubeSystemNamespace.UID)
@@ -1099,7 +1099,7 @@ var _ = Describe("Image repository controller", func() {
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
-			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
+			expectedImage = fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
 		})
 
@@ -1702,7 +1702,7 @@ var _ = Describe("Image repository controller", func() {
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
-			expectedImage = fmt.Sprintf("quay.io/%s/%s", quay.TestQuayOrg, expectedImageName)
+			expectedImage = fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
 		})
 
