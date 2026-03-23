@@ -501,13 +501,6 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		return err
 	}
 
-	_, namespacePullSecretEnsuredExists := imageRepository.Annotations[namespacePullSecretEnsuredAnnotation]
-	if !namespacePullSecretEnsuredExists {
-		if err := r.ensureNamespacePullSecret(ctx, imageRepository, namespaceRobot); err != nil {
-			return err
-		}
-	}
-
 	imageRepositoryName := ""
 	if imageRepository.Spec.Image.Name == "" {
 		if isComponentLinked(imageRepository) {
@@ -558,7 +551,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	}
 
 	// add permission to the repository for namespace robot account
-	if err := r.QuayClient.AddPermissionsForRepositoryToAccount(r.QuayOrganization, imageRepositoryName, namespaceRobot.Name, true, false); err != nil {
+	if err := r.ensureNamespacePullSecret(ctx, imageRepository, namespaceRobot); err != nil {
 		return err
 	}
 
@@ -1245,29 +1238,15 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 	return nil
 }
 
-// ensureNamespacePullSecret ensures that namespace pull secret exists and add permissions for all image repositories in the namespace
+// ensureNamespacePullSecret ensures that namespace pull secret exists and add permissions for the image repository
 func (r *ImageRepositoryReconciler) ensureNamespacePullSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, namespaceRobot *quay.RobotAccount) error {
-	log := ctrllog.FromContext(ctx)
-
 	quayImageURL := fmt.Sprintf("%s/%s/%s", r.QuayHost, r.QuayOrganization, imageRepository.Namespace)
 	if err := r.EnsureSecret(ctx, imageRepository, namespacePullSecretName, namespaceRobot, quayImageURL, false); err != nil {
 		return err
 	}
 
-	imageRepositoriesList := &imagerepositoryv1alpha1.ImageRepositoryList{}
-	if err := r.Client.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: imageRepository.Namespace}); err != nil {
-		log.Error(err, "failed to list image repositories")
+	if err := r.QuayClient.AddPermissionsForRepositoryToAccount(r.QuayOrganization, imageRepository.Spec.Image.Name, namespaceRobot.Name, true, false); err != nil {
 		return err
-	}
-
-	for _, namespaceImageRepository := range imageRepositoriesList.Items {
-		if namespaceImageRepository.Status.State != imagerepositoryv1alpha1.ImageRepositoryStateReady {
-			continue
-		}
-		imageRepositoryName := imageRepository.Spec.Image.Name
-		if err := r.QuayClient.AddPermissionsForRepositoryToAccount(r.QuayOrganization, imageRepositoryName, namespaceRobot.Name, true, false); err != nil {
-			return err
-		}
 	}
 
 	return nil
