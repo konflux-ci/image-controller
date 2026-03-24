@@ -57,12 +57,20 @@ func TestQuayClient_CreateRepository(t *testing.T) {
 		name               string
 		statusCode         int
 		responseData       interface{}
+		responseDataHtml   string
 		expectedRepository *Repository
 		expectedErr        string // Empty string means that no error is expected
 	}{
 		{
-			name:               "successful repository creation",
+			name:               "successful repository creation with 200 code",
 			statusCode:         200,
+			responseData:       map[string]string{"name": repo},
+			expectedRepository: &Repository{Name: repo},
+			expectedErr:        "",
+		},
+		{
+			name:               "successful repository creation with 201 code",
+			statusCode:         201,
 			responseData:       map[string]string{"name": repo},
 			expectedRepository: &Repository{Name: repo},
 			expectedErr:        "",
@@ -79,6 +87,23 @@ func TestQuayClient_CreateRepository(t *testing.T) {
 				ErrorMessage: "Repository already exists",
 			},
 			expectedErr: "",
+		},
+		{
+			name:       "bad request",
+			statusCode: 400,
+			responseData: map[string]string{
+				"name":          repo,
+				"error_message": "bad request message",
+			},
+			expectedRepository: nil,
+			expectedErr:        "400 Bad Request: bad request message",
+		},
+		{
+			name:               "bad request with non json response",
+			statusCode:         400,
+			responseDataHtml:   "<html>\r\n<head><title>400 Bad Request</title></head>\r\n<body>\r\n<center><h1>400 Bad Request</h1></center>\r\n</body>\r\n</html>\r\n",
+			expectedRepository: nil,
+			expectedErr:        "400 Bad Request. failed to unmarshal response body: invalid character '<'",
 		},
 		{
 			name:               "payment required",
@@ -101,6 +126,30 @@ func TestQuayClient_CreateRepository(t *testing.T) {
 			expectedErr: "something is wrong in the server",
 		},
 		{
+			name:               "not handled status non json response",
+			statusCode:         500, // can be any status code not handled by CreateRepository explicitly
+			responseDataHtml:   "<html>\r\n<head><title>500 Internal Server Error</title></head>\r\n<body>\r\n<center><h1>500 Internal Server Error</h1></center>\r\n</body>\r\n</html>\r\n",
+			expectedRepository: nil,
+			expectedErr:        "500 status code. failed to unmarshal response body: invalid character '<'",
+		},
+		{
+			name:       "bad gateway",
+			statusCode: 502,
+			responseData: map[string]string{
+				"name":          repo,
+				"error_message": "bad gateway message",
+			},
+			expectedRepository: nil,
+			expectedErr:        "502 Bad Gateway: bad gateway message",
+		},
+		{
+			name:               "bad gateway with non json response",
+			statusCode:         502,
+			responseDataHtml:   "<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n</body>\r\n</html>\r\n",
+			expectedRepository: nil,
+			expectedErr:        "502 Bad Gateway. failed to unmarshal response body: invalid character '<'",
+		},
+		{
 			name:               "response data can't be encoded to a JSON data",
 			statusCode:         200,
 			responseData:       "{\"name\": \"repo}",
@@ -121,7 +170,11 @@ func TestQuayClient_CreateRepository(t *testing.T) {
 				MatchHeader("Content-type", "application/json").
 				MatchHeader("Authorization", "Bearer authtoken").
 				Post("/repository")
-			req.Reply(tc.statusCode).JSON(tc.responseData)
+			if tc.responseDataHtml != "" {
+				req.Reply(tc.statusCode).XML(tc.responseDataHtml)
+			} else {
+				req.Reply(tc.statusCode).JSON(tc.responseData)
+			}
 
 			if tc.name == "stop if http request fails" {
 				req.AddMatcher(gock.MatchPath).Put("another-path")

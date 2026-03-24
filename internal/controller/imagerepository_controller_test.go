@@ -1634,6 +1634,36 @@ var _ = Describe("Image repository controller", func() {
 			Expect(nudgedComponentSa.Secrets).To(Equal([]corev1.ObjectReference{corev1.ObjectReference{Name: commonPushSecretName}}))
 			Expect(nudgedComponentSa.ImagePullSecrets).To(Equal([]corev1.LocalObjectReference{corev1.LocalObjectReference{Name: commonPullSecretName}}))
 		})
+
+		It("should create image repository if 502 Bad Gateway is returned by Quay intermittently", func() {
+			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
+
+			createRepositoryInvocationCount := 0
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+
+				Expect(repository.Repository).To(Equal(expectedImageName))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
+				Expect(repository.Visibility).To(Equal("public"))
+				Expect(repository.Description).ToNot(BeEmpty())
+
+				createRepositoryInvocationCount++
+				if createRepositoryInvocationCount <= 2 {
+					return nil, fmt.Errorf("502 Bad Gateway. failed to unmarshal response body: invalid character '<'")
+				}
+				return &quay.Repository{Name: expectedImageName}, nil
+			}
+
+			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
+			defer deleteImageRepository(resourceKey)
+
+			Eventually(func() bool { return createRepositoryInvocationCount == 3 }, timeout, interval).Should(BeTrue())
+
+			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+
+			imageRepository := getImageRepository(resourceKey)
+			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
+		})
 	})
 
 	Context("Skip quay repository deletion", func() {
