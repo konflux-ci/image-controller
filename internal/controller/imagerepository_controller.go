@@ -532,6 +532,13 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		Description: "AppStudio repository for the user",
 	})
 	if err != nil {
+		if strings.Contains(err.Error(), "502 Bad Gateway") {
+			// Do not fail permanently on 502 Bad Gateway
+			return err
+		}
+
+		// Image repository creation permanently failed.
+		// Update status and stop.
 		log.Error(err, "failed to create image repository", l.Action, l.ActionAdd, l.Audit, "true")
 		imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateFailed
 		if err.Error() == "payment required" {
@@ -540,7 +547,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 			imageRepository.Status.Message = err.Error()
 		}
 		if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
-			log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
+			log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
 		}
 		return nil
 	}

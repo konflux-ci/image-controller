@@ -132,22 +132,37 @@ func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Rep
 	statusCode := resp.GetStatusCode()
 
 	data := &Repository{}
-	if err := resp.GetJson(data); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response, got response code %d with error: %w", statusCode, err)
+	unmarshallErr := resp.GetJson(data)
+	if unmarshallErr != nil {
+		data = nil
 	}
 
-	if statusCode != 200 {
-		if statusCode == 402 {
-			// Current plan doesn't allow private image repositories
-			return nil, errors.New("payment required")
-		} else if statusCode == 400 && data.ErrorMessage == "Repository already exists" {
-			data.Name = repositoryRequest.Repository
-		} else if data.ErrorMessage != "" {
-			return data, errors.New(data.ErrorMessage)
+	switch statusCode {
+	case 200, 201:
+		return data, unmarshallErr
+	case 400:
+		if unmarshallErr == nil {
+			if data.ErrorMessage == "Repository already exists" {
+				data.Name = repositoryRequest.Repository
+				return data, nil
+			}
+			return nil, fmt.Errorf("400 Bad Request: %s", data.ErrorMessage)
 		}
+		return nil, fmt.Errorf("400 Bad Request. %w", unmarshallErr)
+	case 402:
+		// Current quay plan doesn't allow private image repositories
+		return nil, errors.New("payment required")
+	case 502:
+		if unmarshallErr == nil {
+			return nil, fmt.Errorf("502 Bad Gateway: %s", data.ErrorMessage)
+		}
+		return nil, fmt.Errorf("502 Bad Gateway. %w", unmarshallErr)
+	default:
+		if unmarshallErr == nil {
+			return data, fmt.Errorf("%d status code: %s", statusCode, data.ErrorMessage)
+		}
+		return nil, fmt.Errorf("%d status code. %w", statusCode, unmarshallErr)
 	}
-
-	return data, nil
 }
 
 // RepositoryExists checks if the specified image repository exists in quay.
