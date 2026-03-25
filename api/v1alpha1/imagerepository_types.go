@@ -132,6 +132,7 @@ type ImageRepositoryState string
 const (
 	ImageRepositoryStateReady   ImageRepositoryState = "ready"
 	ImageRepositoryStateFailed  ImageRepositoryState = "failed"
+	ImageRepositoryStateDamaged ImageRepositoryState = "damaged"
 	ImageRepositoryStateWaiting ImageRepositoryState = "waiting"
 )
 

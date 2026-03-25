@@ -195,6 +195,11 @@ var _ = Describe("Application controller", func() {
 			}
 			ir1 := createImageRepository(imageConfig1)
 			ir2 := createImageRepository(imageConfig2)
+			Eventually(func() bool {
+				ir1 = getImageRepository(*imageConfig1.ResourceKey)
+				ir2 = getImageRepository(*imageConfig2.ResourceKey)
+				return ir1.Status.State != "" && ir2.Status.State != ""
+			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 
 			// set image repository state to failed so controller will just stop
 			// set also pull & push secret
@@ -346,6 +351,11 @@ var _ = Describe("Application controller", func() {
 			}
 			ir1 := createImageRepository(imageConfig1)
 			ir2 := createImageRepository(imageConfig2)
+			Eventually(func() bool {
+				ir1 = getImageRepository(*imageConfig1.ResourceKey)
+				ir2 = getImageRepository(*imageConfig2.ResourceKey)
+				return ir1.Status.State != "" && ir2.Status.State != ""
+			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 
 			// set image repository state to failed so controller will just stop
 			// set also pull & push secret
