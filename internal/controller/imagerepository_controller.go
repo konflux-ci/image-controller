@@ -131,39 +131,59 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 
 		if isComponentLinked(imageRepository) {
+			pushSecretName := imageRepository.Status.Credentials.PushSecretName
+			if pushSecretName == "" {
+				// It should not happen unless status is edited not by the operator.
+				// However, it's possible to recover the secret name.
+				pushSecretName = getSecretName(imageRepository, false)
+			}
+
 			// unlink secret from component SA
 			componentSaName := getComponentSaName(imageRepository.Labels[ComponentNameLabelName])
-			if err := r.unlinkSecretFromServiceAccount(ctx, componentSaName, imageRepository.Status.Credentials.PushSecretName, imageRepository.Namespace); err != nil {
-				log.Error(err, "failed to unlink secret from service account", "SaName", componentSaName, "SecretName", imageRepository.Status.Credentials.PushSecretName, l.Action, l.ActionUpdate)
+			if err := r.unlinkSecretFromServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace); err != nil {
+				log.Error(err, "failed to unlink secret from service account", "SaName", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
 				return ctrl.Result{}, err
 			}
 
 			// remove pull secret entry from application pull secret
+			pullSecretName := imageRepository.Status.Credentials.PullSecretName
+			if pullSecretName == "" {
+				// It should not happen unless status is edited not by the operator.
+				// However, it's possible to recover the secret name.
+				pullSecretName = getSecretName(imageRepository, true)
+			}
+
 			applicationName := imageRepository.Labels[ApplicationNameLabelName]
 			if applicationName != "" {
 				err := r.removePullSecretFromApplicationPullSecret(ctx, imageRepository)
 				if err != nil {
-					log.Error(err, "failed to remove entry from application pull secret", "application", imageRepository.Labels[ApplicationNameLabelName], "secret", imageRepository.Status.Credentials.PullSecretName)
+					log.Error(err, "failed to remove entry from application pull secret", "application", imageRepository.Labels[ApplicationNameLabelName], "secret", pullSecretName)
 					return ctrl.Result{}, err
 				}
 			}
 
 			// unlink pull secret for nudging component from nudged components SA
-			if err := r.unlinkPullSecretFromNudgedComponentSAs(ctx, imageRepository.Status.Credentials.PullSecretName, imageRepository.Namespace); err != nil {
-				log.Error(err, "failed to unlink pull secret from nudging service accounts", "SecretName", imageRepository.Status.Credentials.PullSecretName, l.Action, l.ActionUpdate)
+			if err := r.unlinkPullSecretFromNudgedComponentSAs(ctx, pullSecretName, imageRepository.Namespace); err != nil {
+				log.Error(err, "failed to unlink pull secret from nudging service accounts", "SecretName", pullSecretName, l.Action, l.ActionUpdate)
 				return ctrl.Result{}, err
 			}
 		}
 
 		if controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {
 			// Check if there isn't other ImageRepository for the same repository from other component
-			imageRepositoryFound, err := r.ImageRepositoryForSameUrlExists(ctx, imageRepository)
+			imageRepositoryUrl := imageRepository.Status.Image.URL
+			if imageRepositoryUrl == "" {
+				// It should not happen unless status is edited not by the operator.
+				// However, it's possible to recover the image URL unless Spec.Image.Name is also broken.
+				imageRepositoryUrl = r.getQuayImageURL(imageRepository.Spec.Image.Name)
+			}
+			imageRepositoryFound, err := r.ImageRepositoryForSameUrlExists(ctx, imageRepository, imageRepositoryUrl)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
 
 			if imageRepositoryFound {
-				log.Info("Found another image repository for", "RepoURL", imageRepository.Status.Image.URL)
+				log.Info("Found another image repository for", "RepoURL", imageRepositoryUrl)
 			}
 
 			skipDeletion := imageRepository.Annotations[skipRepositoryDeletionAnnotationName] == "true"
@@ -205,6 +225,16 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
+	if imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateDamaged {
+		if controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {
+			// Do not perform any action on object which status was manually damaged.
+			return ctrl.Result{}, nil
+		}
+		// Finalizer is not present, let operator try to recover the image repository.
+		// Note, if robot accounts are lost in status, there is no way to find / clean them up,
+		// so new robot accounts will be created.
+	}
+
 	// Reread quay token
 	r.QuayClient, err = r.BuildQuayClient()
 	if err != nil {
@@ -237,6 +267,22 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
+	} else {
+		// Finalizer is present, image repository should exists.
+		// Check status fields and mark the object as damaged if status was lost.
+		s := imageRepository.Status
+		if s.State == "" || s.Image.URL == "" || s.Image.Visibility == "" ||
+			s.Credentials.PushRobotAccountName == "" || s.Credentials.PullRobotAccountName == "" ||
+			s.Credentials.PushSecretName == "" || s.Credentials.PullSecretName == "" {
+			imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateDamaged
+			imageRepository.Status.Message = fmt.Sprintf("Object status was damaged. Remove %s finalizer to try to recover.", ImageRepositoryFinalizer)
+			if err = r.Client.Status().Update(ctx, imageRepository); err != nil {
+				log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
+			} else {
+				log.Info("Marked image repository as damaged", l.Action, l.ActionUpdate)
+			}
+			return ctrl.Result{}, err
+		}
 	}
 
 	// ensure that namespace pull secret and namespace pull robot account exist, and set annotation afterwards
@@ -517,7 +563,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	}
 	imageRepository.Spec.Image.Name = imageRepositoryName
 
-	quayImageURL := fmt.Sprintf("%s/%s/%s", r.QuayHost, r.QuayOrganization, imageRepositoryName)
+	quayImageURL := r.getQuayImageURL(imageRepositoryName)
 	imageRepository.Status.Image.URL = quayImageURL
 
 	if imageRepository.Spec.Image.Visibility == "" {
@@ -617,6 +663,10 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	return nil
 }
 
+func (r *ImageRepositoryReconciler) getQuayImageURL(imageRepositoryName string) string {
+	return fmt.Sprintf("%s/%s/%s", r.QuayHost, r.QuayOrganization, imageRepositoryName)
+}
+
 type imageRepositoryAccessData struct {
 	RobotAccountName string
 	SecretName       string
@@ -630,8 +680,19 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 
 	imageRepositoryName := imageRepository.Spec.Image.Name
 	quayImageURL := imageRepository.Status.Image.URL
+	if quayImageURL == "" {
+		quayImageURL = r.getQuayImageURL(imageRepositoryName)
+	}
 
-	robotAccountName := generateQuayRobotAccountName(imageRepositoryName, isPullOnly)
+	var robotAccountName string
+	if isPullOnly {
+		robotAccountName = imageRepository.Status.Credentials.PullRobotAccountName
+	} else {
+		robotAccountName = imageRepository.Status.Credentials.PushRobotAccountName
+	}
+	if robotAccountName == "" {
+		robotAccountName = generateQuayRobotAccountName(imageRepositoryName, isPullOnly)
+	}
 	robotAccount, err := r.QuayClient.CreateRobotAccount(r.QuayOrganization, robotAccountName)
 	if err != nil {
 		log.Error(err, "failed to create robot account", "RobotAccountName", robotAccountName, l.Action, l.ActionAdd, l.Audit, "true")
@@ -778,21 +839,25 @@ func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, 
 	log := ctrllog.FromContext(ctx).WithName("RepositoryCleanup")
 
 	robotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
-	isRobotAccountDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, robotAccountName)
-	if err != nil {
-		log.Error(err, "failed to delete push robot account", l.Action, l.ActionDelete, l.Audit, "true")
-	}
-	if isRobotAccountDeleted {
-		log.Info("Deleted push robot account", "RobotAccountName", robotAccountName, l.Action, l.ActionDelete)
+	if robotAccountName != "" {
+		isRobotAccountDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, robotAccountName)
+		if err != nil {
+			log.Error(err, "failed to delete push robot account", l.Action, l.ActionDelete, l.Audit, "true")
+		}
+		if isRobotAccountDeleted {
+			log.Info("Deleted push robot account", "RobotAccountName", robotAccountName, l.Action, l.ActionDelete)
+		}
 	}
 
 	pullRobotAccountName := imageRepository.Status.Credentials.PullRobotAccountName
-	isPullRobotAccountDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, pullRobotAccountName)
-	if err != nil {
-		log.Error(err, "failed to delete pull robot account", l.Action, l.ActionDelete, l.Audit, "true")
-	}
-	if isPullRobotAccountDeleted {
-		log.Info("Deleted pull robot account", "RobotAccountName", pullRobotAccountName, l.Action, l.ActionDelete)
+	if pullRobotAccountName != "" {
+		isPullRobotAccountDeleted, err := r.QuayClient.DeleteRobotAccount(r.QuayOrganization, pullRobotAccountName)
+		if err != nil {
+			log.Error(err, "failed to delete pull robot account", l.Action, l.ActionDelete, l.Audit, "true")
+		}
+		if isPullRobotAccountDeleted {
+			log.Info("Deleted pull robot account", "RobotAccountName", pullRobotAccountName, l.Action, l.ActionDelete)
+		}
 	}
 
 	if !removeRepository {
@@ -981,7 +1046,7 @@ func generateDockerconfigSecretData(quayImageURL string, robotAccount *quay.Robo
 	return secretData
 }
 
-func (r *ImageRepositoryReconciler) ImageRepositoryForSameUrlExists(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) (bool, error) {
+func (r *ImageRepositoryReconciler) ImageRepositoryForSameUrlExists(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, imageRepositoryUrl string) (bool, error) {
 	log := ctrllog.FromContext(ctx)
 	imageRepositoriesList := &imagerepositoryv1alpha1.ImageRepositoryList{}
 	if err := r.Client.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: imageRepository.Namespace}); err != nil {
@@ -989,7 +1054,6 @@ func (r *ImageRepositoryReconciler) ImageRepositoryForSameUrlExists(ctx context.
 		return false, err
 	}
 
-	imageRepositoryUrl := imageRepository.Status.Image.URL
 	imageRepositoryName := imageRepository.ObjectMeta.Name
 	for _, imageRepo := range imageRepositoriesList.Items {
 		if imageRepositoryUrl == imageRepo.Status.Image.URL {
@@ -1121,29 +1185,35 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 	}
 
 	// Get the pull secret that is being removed
+	pullSecretName := imageRepository.Status.Credentials.PullSecretName
+	if pullSecretName == "" {
+		// It should not happen unless status is edited not by the operator.
+		// However, it's possible to recover the secret name.
+		pullSecretName = getSecretName(imageRepository, true)
+	}
 	pullSecret := &corev1.Secret{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}, pullSecret); err != nil {
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: pullSecretName, Namespace: imageRepository.Namespace}, pullSecret); err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("Pull secret already deleted, cannot identify which registry auths to remove", "secretName", imageRepository.Status.Credentials.PullSecretName)
+			log.Info("Pull secret already deleted, cannot identify which registry auths to remove", "secretName", pullSecretName)
 			return nil
 		}
-		log.Error(err, "failed to get pull secret", "secretName", imageRepository.Status.Credentials.PullSecretName)
+		log.Error(err, "failed to get pull secret", "secretName", pullSecretName)
 		return err
 	}
 	if pullSecret.Type != corev1.SecretTypeDockerConfigJson {
-		log.Info("Skipping secret due to unexpected type", "secretName", imageRepository.Status.Credentials.PullSecretName, "type", pullSecret.Type)
+		log.Info("Skipping secret due to unexpected type", "secretName", pullSecretName, "type", pullSecret.Type)
 		return nil
 	}
 
 	dockerConfigDataBytes, ok := pullSecret.Data[corev1.DockerConfigJsonKey]
 	if !ok {
-		log.Info("Missing .dockerconfigjson key", "secretName", imageRepository.Status.Credentials.PullSecretName)
+		log.Info("Missing .dockerconfigjson key", "secretName", pullSecretName)
 		return nil
 	}
 
 	var toRemoveAuths dockerConfigJson
 	if err := json.Unmarshal(dockerConfigDataBytes, &toRemoveAuths); err != nil {
-		log.Error(err, "failed to unmarshal .dockerconfigjson", "secretName", imageRepository.Status.Credentials.PullSecretName)
+		log.Error(err, "failed to unmarshal .dockerconfigjson", "secretName", pullSecretName)
 		return err
 	}
 
