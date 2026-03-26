@@ -343,7 +343,7 @@ func TestQuayClient_CreateRobotAccount(t *testing.T) {
 	}
 }
 
-func TestQuayClient_AddPermissions(t *testing.T) {
+func TestQuayClient_AddPermissionsForRepositoryToAccount(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
 
@@ -352,6 +352,7 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 		robotName    string
 		statusCode   int
 		responseData interface{}
+		isUser       bool
 		expectedErr  string // Empty string means that no error is expected
 	}{
 		{
@@ -359,6 +360,14 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 			robotName:    robotName,
 			statusCode:   200,
 			responseData: "",
+			expectedErr:  "",
+		},
+		{
+			name:         "add permissions normally for non robot account",
+			robotName:    "user",
+			statusCode:   200,
+			responseData: "",
+			isUser:       true,
 			expectedErr:  "",
 		},
 		{
@@ -401,8 +410,12 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
 
-			req := gock.New(testQuayApiUrl).
-				Put("/repository/org/repository/permissions/user/org\\+robot")
+			req := gock.New(testQuayApiUrl)
+			if tc.isUser {
+				req.Put("/repository/org/repository/permissions/user/user")
+			} else {
+				req.Put("/repository/org/repository/permissions/user/org\\+robot")
+			}
 			req.Reply(tc.statusCode).JSON(tc.responseData)
 
 			if tc.name == "stop if http request fails" {
@@ -410,7 +423,111 @@ func TestQuayClient_AddPermissions(t *testing.T) {
 			}
 
 			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
-			err := quayClient.AddPermissionsForRepositoryToAccount("org", "repository", tc.robotName, true, true)
+			err := quayClient.AddPermissionsForRepositoryToAccount("org", "repository", tc.robotName, !tc.isUser, true)
+
+			if tc.expectedErr == "" {
+				assert.NilError(t, err)
+			} else {
+				assert.ErrorContains(t, err, tc.expectedErr)
+			}
+		})
+	}
+}
+
+func TestQuayClient_RemovePermissionsForRepositoryFromAccount(t *testing.T) {
+	client := &http.Client{Transport: &http.Transport{}}
+	gock.InterceptClient(client)
+
+	testCases := []struct {
+		name         string
+		robotName    string
+		statusCode   int
+		responseData interface{}
+		isUser       bool
+		expectedErr  string // Empty string means that no error is expected
+	}{
+		{
+			name:         "remove permissions normally",
+			robotName:    robotName,
+			statusCode:   204,
+			responseData: "",
+			expectedErr:  "",
+		},
+		{
+			name:         "remove permissions normally for non robot account",
+			robotName:    "user",
+			statusCode:   204,
+			responseData: "",
+			isUser:       true,
+			expectedErr:  "",
+		},
+		{
+			name:         "should do nothing if not found",
+			robotName:    robotName,
+			statusCode:   404,
+			responseData: "",
+			expectedErr:  "",
+		},
+		{
+			name:         "should do nothing if user doesn't have permission to the repo",
+			robotName:    robotName,
+			statusCode:   400,
+			responseData: "{\"message\": \"User does not have permission for repo\"}",
+			expectedErr:  "",
+		},
+		{
+			name:         "robot name is invalid",
+			robotName:    "robot++robot",
+			statusCode:   0,
+			responseData: "",
+			expectedErr:  "robot name is invalid",
+		},
+		{
+			name:         "return error got from error field within response",
+			robotName:    robotName,
+			statusCode:   400,
+			responseData: map[string]string{"error": "something is wrong"},
+			expectedErr:  "something is wrong",
+		},
+		{
+			name:         "return error got from error_message field within response",
+			robotName:    robotName,
+			statusCode:   400,
+			responseData: map[string]string{"error_message": "something is wrong"},
+			expectedErr:  "something is wrong",
+		},
+		{
+			name:         "server responds an invalid JSON string",
+			robotName:    robotName,
+			statusCode:   400,
+			responseData: "{\"name: \"info\"}",
+			expectedErr:  "failed to unmarshal response body",
+		},
+		{
+			name:        "stop if http request fails",
+			robotName:   robotName,
+			expectedErr: "failed to Do request:",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer gock.Off()
+
+			req := gock.New(testQuayApiUrl)
+			if tc.isUser {
+				req.Delete("/repository/org/repository/permissions/user/user")
+			} else {
+				req.Delete("/repository/org/repository/permissions/user/org\\+robot")
+			}
+			req.Reply(tc.statusCode).JSON(tc.responseData)
+
+			if tc.name == "stop if http request fails" {
+				req.AddMatcher(gock.MatchPath).Delete("another-path")
+			}
+
+			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
+			err := quayClient.RemovePermissionsForRepositoryFromAccount("org", "repository", tc.robotName, !tc.isUser)
 
 			if tc.expectedErr == "" {
 				assert.NilError(t, err)
@@ -649,7 +766,7 @@ func TestQuayClient_GetAllRobotAccounts(t *testing.T) {
 	}
 }
 
-func TestQuayClient_ListPermisssionsForRepository(t *testing.T) {
+func TestQuayClient_ListPermissionsForRepository(t *testing.T) {
 	testCases := []struct {
 		name                string
 		statusCode          int
@@ -677,6 +794,20 @@ func TestQuayClient_ListPermisssionsForRepository(t *testing.T) {
 			responseData:        "{\"permissions\": {\"user1\": {\"name}}}",
 			expectedPermissions: nil,
 			expectedErr:         "failed to unmarshal response body",
+		},
+		{
+			name:                "server responds with error in error_message",
+			statusCode:          500,
+			expectedErr:         "server error",
+			responseData:        `{"error_message":"server error"}`,
+			expectedPermissions: nil,
+		},
+		{
+			name:                "server responds with error in error",
+			statusCode:          500,
+			expectedErr:         "server error",
+			responseData:        `{"error":"server error"}`,
+			expectedPermissions: nil,
 		},
 		{
 			name:        "stop if http request fails",
@@ -715,7 +846,7 @@ func TestQuayClient_ListPermisssionsForRepository(t *testing.T) {
 	}
 }
 
-func TestQuayClient_ListPermisssionsForTeam(t *testing.T) {
+func TestQuayClient_ListRepositoryPermissionsForTeam(t *testing.T) {
 	testCases := []struct {
 		name                string
 		statusCode          int
@@ -750,6 +881,20 @@ func TestQuayClient_ListPermisssionsForTeam(t *testing.T) {
 			responseData:        "{\"}",
 			expectedPermissions: nil,
 			expectedErr:         "failed to unmarshal response body",
+		},
+		{
+			name:                "server responds with error in error_message",
+			statusCode:          500,
+			expectedErr:         "server error",
+			responseData:        `{"error_message":"server error"}`,
+			expectedPermissions: nil,
+		},
+		{
+			name:                "server responds with error in error",
+			statusCode:          500,
+			expectedErr:         "server error",
+			responseData:        `{"error":"server error"}`,
+			expectedPermissions: nil,
 		},
 		{
 			name:        "stop if http request fails",
@@ -970,7 +1115,18 @@ func TestQuayClient_GetTeamMembers(t *testing.T) {
 			expectedMembers: nil,
 			expectedErr:     "failed to unmarshal response body",
 		},
-
+		{
+			name:         "server responds with error in error_message",
+			statusCode:   500,
+			expectedErr:  "server error",
+			responseData: `{"error_message":"server error"}`,
+		},
+		{
+			name:         "server responds with error in error",
+			statusCode:   500,
+			expectedErr:  "server error",
+			responseData: `{"error":"server error"}`,
+		},
 		{
 			name:        "stop if http request fails",
 			expectedErr: "failed to Do request:",
@@ -1664,6 +1820,14 @@ func TestQuayClient_GetRobotAccount(t *testing.T) {
 			expectedFound: false,
 			statusCode:    400,
 			response:      map[string]string{"message": "Could not find robot with specified username"},
+		},
+		{
+			name:          "return generic error when server responds 500 without message",
+			robot:         sampleRobot,
+			expectedErr:   "Failed to get robot account",
+			expectedFound: false,
+			statusCode:    500,
+			response:      nil,
 		},
 		{
 			name:          "server responds an invalid JSON string",
