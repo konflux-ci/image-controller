@@ -133,6 +133,7 @@ const (
 	ImageRepositoryStateReady   ImageRepositoryState = "ready"
 	ImageRepositoryStateFailed  ImageRepositoryState = "failed"
 	ImageRepositoryStateDamaged ImageRepositoryState = "damaged"
+	ImageRepositoryStateMissing ImageRepositoryState = "missing"
 	ImageRepositoryStateWaiting ImageRepositoryState = "waiting"
 )
 

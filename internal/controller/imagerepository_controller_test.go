@@ -58,6 +58,7 @@ var _ = Describe("Image repository controller", func() {
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClientToFails()
+			quay.RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) { return true, nil }
 		})
 
 		It("should prepare environment", func() {
@@ -433,6 +434,7 @@ var _ = Describe("Image repository controller", func() {
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClientToFails()
+			quay.RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) { return true, nil }
 			createApplication(applicationConfig{})
 			createComponent(componentConfig{ComponentApplication: defaultComponentApplication})
 		})
@@ -1727,6 +1729,82 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
 		})
 
+		It("should mark image repository as missing if delete from Quay and restore after finalyzer removal", func() {
+			expectedImageName = defaultNamespace + "/" + resourceKey.Name
+
+			isCreateRepositoryInvoked := false
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				isCreateRepositoryInvoked = true
+				Expect(repository.Repository).To(Equal(expectedImageName))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
+				Expect(repository.Visibility).To(Equal("public"))
+				Expect(repository.Description).ToNot(BeEmpty())
+				return &quay.Repository{Name: expectedImageName}, nil
+			}
+			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
+			defer deleteImageRepository(resourceKey)
+
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+
+			// Check that the image repository was provisioned successfully
+			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			imageRepository := getImageRepository(resourceKey)
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
+			Expect(imageRepository.Status.Message).To(BeEmpty())
+
+			// Simulate that the image repository was deleted from Quay
+			isRepositoryExistsInvoked := false
+			quay.RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) {
+				defer GinkgoRecover()
+				isRepositoryExistsInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(imageRepository).To(Equal(expectedImageName))
+				return false, nil
+			}
+			// Make a change to trigger a reconcile
+			imageRepository = getImageRepository(resourceKey)
+			imageRepository.ObjectMeta.Annotations["new-reconcile"] = "true"
+			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+
+			Eventually(func() bool { return isRepositoryExistsInvoked }, timeout, interval).Should(BeTrue())
+
+			// Wait status updated with state missing and corresponding error message
+			Eventually(func() bool {
+				imageRepository = getImageRepository(resourceKey)
+				isStateMissing := imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateMissing
+				isErrorMessageSet := imageRepository.Status.Message != "" && strings.Contains(imageRepository.Status.Message, "Image repository is missing")
+				return isStateMissing && isErrorMessageSet
+			}, timeout, interval).Should(BeTrue())
+
+			// Set up quay invocations expectations for recovery
+			isCreateRepositoryInvoked = false
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				isCreateRepositoryInvoked = true
+				Expect(repository.Repository).To(Equal(expectedImageName))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
+				Expect(repository.Visibility).To(Equal("public"))
+				Expect(repository.Description).ToNot(BeEmpty())
+				// Simulate image repository as existing again
+				quay.RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) {
+					return true, nil
+				}
+				return &quay.Repository{Name: expectedImageName}, nil
+			}
+
+			// Request recover by removing finalizer
+			Expect(controllerutil.RemoveFinalizer(imageRepository, ImageRepositoryFinalizer)).To(BeTrue())
+			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+
+			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			imageRepository = getImageRepository(resourceKey)
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
+			Expect(imageRepository.Status.Message).To(BeEmpty())
+		})
+
 		It("should detect broken status and mark object as damaged, then recover after finalizer deletion", func() {
 			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
 			expectedImage = fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, expectedImageName)
@@ -1982,6 +2060,7 @@ var _ = Describe("Image repository controller", func() {
 			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
 
 			quay.ResetTestQuayClientToFails()
+			quay.RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) { return true, nil }
 
 			isChangeRepositoryVisibilityInvoked := false
 			quay.ChangeRepositoryVisibilityFunc = func(organization, imageRepository, visibility string) error {

@@ -227,9 +227,10 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	if imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateDamaged {
+	if imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateDamaged ||
+		imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateMissing {
 		if controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {
-			// Do not perform any action on object which status was manually damaged.
+			// Do not perform any action on object which was damaged.
 			return ctrl.Result{}, nil
 		}
 		// Finalizer is not present, let operator try to recover the image repository.
@@ -270,7 +271,8 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		return ctrl.Result{}, nil
 	} else {
-		// Finalizer is present, image repository should exists.
+		// Finalizer is present, image repository should exist.
+
 		// Check status fields and mark the object as damaged if status was lost.
 		s := imageRepository.Status
 		if s.State == "" || s.Image.URL == "" || s.Image.Visibility == "" ||
@@ -279,9 +281,27 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateDamaged
 			imageRepository.Status.Message = fmt.Sprintf("Object status was damaged. Remove %s finalizer to try to recover.", ImageRepositoryFinalizer)
 			if err = r.Client.Status().Update(ctx, imageRepository); err != nil {
-				log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
+				log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
 			} else {
 				log.Info("Marked image repository as damaged", l.Action, l.ActionUpdate)
+			}
+			return ctrl.Result{}, err
+		}
+
+		// Check if the image repository exists on Quay.
+		imageRepoName, _ := r.getQuayImageNameAndURL(imageRepository)
+		repositoryExists, err := r.QuayClient.RepositoryExists(r.QuayOrganization, imageRepoName)
+		if err != nil {
+			log.Error(err, "failed to check image repository existance")
+			return ctrl.Result{}, err
+		}
+		if !repositoryExists {
+			imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateMissing
+			imageRepository.Status.Message = fmt.Sprintf("Image repository is missing. Remove %s finalizer to try to recover.", ImageRepositoryFinalizer)
+			if err = r.Client.Status().Update(ctx, imageRepository); err != nil {
+				log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
+			} else {
+				log.Info("Marked image repository as missing", l.Action, l.ActionUpdate)
 			}
 			return ctrl.Result{}, err
 		}
