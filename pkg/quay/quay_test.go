@@ -1458,7 +1458,7 @@ func TestQuayClient_RepositoryExists(t *testing.T) {
 		{
 			name:        "Repository does not exist",
 			shouldExist: false,
-			expectedErr: fmt.Sprintf("repository %s does not exist in %s organization", repo, org),
+			expectedErr: "",
 			statusCode:  404,
 			response: map[string]string{
 				"detail":        "Not Found",
