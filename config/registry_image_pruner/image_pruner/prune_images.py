@@ -84,15 +84,21 @@ def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> No
         "Authorization": f"Bearer {quay_token}",
     })
     resp: HTTPResponse
-    try:
-        with urlopen(request) as resp:
-            if resp.status != 200 and resp.status != 204:
-                raise RuntimeError(resp.reason)
+    while True:
+        try:
+            with urlopen(request) as resp:
+                if resp.status != 200 and resp.status != 204:
+                    raise RuntimeError(resp.reason)
+        except HTTPError as ex:
+            if ex.status == 502 or ex.status == 504:
+                LOGGER.info("Gateway error, will retry")
+                time.sleep(1)
+                continue
 
-    except HTTPError as ex:
-        # ignore if not found
-        if ex.status != 404:
-            raise(ex)
+            # ignore if not found
+            if ex.status != 404:
+                raise(ex)
+        break
 
 
 def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -> bool:
@@ -102,17 +108,22 @@ def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -
     })
     resp: HTTPResponse
     manifest_exists = True
-    try:
-        with urlopen(request) as resp:
-            if resp.status != 200 and resp.status != 204:
-                raise RuntimeError(resp.reason)
+    while True:
+        try:
+            with urlopen(request) as resp:
+                if resp.status != 200 and resp.status != 204:
+                    raise RuntimeError(resp.reason)
+        except HTTPError as ex:
+            if ex.status == 502 or ex.status == 504:
+                LOGGER.info("Gateway error, will retry")
+                time.sleep(1)
+                continue
 
-    except HTTPError as ex:
-        if ex.status != 404:
-            raise(ex)
-        else:
-            manifest_exists = False
-
+            if ex.status != 404:
+                raise(ex)
+            else:
+                manifest_exists = False
+        break
     return manifest_exists
 
 
