@@ -23,8 +23,394 @@ import (
 	"os"
 	"testing"
 
+	"github.com/konflux-ci/image-controller/pkg/quay"
 	g "github.com/onsi/gomega"
 )
+
+func Test_getCacheExcludedObjectsTypes(t *testing.T) {
+	g.RegisterTestingT(t)
+
+	objects := getCacheExcludedObjectsTypes()
+	g.Expect(objects).ToNot(g.BeNil())
+}
+
+func Test_readConfig(t *testing.T) {
+	createTempFileWithContent := func(t *testing.T, fileContent string) *os.File {
+		tempFile, err := os.CreateTemp("", "config-test-*.txt")
+		t.Cleanup(func() { os.Remove(tempFile.Name()) })
+		g.Expect(err).ToNot(g.HaveOccurred())
+		_, err = tempFile.Write([]byte(fileContent))
+		g.Expect(err).ToNot(g.HaveOccurred())
+		err = tempFile.Close()
+		g.Expect(err).ToNot(g.HaveOccurred())
+		return tempFile
+	}
+
+	t.Run("ReadFromEnvVarOnly", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		envVarName := "TEST_CONFIG_VAR"
+		envVarValue := "env-value"
+		os.Setenv(envVarName, envVarValue)
+		defer os.Unsetenv(envVarName)
+
+		result, err := readConfig(envVarName, "/nonexistent/path")
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal(envVarValue))
+	})
+
+	t.Run("ReadFromFileOnly", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		fileContent := "file-content"
+		tempFile := createTempFileWithContent(t, fileContent)
+
+		result, err := readConfig("", tempFile.Name())
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal(fileContent))
+	})
+
+	t.Run("EnvVarTakesPrecedenceOverFile", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		tempFile := createTempFileWithContent(t, "file-content")
+
+		// Set environment variable with different value
+		envVarName := "TEST_CONFIG_VAR"
+		envVarValue := "env-value"
+		os.Setenv(envVarName, envVarValue)
+		defer os.Unsetenv(envVarName)
+
+		result, err := readConfig(envVarName, tempFile.Name())
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal(envVarValue), "env var should take precedence over file")
+	})
+
+	t.Run("FileWithWhitespaceShouldBeTrimmed", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		fileContent := "  \n\t file-value \t\n  "
+		tempFile := createTempFileWithContent(t, fileContent)
+
+		result, err := readConfig("", tempFile.Name())
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal("file-value"))
+	})
+
+	t.Run("EnvVarWithWhitespaceShouldBeTrimmed", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		envVarName := "TEST_CONFIG_VAR"
+		envVarValue := "  \n\t env-value \t\n  "
+		os.Setenv(envVarName, envVarValue)
+		defer os.Unsetenv(envVarName)
+
+		result, err := readConfig(envVarName, "/nonexistent/path")
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal("env-value"))
+	})
+
+	t.Run("EmptyEnvVarNameShouldReadFromFile", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		fileContent := "file-content"
+		tempFile := createTempFileWithContent(t, fileContent)
+
+		result, err := readConfig("", tempFile.Name())
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal(fileContent))
+	})
+
+	t.Run("FileDoesNotExistShouldReturnEmpty", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		result, err := readConfig("", "/nonexistent/path/to/config")
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal(""))
+	})
+
+	t.Run("PathIsDirectoryShouldReturnError", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		tempDir, err := os.MkdirTemp("", "config-test-dir-*")
+		g.Expect(err).ToNot(g.HaveOccurred())
+		defer os.Remove(tempDir)
+
+		_, err = readConfig("", tempDir)
+		g.Expect(err).To(g.HaveOccurred())
+		g.Expect(err.Error()).To(g.ContainSubstring("is a directory"))
+	})
+
+	t.Run("BothEnvVarAndFileNotPresentShouldReturnEmpty", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		envVarName := "NONEXISTENT_CONFIG_VAR"
+		os.Unsetenv(envVarName)
+
+		result, err := readConfig(envVarName, "/nonexistent/path")
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal(""))
+	})
+
+	t.Run("FileWithEmptyContentShouldReturnEmpty", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		tempFile := createTempFileWithContent(t, "")
+
+		result, err := readConfig("", tempFile.Name())
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal(""))
+	})
+
+	t.Run("EnvVarWithEmptyValueShouldTryFile", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		fileContent := "file-content"
+		tempFile := createTempFileWithContent(t, fileContent)
+
+		envVarName := "TEST_CONFIG_VAR"
+		os.Setenv(envVarName, "")
+		defer os.Unsetenv(envVarName)
+
+		result, err := readConfig(envVarName, tempFile.Name())
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal(fileContent), "empty env var should fall back to file")
+	})
+
+	t.Run("EnvVarNotSetShouldTryFile", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		fileContent := "file-content"
+		tempFile := createTempFileWithContent(t, fileContent)
+
+		envVarName := "NONEXISTENT_CONFIG_VAR"
+		os.Unsetenv(envVarName)
+
+		result, err := readConfig(envVarName, tempFile.Name())
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal(fileContent))
+	})
+}
+
+func Test_readQuayConfig(t *testing.T) {
+	t.Run("SuccessWithEnvVars", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		// Set environment variables
+		os.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
+		os.Setenv("QUAY_ORG", "test-org")
+		os.Setenv("QUAY_TOKEN", "test-token")
+		defer func() {
+			os.Unsetenv("QUAY_API_URL")
+			os.Unsetenv("QUAY_ORG")
+			os.Unsetenv("QUAY_TOKEN")
+		}()
+
+		apiUrl, org, buildQuayClientFunc, err := readQuayConfig()
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(apiUrl).To(g.Equal("https://test-quay.io/api/v1"))
+		g.Expect(org).To(g.Equal("test-org"))
+		g.Expect(buildQuayClientFunc).ToNot(g.BeNil())
+
+		// Test that buildQuayClientFunc works
+		quayClient, err := buildQuayClientFunc()
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(quayClient).ToNot(g.BeNil())
+	})
+
+	t.Run("SuccessWithFiles", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		// Clean env vars
+		os.Unsetenv("QUAY_API_URL")
+		os.Unsetenv("QUAY_ORG")
+		os.Unsetenv("QUAY_TOKEN")
+		os.Unsetenv("QUAY_ADDITIONAL_CA")
+
+		// Create temp files
+		tempDir, err := os.MkdirTemp("", "quay-config-*")
+		g.Expect(err).ToNot(g.HaveOccurred())
+		defer os.RemoveAll(tempDir)
+
+		os.Setenv("QUAY_SECRET_MOUNT_POINT", tempDir)
+		defer func() { os.Unsetenv("QUAY_SECRET_MOUNT_POINT") }()
+
+		apiUrlFile := tempDir + "/quayapiurl"
+		orgFile := tempDir + "/organization"
+		tokenFile := tempDir + "/quaytoken"
+
+		err = os.WriteFile(apiUrlFile, []byte("https://file-quay.io/api/v1"), 0644)
+		g.Expect(err).ToNot(g.HaveOccurred())
+		err = os.WriteFile(orgFile, []byte("file-org"), 0644)
+		g.Expect(err).ToNot(g.HaveOccurred())
+		err = os.WriteFile(tokenFile, []byte("file-token"), 0644)
+		g.Expect(err).ToNot(g.HaveOccurred())
+
+		apiUrl, org, buildQuayClientFunc, err := readQuayConfig()
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(apiUrl).To(g.Equal("https://file-quay.io/api/v1"))
+		g.Expect(org).To(g.Equal("file-org"))
+		g.Expect(buildQuayClientFunc).ToNot(g.BeNil())
+	})
+
+	t.Run("DefaultApiUrl", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		// Don't set QUAY_API_URL
+		os.Unsetenv("QUAY_API_URL")
+		os.Setenv("QUAY_ORG", "test-org")
+		os.Setenv("QUAY_TOKEN", "test-token")
+		defer func() {
+			os.Unsetenv("QUAY_ORG")
+			os.Unsetenv("QUAY_TOKEN")
+		}()
+
+		apiUrl, org, buildQuayClientFunc, err := readQuayConfig()
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(apiUrl).To(g.Equal("https://quay.io/api/v1"), "should use default API URL")
+		g.Expect(org).To(g.Equal("test-org"))
+		g.Expect(buildQuayClientFunc).ToNot(g.BeNil())
+	})
+
+	t.Run("FailsIfOrgIsNotSet", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		os.Setenv("QUAY_SECRET_MOUNT_POINT", "/nonexistent")
+
+		os.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
+		os.Setenv("QUAY_ORG", "")
+		os.Setenv("QUAY_TOKEN", "test-token")
+		defer func() {
+			os.Unsetenv("QUAY_API_URL")
+			os.Unsetenv("QUAY_ORG")
+			os.Unsetenv("QUAY_TOKEN")
+		}()
+
+		_, _, _, err := readQuayConfig()
+		g.Expect(err).To(g.HaveOccurred())
+		g.Expect(err.Error()).To(g.ContainSubstring("Quay Org is not set"))
+	})
+
+	t.Run("FailsIfOrgIsNotSet", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		os.Setenv("QUAY_SECRET_MOUNT_POINT", "/nonexistent")
+
+		os.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
+		os.Setenv("QUAY_ORG", "test-org")
+		os.Setenv("QUAY_TOKEN", "")
+		defer func() {
+			os.Unsetenv("QUAY_API_URL")
+			os.Unsetenv("QUAY_ORG")
+			os.Unsetenv("QUAY_TOKEN")
+		}()
+
+		_, _, _, err := readQuayConfig()
+		g.Expect(err).To(g.HaveOccurred())
+		g.Expect(err.Error()).To(g.ContainSubstring("Quay token is not provided"))
+	})
+
+	t.Run("ErrorFromBuildQuayHttpClient", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		// Set an invalid CA path to trigger error in buildQuayHttpClient
+		os.Setenv("QUAY_ADDITIONAL_CA", "/nonexistent/ca/path.pem")
+		os.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
+		os.Setenv("QUAY_ORG", "test-org")
+		os.Setenv("QUAY_TOKEN", "test-token")
+		defer func() {
+			os.Unsetenv("QUAY_ADDITIONAL_CA")
+			os.Unsetenv("QUAY_API_URL")
+			os.Unsetenv("QUAY_ORG")
+			os.Unsetenv("QUAY_TOKEN")
+		}()
+
+		_, _, _, err := readQuayConfig()
+		g.Expect(err).To(g.HaveOccurred())
+		g.Expect(err.Error()).To(g.ContainSubstring("unable to build Quay http client"))
+	})
+
+	t.Run("TokenRotationViaEnv", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		// Set initial token
+		os.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
+		os.Setenv("QUAY_ORG", "test-org")
+		os.Setenv("QUAY_TOKEN", "initial-token")
+		defer func() {
+			os.Unsetenv("QUAY_API_URL")
+			os.Unsetenv("QUAY_ORG")
+			os.Unsetenv("QUAY_TOKEN")
+		}()
+
+		_, _, buildQuayClientFunc, err := readQuayConfig()
+		g.Expect(err).ToNot(g.HaveOccurred())
+
+		// Get first client with initial token
+		client1, err := buildQuayClientFunc()
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(client1).ToNot(g.BeNil())
+		c1 := client1.(*quay.QuayClient)
+		g.Expect(c1.AuthToken).To(g.Equal("initial-token"))
+
+		// Change token (simulating rotation)
+		os.Setenv("QUAY_TOKEN", "rotated-token")
+
+		// Get second client - should use new token
+		client2, err := buildQuayClientFunc()
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(client2).ToNot(g.BeNil())
+		c2 := client2.(*quay.QuayClient)
+		g.Expect(c2.AuthToken).To(g.Equal("rotated-token"))
+	})
+
+	t.Run("TokenRotationViaFile", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		os.Unsetenv("QUAY_API_URL")
+		os.Unsetenv("QUAY_ORG")
+		os.Unsetenv("QUAY_TOKEN")
+
+		tempDir, err := os.MkdirTemp("", "quay-config-*")
+		g.Expect(err).ToNot(g.HaveOccurred())
+		defer os.RemoveAll(tempDir)
+
+		os.Setenv("QUAY_SECRET_MOUNT_POINT", tempDir)
+		defer func() { os.Unsetenv("QUAY_SECRET_MOUNT_POINT") }()
+
+		apiUrlFile := tempDir + "/quayapiurl"
+		orgFile := tempDir + "/organization"
+		tokenFile := tempDir + "/quaytoken"
+
+		err = os.WriteFile(apiUrlFile, []byte("https://file-quay.io/api/v1"), 0644)
+		g.Expect(err).ToNot(g.HaveOccurred())
+		err = os.WriteFile(orgFile, []byte("file-org"), 0644)
+		g.Expect(err).ToNot(g.HaveOccurred())
+		err = os.WriteFile(tokenFile, []byte("initial-token"), 0644)
+		g.Expect(err).ToNot(g.HaveOccurred())
+
+		_, _, buildQuayClientFunc, err := readQuayConfig()
+		g.Expect(err).ToNot(g.HaveOccurred())
+
+		// Get first client with initial token
+		client1, err := buildQuayClientFunc()
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(client1).ToNot(g.BeNil())
+		c1 := client1.(*quay.QuayClient)
+		g.Expect(c1.AuthToken).To(g.Equal("initial-token"))
+
+		// Change token (simulating rotation)
+		err = os.WriteFile(tokenFile, []byte("rotated-token"), 0644)
+		g.Expect(err).ToNot(g.HaveOccurred())
+
+		// Get second client - should use new token
+		client2, err := buildQuayClientFunc()
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(client2).ToNot(g.BeNil())
+		c2 := client2.(*quay.QuayClient)
+		g.Expect(c2.AuthToken).To(g.Equal("rotated-token"))
+	})
+}
 
 func Test_buildQuayHttpClient(t *testing.T) {
 	t.Run("NoCustomCA", func(t *testing.T) {
