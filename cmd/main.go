@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -58,10 +59,20 @@ import (
 )
 
 const (
-	quayApiPath string = "/workspace/quayapiurl"
+	QuaySecretMountPointEnvVarName = "QUAY_SECRET_MOUNT_POINT" // #nosec G101
+	QuayApiUrlEnvVarName           = "QUAY_API_URL"
+	QuayOrgEnvVarName              = "QUAY_ORG"
+	QuayTokenEnvVarName            = "QUAY_TOKEN"
+	QuayAdditionalCAEnvVarName     = "QUAY_ADDITIONAL_CA"
+
+	// Default mount point of k8s secret with Quay configuration for the operator.
+	// Could be changed by setting QUAY_SECRET_MOUNT_POINT environment variable.
+	DefaultQuaySecretMountPoint string = "/workspace"
+	// Fields of the k8s secret:
+	QuayApiFileName string = "quayapiurl"
 	/* #nosec it's the path to the token, not the token itself */
-	quayTokenPath string = "/workspace/quaytoken"
-	quayOrgPath   string = "/workspace/organization"
+	QuayTokenFileName string = "quaytoken"
+	QuayOrgFileName   string = "organization"
 )
 
 var (
@@ -182,51 +193,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Read Quay config (from the mounted secret)
-	readConfig := func(path string) (string, error) {
-		/* #nosec we are sure the input path is clean */
-		tokenContent, err := os.ReadFile(path)
-		if err != nil {
-			return "", fmt.Errorf("unable to read %s: %w", path, err)
-		}
-		return strings.TrimSpace(string(tokenContent)), nil
-	}
-
-	quayApiUrl, err := readConfig(quayApiPath)
+	quayApiUrl, quayOrganization, buildQuayClientFunc, err := readQuayConfig()
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			setupLog.Error(err, "unable to read Quay API URL")
-			os.Exit(2)
-		}
-		// Quay API URL is not set, fall back to default
-		quayApiUrl = "https://quay.io/api/v1"
-	}
-	setupLog.Info(fmt.Sprintf("using Quay API URL: %s", quayApiUrl))
-
-	quayOrganization, err := readConfig(quayOrgPath)
-	if err != nil {
-		setupLog.Error(err, "unable to read Quay Org")
+		setupLog.Error(err, "failed to read Quay config")
 		os.Exit(2)
-	}
-	setupLog.Info(fmt.Sprintf("using Quay Org: %s", quayOrganization))
-
-	quayHttpClient, err := buildQuayHttpClient()
-	if err != nil {
-		setupLog.Error(err, "unable to build Quay http client")
-	}
-	buildQuayClientFunc := func() (quay.QuayService, error) {
-		token, err := readConfig(quayTokenPath)
-		if err != nil {
-			return nil, fmt.Errorf("unable to get quay token: %w", err)
-		}
-		quayClient := quay.NewQuayClient(quayHttpClient, token, quayApiUrl)
-		return quayClient, nil
 	}
 	quayHost, err := getQuayHost(quayApiUrl)
 	if err != nil {
-		setupLog.Error(err, "unable to obtain Quay host from API URL")
+		setupLog.Error(err, "unable to obtain Quay host from API URL: "+quayApiUrl)
 		os.Exit(2)
 	}
+	setupLog.Info(fmt.Sprintf("Quay host: %s", quayHost))
+	setupLog.Info(fmt.Sprintf("Quay API URL: %s", quayApiUrl))
+	setupLog.Info(fmt.Sprintf("Quay Org: %s", quayOrganization))
 
 	if err = (&controllers.ComponentReconciler{
 		Client: mgr.GetClient(),
@@ -294,6 +273,101 @@ func getCacheExcludedObjectsTypes() []client.Object {
 	}
 }
 
+// readConfig reads single operator config value (e.g. quay token).
+// The config value is taken from the given environment variable or file (usually the mounted secret).
+// If both specified and present environment variable takes precedence.
+func readConfig(envVarName string, path string) (string, error) {
+	configValue := ""
+	if envVarName != "" {
+		if val, exists := os.LookupEnv(envVarName); exists {
+			configValue = val
+		}
+	}
+
+	if configValue == "" && path != "" {
+		fileInfo, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				// No config provided
+				return "", nil
+			}
+			return "", fmt.Errorf("unable to stat %s: %w", path, err)
+		}
+		if fileInfo.IsDir() {
+			return "", fmt.Errorf("%s is a directory", path)
+		}
+		/* #nosec we are sure the input path is clean */
+		if val, err := os.ReadFile(path); err != nil {
+			return "", fmt.Errorf("unable to read %s: %w", path, err)
+		} else {
+			configValue = string(val)
+		}
+	}
+
+	return strings.TrimSpace(configValue), nil
+}
+
+// readQuayConfig reads operator Quay configuration.
+// Returns error if failed to read a config value or required config is not set.
+func readQuayConfig() (apiUrl, org string, buildQuayClientFunc func() (quay.QuayService, error), err error) {
+	mountPoint := os.Getenv(QuaySecretMountPointEnvVarName)
+	if mountPoint == "" {
+		mountPoint = DefaultQuaySecretMountPoint
+	}
+
+	quayApiFilePath := filepath.Join(mountPoint, QuayApiFileName)
+	apiUrl, err = readConfig(QuayApiUrlEnvVarName, quayApiFilePath)
+	if err != nil {
+		err = fmt.Errorf("unable to read Quay API URL: %w", err)
+		return
+	}
+	if apiUrl == "" {
+		// Quay API URL is not set, fall back to default
+		apiUrl = "https://quay.io/api/v1"
+	}
+
+	quayOrgPath := filepath.Join(mountPoint, QuayOrgFileName)
+	org, err = readConfig(QuayOrgEnvVarName, quayOrgPath)
+	if err != nil {
+		err = fmt.Errorf("unable to read Quay Org: %w", err)
+		return
+	}
+	if org == "" {
+		err = errors.New("Quay Org is not set")
+		return
+	}
+
+	quayHttpClient, err := buildQuayHttpClient()
+	if err != nil {
+		err = fmt.Errorf("unable to build Quay http client: %w", err)
+		return
+	}
+	quayTokenPath := filepath.Join(mountPoint, QuayTokenFileName)
+	// Read the token for the first time, to make sure it is set.
+	token, err := readConfig(QuayTokenEnvVarName, quayTokenPath)
+	if err != nil {
+		err = fmt.Errorf("unable to read quay token: %w", err)
+		return
+	}
+	if token == "" {
+		err = errors.New("Quay token is not provided")
+		return
+	}
+	// Create function that re-reads the token to support token rotation without operator restart.
+	buildQuayClientFunc = func() (quay.QuayService, error) {
+		token, err := readConfig(QuayTokenEnvVarName, quayTokenPath)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get quay token: %w", err)
+		}
+		if token == "" {
+			return nil, errors.New("Quay token is not provided")
+		}
+		quayClient := quay.NewQuayClient(quayHttpClient, token, apiUrl)
+		return quayClient, nil
+	}
+	return
+}
+
 // buildQuayHttpClient creates an http client with optional custom CA certificates.
 // If the QUAY_ADDITIONAL_CA environment variable is set, it reads the CA certificate
 // from the specified file path and adds it to the system CA pool.
@@ -301,7 +375,7 @@ func buildQuayHttpClient() (*http.Client, error) {
 	transport := &http.Transport{}
 
 	// Check if additional CA certificate path is provided
-	caCertPath := os.Getenv("QUAY_ADDITIONAL_CA")
+	caCertPath := os.Getenv(QuayAdditionalCAEnvVarName)
 	if caCertPath != "" {
 		setupLog.Info(fmt.Sprintf("Loading additional CA certificate from: %s", caCertPath))
 
