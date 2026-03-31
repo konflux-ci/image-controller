@@ -175,7 +175,7 @@ func (c *QuayClient) RepositoryExists(organization, imageRepository string) (boo
 	}
 
 	if resp.GetStatusCode() == 404 {
-		return false, fmt.Errorf("repository %s does not exist in %s organization", imageRepository, organization)
+		return false, nil
 	} else if resp.GetStatusCode() == 200 {
 		return true, nil
 	}
