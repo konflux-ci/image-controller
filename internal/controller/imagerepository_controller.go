@@ -1262,6 +1262,12 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 			if otherIR.ObjectMeta.Name == imageRepository.ObjectMeta.Name {
 				continue
 			}
+
+			// Skip IR which isn't in ready state
+			if otherIR.Status.State != imagerepositoryv1alpha1.ImageRepositoryStateReady {
+				continue
+			}
+
 			// Must match the same registry URL
 			if otherIR.Status.Image.URL != imageRepository.Status.Image.URL {
 				continue
