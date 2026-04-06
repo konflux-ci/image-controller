@@ -220,17 +220,11 @@ var _ = Describe("Component image controller", func() {
 		It("should do nothing if imageRepository for the component already exists, with expected name", func() {
 			component := getComponent(resourceImageErrorKey)
 			imageRepositoryName := fmt.Sprintf("imagerepository-for-%s-%s", component.Spec.Application, component.Name)
-			imageRepository := types.NamespacedName{Name: imageRepositoryName, Namespace: component.Namespace}
-			ownerReferences := []metav1.OwnerReference{
-				{Kind: "Component", Name: component.Name, UID: types.UID(component.UID), APIVersion: "appstudio.redhat.com/v1alpha1"},
-			}
+			imageRepositoryKey := types.NamespacedName{Name: imageRepositoryName, Namespace: component.Namespace}
 
-			createImageRepository(imageRepositoryConfig{
-				ResourceKey:     &imageRepository,
-				OwnerReferences: ownerReferences,
-			})
+			createImageRepository(imageRepositoryConfig{ResourceKey: &imageRepositoryKey})
 			// wait for imagerepository_controller to finish
-			waitImageRepositoryFinalizerOnImageRepository(imageRepository)
+			waitImageRepositoryFinalizerOnImageRepository(imageRepositoryKey)
 			// add generate annotation and it will not create new ImageRepository
 			setComponentAnnotationValue(resourceImageErrorKey, GenerateImageAnnotationName, `{"visibility": "public"}`)
 			waitComponentAnnotationGone(resourceImageErrorKey, GenerateImageAnnotationName)
@@ -244,7 +238,16 @@ var _ = Describe("Component image controller", func() {
 			Expect(k8sClient.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: resourceImageErrorKey.Namespace})).To(Succeed())
 			Expect(imageRepositoriesList.Items).To(HaveLen(1))
 
-			deleteImageRepository(imageRepository)
+			imageRepository := imageRepositoriesList.Items[0]
+			Expect(imageRepository.OwnerReferences).ToNot(BeEmpty())
+			Expect(imageRepository.OwnerReferences).To(ContainElement(metav1.OwnerReference{
+				Name:       component.Name,
+				Kind:       "Component",
+				UID:        types.UID(component.UID),
+				APIVersion: "appstudio.redhat.com/v1alpha1",
+			}))
+
+			deleteImageRepository(imageRepositoryKey)
 		})
 
 		It("should do nothing if imageRepository for the component already exists, with different name", func() {
