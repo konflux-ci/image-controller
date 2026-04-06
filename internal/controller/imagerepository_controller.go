@@ -369,7 +369,6 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 		updateComponentAnnotation, updateComponentAnnotationExists := imageRepository.Annotations[updateComponentAnnotationName]
 		if updateComponentAnnotationExists && updateComponentAnnotation == "true" {
-
 			componentName := imageRepository.Labels[ComponentNameLabelName]
 			component := &compapiv1alpha1.Component{}
 			componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
@@ -396,7 +395,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				log.Error(err, "failed to update imageRepository annotation", l.Action, l.ActionUpdate)
 				return ctrl.Result{}, err
 			}
-			log.Info("Updated image repository annotation")
+			log.Info("Deleted update-component-image image repository annotation")
 		}
 	}
 
