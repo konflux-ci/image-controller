@@ -3,9 +3,10 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
-	"time"
 )
 
 const (
@@ -56,8 +57,8 @@ func NewImageControllerMetrics(probes []AvailabilityProbe) *ImageControllerMetri
 	return &ImageControllerMetrics{probes: probes}
 }
 
-func (m *ImageControllerMetrics) StartMetrics(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
+func (m *ImageControllerMetrics) StartMetrics(ctx context.Context, frequency time.Duration) {
+	ticker := time.NewTicker(frequency)
 	log := ctrllog.FromContext(ctx)
 	log.Info("Starting image controller metrics")
 	go func() {
