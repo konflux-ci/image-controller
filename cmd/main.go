@@ -256,7 +256,7 @@ func main() {
 		setupLog.Error(err, "unable to initialize metrics")
 		os.Exit(1)
 	}
-	imageControllerMetrics.StartMetrics(ctx)
+	imageControllerMetrics.StartMetrics(ctx, time.Minute)
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
