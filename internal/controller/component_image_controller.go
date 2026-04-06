@@ -134,13 +134,14 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Search if imageRepository for the component exists already
+	imageRepositoryFound := ""
+
+	// Check image repositories owned by the Component
 	imageRepositoriesList := &imagerepositoryv1alpha1.ImageRepositoryList{}
 	if err := r.Client.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: component.Namespace}); err != nil {
 		log.Error(err, "failed to list image repositories")
 		return ctrl.Result{}, err
 	}
-
-	imageRepositoryFound := ""
 	for _, imageRepository := range imageRepositoriesList.Items {
 		for _, owner := range imageRepository.ObjectMeta.OwnerReferences {
 			if owner.UID == component.UID {
@@ -150,15 +151,39 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	if imageRepositoryFound == "" {
-		imageRepositoryName := ""
-		if component.Spec.Application != "" {
-			imageRepositoryName = fmt.Sprintf("imagerepository-for-%s-%s", component.Spec.Application, component.Name)
-		} else {
-			imageRepositoryName = fmt.Sprintf("imagerepository-for-%s", component.Name)
-		}
-		log.Info("Will create image repository", "ImageRepositoryName", imageRepositoryName, "ComponentName", component.Name)
+	imageRepositoryName := ""
+	if component.Spec.Application != "" {
+		imageRepositoryName = fmt.Sprintf("imagerepository-for-%s-%s", component.Spec.Application, component.Name)
+	} else {
+		imageRepositoryName = fmt.Sprintf("imagerepository-for-%s", component.Name)
+	}
 
+	// Check image repository with expected name
+	if imageRepositoryFound == "" {
+		imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
+		imageRepositoryKey := types.NamespacedName{Name: imageRepositoryName, Namespace: component.Namespace}
+		if err := r.Client.Get(ctx, imageRepositoryKey, imageRepository); err != nil {
+			if !errors.IsNotFound(err) {
+				log.Error(err, "failed to get image repository", l.Action, l.ActionView)
+				return ctrl.Result{}, err
+			}
+		} else {
+			// Image Repository with such name exists, but doesn't have owner reference
+			imageRepositoryFound = imageRepositoryName
+			if err := controllerutil.SetOwnerReference(component, imageRepository, r.Scheme); err != nil {
+				log.Error(err, "failed to set component as owner of image repository", "ImageRepositoryName", imageRepositoryName)
+				return ctrl.Result{}, err
+			}
+			if err := r.Client.Update(ctx, imageRepository); err != nil {
+				log.Error(err, "failed to update image repository owner reference", "ImageRepositoryName", imageRepositoryName, l.Action, l.ActionUpdate)
+				return ctrl.Result{}, err
+			}
+			log.Info("Image repository owner reference is fixed", "ImageRepositoryName", imageRepositoryName, l.Action, l.ActionUpdate)
+		}
+	}
+
+	if imageRepositoryFound == "" {
+		log.Info("Will create image repository", "ImageRepositoryName", imageRepositoryName, "ComponentName", component.Name)
 		imageRepository := &imagerepositoryv1alpha1.ImageRepository{
 			TypeMeta: metav1.TypeMeta{
 				Kind:       "ImageRepository",
@@ -194,6 +219,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		log.Info("Image repository already exists", "ImageRepositoryName", imageRepositoryFound, "ComponentName", component.Name)
 	}
 
+	// Update the Component by deleting the image.redhat.com/generate annotation
 	err = r.Client.Get(ctx, req.NamespacedName, component)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("error reading component: %w", err)
