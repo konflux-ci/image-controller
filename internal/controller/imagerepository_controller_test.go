@@ -1695,8 +1695,8 @@ var _ = Describe("Image repository controller", func() {
 			// nudged component SA will have only 1 secret and pull secret from nudged Component will be gone
 			Expect(len(nudgedComponentSa.Secrets)).To(Equal(1))
 			Expect(len(nudgedComponentSa.ImagePullSecrets)).To(Equal(1))
-			Expect(nudgedComponentSa.Secrets).To(Equal([]corev1.ObjectReference{corev1.ObjectReference{Name: commonPushSecretName}}))
-			Expect(nudgedComponentSa.ImagePullSecrets).To(Equal([]corev1.LocalObjectReference{corev1.LocalObjectReference{Name: commonPullSecretName}}))
+			Expect(nudgedComponentSa.Secrets).To(Equal([]corev1.ObjectReference{{Name: commonPushSecretName}}))
+			Expect(nudgedComponentSa.ImagePullSecrets).To(Equal([]corev1.LocalObjectReference{{Name: commonPullSecretName}}))
 		})
 
 		It("should create image repository if 502 Bad Gateway is returned by Quay intermittently", func() {
@@ -1727,6 +1727,199 @@ var _ = Describe("Image repository controller", func() {
 
 			imageRepository := getImageRepository(resourceKey)
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
+		})
+
+		It("should operate with correct image on quay even if spec.image has wrong data", func() {
+			applicationKey := types.NamespacedName{Name: defaultComponentApplication, Namespace: defaultNamespace}
+			componentKey := types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespace}
+			componentSaName := getComponentSaName(componentKey.Name)
+			createApplication(applicationConfig{ApplicationKey: applicationKey})
+			createComponent(componentConfig{ComponentKey: componentKey, ComponentApplication: defaultComponentApplication})
+			createServiceAccount(defaultNamespace, componentSaName)
+			defer deleteComponent(componentKey)
+			defer deleteApplication(applicationKey)
+			defer deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespace})
+
+			prepareNotificationResponse := func(notification quay.Notification) *quay.Notification {
+				var uuid string
+				switch notification.Title {
+				case "notification-to-update":
+					uuid = "uuid-update"
+				case "notification-to-delete":
+					uuid = "uuid-delete"
+				case "notification-to-create":
+					uuid = "uuid-create"
+				default:
+					uuid = "uuid-1234"
+				}
+				return &quay.Notification{
+					UUID:   uuid,
+					Title:  notification.Title,
+					Event:  notification.Event,
+					Method: notification.Method,
+					Config: quay.NotificationConfig{Url: notification.Config.Url},
+				}
+			}
+			quay.CreateNotificationFunc = func(organization, repository string, notification quay.Notification) (*quay.Notification, error) {
+				return prepareNotificationResponse(notification), nil
+			}
+			createImageRepository(imageRepositoryConfig{
+				ResourceKey: &resourceKey,
+				Labels: map[string]string{
+					ApplicationNameLabelName: defaultComponentApplication,
+					ComponentNameLabelName:   defaultComponentName,
+				},
+				Notifications: []imagerepositoryv1alpha1.Notifications{
+					{
+						Title:  "notification-to-update",
+						Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+						Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+						Config: imagerepositoryv1alpha1.NotificationConfig{Url: "http://test-url"},
+					},
+					{
+						Title:  "notification-to-delete",
+						Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+						Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+						Config: imagerepositoryv1alpha1.NotificationConfig{Url: "http://test-url"},
+					},
+				},
+			})
+			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+
+			// Update image name in spec and wait status update
+			imageRepository := getImageRepository(resourceKey)
+			imageRepository.Spec.Image.Name = "renamed"
+			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+			Eventually(func() bool {
+				imageRepository = getImageRepository(resourceKey)
+				return strings.HasPrefix(imageRepository.Status.Message, imageRepositoryNameChangedMessagePrefix)
+			}, timeout, interval).Should(BeTrue())
+
+			// Perform actions that initiate requests to quay and ensure that correct image reference is used
+			expectedImageName = fmt.Sprintf("%s/%s", imageRepository.Namespace, componentKey.Name)
+
+			isRepositoryExistsInvoked := false
+			quay.RepositoryExistsFunc = func(organization, repository string) (bool, error) {
+				defer GinkgoRecover()
+				isRepositoryExistsInvoked = true
+				Expect(repository).To(Equal(expectedImageName))
+				return true, nil
+			}
+			isAddPermissionsForRepositoryToAccountInvoked := false
+			quay.AddPermissionsForRepositoryToAccountFunc = func(organization, repository, accountName string, isRobot, isWrite bool) error {
+				defer GinkgoRecover()
+				isAddPermissionsForRepositoryToAccountInvoked = true
+				Expect(repository).To(Equal(expectedImageName))
+				return nil
+			}
+			isChangeRepositoryVisibilityInvoked := false
+			quay.ChangeRepositoryVisibilityFunc = func(organization, repository, visibility string) error {
+				defer GinkgoRecover()
+				isChangeRepositoryVisibilityInvoked = true
+				Expect(repository).To(Equal(expectedImageName))
+				return nil
+			}
+			isGetNotificationsInvoked := false
+			quay.GetNotificationsFunc = func(organization, repository string) ([]quay.Notification, error) {
+				defer GinkgoRecover()
+				isGetNotificationsInvoked = true
+				Expect(repository).To(Equal(expectedImageName))
+				return []quay.Notification{
+					{
+						UUID:   "uuid-update",
+						Title:  "notification-to-update",
+						Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
+						Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
+						Config: quay.NotificationConfig{Url: "http://test-url"},
+					},
+					{
+						UUID:   "uuid-delete",
+						Title:  "notification-to-delete",
+						Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
+						Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
+						Config: quay.NotificationConfig{Url: "http://test-url"},
+					},
+				}, nil
+			}
+			isCreateNotificationInvoked := false
+			quay.CreateNotificationFunc = func(organization, repository string, notification quay.Notification) (*quay.Notification, error) {
+				defer GinkgoRecover()
+				isCreateNotificationInvoked = true
+				Expect(repository).To(Equal(expectedImageName))
+				return prepareNotificationResponse(notification), nil
+			}
+			isUpdateNotificationInvoked := false
+			quay.UpdateNotificationFunc = func(organization, repository, notificationUuid string, notification quay.Notification) (*quay.Notification, error) {
+				defer GinkgoRecover()
+				isUpdateNotificationInvoked = true
+				Expect(repository).To(Equal(expectedImageName))
+				return prepareNotificationResponse(notification), nil
+			}
+			isDeleteNotificationInvoked := false
+			quay.DeleteNotificationFunc = func(organization, repository, notificationUuid string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteNotificationInvoked = true
+				Expect(repository).To(Equal(expectedImageName))
+				return true, nil
+			}
+
+			imageRepository = getImageRepository(resourceKey)
+			// update component image scenario
+			imageRepository.Annotations[updateComponentAnnotationName] = "true"
+			// ensure namespace pull secret scenario
+			delete(imageRepository.Annotations, namespacePullSecretEnsuredAnnotation)
+			// change visibility scenario
+			imageRepository.Spec.Image.Visibility = imagerepositoryv1alpha1.ImageVisibilityPrivate
+			// notifications scenarios
+			imageRepository.Spec.Notifications = []imagerepositoryv1alpha1.Notifications{
+				{
+					Title:  "notification-to-update",
+					Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+					Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+					Config: imagerepositoryv1alpha1.NotificationConfig{Url: "http://test-url-updated"},
+				},
+				{
+					Title:  "notification-to-create",
+					Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+					Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+					Config: imagerepositoryv1alpha1.NotificationConfig{Url: "http://test-url"},
+				},
+			}
+
+			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+
+			Eventually(func() bool { return isRepositoryExistsInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isAddPermissionsForRepositoryToAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool {
+				component := getComponent(componentKey)
+				return component.Spec.ContainerImage == imageRepository.Status.Image.URL
+			}, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isGetNotificationsInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isUpdateNotificationInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteNotificationInvoked }, timeout, interval).Should(BeTrue())
+
+			// Ensure the correct image reference is used during cleanup
+			isRemovePermissionsForRepositoryFromAccountInvoked := false
+			quay.RemovePermissionsForRepositoryFromAccountFunc = func(organization, repository, accountName string, isRobot bool) error {
+				defer GinkgoRecover()
+				isRemovePermissionsForRepositoryFromAccountInvoked = true
+				Expect(repository).To(Equal(expectedImageName))
+				return nil
+			}
+			isDeleteRepositoryInvoked := false
+			quay.DeleteRepositoryFunc = func(organization, repository string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRepositoryInvoked = true
+				Expect(repository).To(Equal(expectedImageName))
+				return true, nil
+			}
+
+			deleteImageRepository(resourceKey)
+
+			Eventually(func() bool { return isRemovePermissionsForRepositoryFromAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
 		})
 
 		It("should mark image repository as missing if delete from Quay and restore after finalyzer removal", func() {

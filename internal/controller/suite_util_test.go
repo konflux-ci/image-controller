@@ -364,7 +364,7 @@ func createNamespace(name string) {
 func getNamespace(name string) corev1.Namespace {
 	ns := corev1.Namespace{}
 	Eventually(func() bool {
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kubeSystemNamespace}, &ns)).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, &ns)).To(Succeed())
 		return ns.ResourceVersion != ""
 	}, timeout, interval).Should(BeTrue())
 	return ns
