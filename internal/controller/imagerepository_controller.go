@@ -171,14 +171,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 		if controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {
 			// Check if there isn't other ImageRepository for the same repository from other component
-			imageName := imageRepository.Spec.Image.Name
-			imageRepositoryUrl := imageRepository.Status.Image.URL
-			if imageRepositoryUrl == "" {
-				// It should not happen unless status is edited not by the operator.
-				// However, it's possible to recover the image URL unless Spec.Image.Name is also broken.
-				// For consistency, reassign imageName, it's deterministic.
-				imageName, imageRepositoryUrl = r.getQuayImageNameAndURL(imageRepository)
-			}
+			imageName, imageRepositoryUrl := r.getQuayImageNameAndURL(imageRepository)
 			imageRepositoryFound, err := r.ImageRepositoryForSameUrlExists(ctx, imageRepository, imageRepositoryUrl)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -203,7 +196,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			}
 
 			// Do not block deletion on failures
-			r.CleanupImageRepository(ctx, imageRepository, imageName, imageRepositoryUrl, !(imageRepositoryFound || skipDeletion))
+			r.CleanupImageRepository(ctx, imageRepository, !(imageRepositoryFound || skipDeletion))
 
 			controllerutil.RemoveFinalizer(imageRepository, ImageRepositoryFinalizer)
 			if err := r.Client.Update(ctx, imageRepository); err != nil {
@@ -270,42 +263,42 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
-	} else {
-		// Finalizer is present, image repository should exist.
-
-		// Check status fields and mark the object as damaged if status was lost.
-		s := imageRepository.Status
-		if s.State == "" || s.Image.URL == "" || s.Image.Visibility == "" ||
-			s.Credentials.PushRobotAccountName == "" || s.Credentials.PullRobotAccountName == "" ||
-			s.Credentials.PushSecretName == "" || s.Credentials.PullSecretName == "" {
-			imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateDamaged
-			imageRepository.Status.Message = fmt.Sprintf("Object status was damaged. Remove %s finalizer to try to recover.", ImageRepositoryFinalizer)
-			if err = r.Client.Status().Update(ctx, imageRepository); err != nil {
-				log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
-			} else {
-				log.Info("Marked image repository as damaged", l.Action, l.ActionUpdate)
-			}
-			return ctrl.Result{}, err
-		}
-
-		// Check if the image repository exists on Quay.
-		imageRepoName, _ := r.getQuayImageNameAndURL(imageRepository)
-		repositoryExists, err := r.QuayClient.RepositoryExists(r.QuayOrganization, imageRepoName)
-		if err != nil {
-			log.Error(err, "failed to check image repository existance")
-			return ctrl.Result{}, err
-		}
-		if !repositoryExists {
-			imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateMissing
-			imageRepository.Status.Message = fmt.Sprintf("Image repository is missing. Remove %s finalizer to try to recover.", ImageRepositoryFinalizer)
-			if err = r.Client.Status().Update(ctx, imageRepository); err != nil {
-				log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
-			} else {
-				log.Info("Marked image repository as missing", l.Action, l.ActionUpdate)
-			}
-			return ctrl.Result{}, err
-		}
 	}
+	// Finalizer is present, image repository should exist.
+	imageNameInOrg, imageUrl := r.getQuayImageNameAndURL(imageRepository)
+
+	// Check status fields and mark the object as damaged if status was lost.
+	s := imageRepository.Status
+	if s.State == "" || s.Image.URL == "" || s.Image.Visibility == "" ||
+		s.Credentials.PushRobotAccountName == "" || s.Credentials.PullRobotAccountName == "" ||
+		s.Credentials.PushSecretName == "" || s.Credentials.PullSecretName == "" {
+		imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateDamaged
+		imageRepository.Status.Message = fmt.Sprintf("Object status was damaged. Remove %s finalizer to try to recover.", ImageRepositoryFinalizer)
+		if err = r.Client.Status().Update(ctx, imageRepository); err != nil {
+			log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
+		} else {
+			log.Info("Marked image repository as damaged", l.Action, l.ActionUpdate)
+		}
+		return ctrl.Result{}, err
+	}
+
+	// Check if the image repository exists on Quay.
+	repositoryExists, err := r.QuayClient.RepositoryExists(r.QuayOrganization, imageNameInOrg)
+	if err != nil {
+		log.Error(err, "failed to check image repository existance")
+		return ctrl.Result{}, err
+	}
+	if !repositoryExists {
+		imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateMissing
+		imageRepository.Status.Message = fmt.Sprintf("Image repository is missing. Remove %s finalizer to try to recover.", ImageRepositoryFinalizer)
+		if err = r.Client.Status().Update(ctx, imageRepository); err != nil {
+			log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
+		} else {
+			log.Info("Marked image repository as missing", l.Action, l.ActionUpdate)
+		}
+		return ctrl.Result{}, err
+	}
+	// Now it's safe to proceed to other operations with image repository
 
 	// ensure that namespace pull secret and namespace pull robot account exist, and set annotation afterwards
 	_, namespacePullSecretEnsuredExists := imageRepository.Annotations[namespacePullSecretEnsuredAnnotation]
@@ -340,7 +333,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 		// update application pull secret
 		if applicationName != "" {
-			err := r.addPullSecretAuthToApplicationPullSecret(ctx, applicationName, imageRepository.Namespace, pullSecretName, imageRepository.Status.Image.URL, false)
+			err := r.addPullSecretAuthToApplicationPullSecret(ctx, applicationName, imageRepository.Namespace, pullSecretName, imageUrl, false)
 			if err != nil {
 				log.Error(err, "failed to update application pull secret with individual pull secret", "applicationPullSecret", getApplicationPullSecretName(applicationName), "secret", pullSecretName)
 				return ctrl.Result{}, err
@@ -382,7 +375,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				return ctrl.Result{}, err
 			}
 
-			component.Spec.ContainerImage = imageRepository.Status.Image.URL
+			component.Spec.ContainerImage = imageUrl
 
 			if err := r.Client.Update(ctx, component); err != nil {
 				log.Error(err, "failed to update Component after provision", "ComponentName", componentName, l.Action, l.ActionUpdate)
@@ -405,9 +398,8 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Make sure, that image repository name is the same as on creation.
 	// If it isn't set message
-	imageRepositoryName := strings.TrimPrefix(imageRepository.Status.Image.URL, fmt.Sprintf("%s/%s/", r.QuayHost, r.QuayOrganization))
-	if imageRepository.Spec.Image.Name != imageRepositoryName {
-		imageNameDiffersMessage := fmt.Sprintf("%s from '%s' to '%s'. %s", imageRepositoryNameChangedMessagePrefix, imageRepositoryName, imageRepository.Spec.Image.Name, imageRepositoryNameChangedMessageSuffix)
+	if imageRepository.Spec.Image.Name != imageNameInOrg {
+		imageNameDiffersMessage := fmt.Sprintf("%s from '%s' to '%s'. %s", imageRepositoryNameChangedMessagePrefix, imageNameInOrg, imageRepository.Spec.Image.Name, imageRepositoryNameChangedMessageSuffix)
 
 		if imageRepository.Status.Message != imageNameDiffersMessage {
 			imageRepository.Status.Message = imageNameDiffersMessage
@@ -645,7 +637,6 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	}
 	imageRepository.Annotations[namespacePullSecretEnsuredAnnotation] = "true"
 
-	imageRepository.Spec.Image.Name = imageRepositoryName
 	controllerutil.AddFinalizer(imageRepository, ImageRepositoryFinalizer)
 	if isComponentLinked(imageRepository) {
 		if err := controllerutil.SetOwnerReference(component, imageRepository, r.Scheme); err != nil {
@@ -669,7 +660,26 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	return nil
 }
 
+// getQuayImageNameAndURL returns most accurate image name and URL.
+// The function handles misconfigurations where possible.
+// It must be used to get image name instead of accessing spec.image.name which could have a wrong information.
+// Example return values: tenant/image, quay.io/org/tenant/image
 func (r *ImageRepositoryReconciler) getQuayImageNameAndURL(imageRepository *imagerepositoryv1alpha1.ImageRepository) (string, string) {
+	if imageRepository.Status.Image.URL != "" {
+		// It's possible to read the data from the status
+		imageURL := imageRepository.Status.Image.URL
+
+		// Image must have prefix to satisfy security constraints
+		expectedRegistryAndOrgPrefix := fmt.Sprintf("%s/%s/", r.QuayHost, r.QuayOrganization)
+		expectedImageUrlPrefix := fmt.Sprintf("%s%s/", expectedRegistryAndOrgPrefix, imageRepository.Namespace)
+		if strings.HasPrefix(imageURL, expectedImageUrlPrefix) {
+			// Image Url in status does not violate security constraints
+			imageRepositoryName := strings.TrimPrefix(imageURL, expectedRegistryAndOrgPrefix)
+			return imageRepositoryName, imageURL
+		}
+		// Status has invalid record that attempts to access a not owned resource, ignore it.
+	}
+
 	var imageRepositoryName string
 	if imageRepository.Spec.Image.Name == "" {
 		if isComponentLinked(imageRepository) {
@@ -699,7 +709,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 	log := ctrllog.FromContext(ctx).WithName("ProvisionImageRepositoryAccess").WithValues("IsPullOnly", isPullOnly)
 	ctx = ctrllog.IntoContext(ctx, log)
 
-	imageRepositoryName := imageRepository.Spec.Image.Name
+	imageName, imageUrl := r.getQuayImageNameAndURL(imageRepository)
 
 	var robotAccountName string
 	if isPullOnly {
@@ -708,7 +718,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 		robotAccountName = imageRepository.Status.Credentials.PushRobotAccountName
 	}
 	if robotAccountName == "" {
-		robotAccountName = generateQuayRobotAccountName(imageRepositoryName, isPullOnly)
+		robotAccountName = generateQuayRobotAccountName(imageName, isPullOnly)
 	}
 	robotAccount, err := r.QuayClient.CreateRobotAccount(r.QuayOrganization, robotAccountName)
 	if err != nil {
@@ -721,14 +731,14 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 		return nil, err
 	}
 
-	err = r.QuayClient.AddPermissionsForRepositoryToAccount(r.QuayOrganization, imageRepositoryName, robotAccount.Name, true, !isPullOnly)
+	err = r.QuayClient.AddPermissionsForRepositoryToAccount(r.QuayOrganization, imageName, robotAccount.Name, true, !isPullOnly)
 	if err != nil {
 		log.Error(err, "failed to add permissions to robot account", "RobotAccountName", robotAccountName, l.Action, l.ActionUpdate, l.Audit, "true")
 		return nil, err
 	}
 
 	secretName := getSecretName(imageRepository, isPullOnly)
-	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, imageRepository.Status.Image.URL, true); err != nil {
+	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, imageUrl, true); err != nil {
 		return nil, err
 	}
 
@@ -792,7 +802,7 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx con
 	log := ctrllog.FromContext(ctx).WithName("RegenerateImageRepositoryAccessToken").WithValues("IsPullOnly", isPullOnly)
 	ctx = ctrllog.IntoContext(ctx, log)
 
-	quayImageURL := imageRepository.Status.Image.URL
+	_, quayImageURL := r.getQuayImageNameAndURL(imageRepository)
 
 	robotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
 	if isPullOnly {
@@ -818,7 +828,7 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx con
 	if isComponentLinked(imageRepository) && isPullOnly {
 		applicationName := imageRepository.Labels[ApplicationNameLabelName]
 		if applicationName != "" {
-			err := r.addPullSecretAuthToApplicationPullSecret(ctx, applicationName, imageRepository.Namespace, secretName, imageRepository.Status.Image.URL, true)
+			err := r.addPullSecretAuthToApplicationPullSecret(ctx, applicationName, imageRepository.Namespace, secretName, quayImageURL, true)
 			if err != nil {
 				log.Error(err, "failed to update application pull secret after individual pull secret change", "applicationPullSecret", getApplicationPullSecretName(applicationName), "secret", secretName)
 				return err
@@ -852,7 +862,7 @@ func (r *ImageRepositoryReconciler) RegenerateNamespaceRobotAccessToken(ctx cont
 }
 
 // CleanupImageRepository deletes image repository and corresponding robot account(s).
-func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, imageRepositoryName, imageRepositoryUrl string, removeRepository bool) {
+func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, removeRepository bool) {
 	log := ctrllog.FromContext(ctx).WithName("RepositoryCleanup")
 
 	robotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
@@ -877,6 +887,8 @@ func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, 
 		}
 	}
 
+	imageRepositoryName, imageRepositoryUrl := r.getQuayImageNameAndURL(imageRepository)
+
 	if !removeRepository {
 		log.Info("Skipping the removal of image repository", "RepoName", imageRepositoryUrl)
 		return
@@ -898,7 +910,7 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 
 	log := ctrllog.FromContext(ctx)
 
-	imageRepositoryName := imageRepository.Spec.Image.Name
+	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository)
 	requestedVisibility := string(imageRepository.Spec.Image.Visibility)
 	err := r.QuayClient.ChangeRepositoryVisibility(r.QuayOrganization, imageRepositoryName, requestedVisibility)
 	if err == nil {
@@ -1072,7 +1084,8 @@ func (r *ImageRepositoryReconciler) ImageRepositoryForSameUrlExists(ctx context.
 
 	imageRepositoryName := imageRepository.ObjectMeta.Name
 	for _, imageRepo := range imageRepositoriesList.Items {
-		if imageRepositoryUrl == imageRepo.Status.Image.URL {
+		_, imageRepoUrl := r.getQuayImageNameAndURL(&imageRepo)
+		if imageRepositoryUrl == imageRepoUrl {
 			// skipping the original ImageRepository which is in the list as well
 			if imageRepositoryName == imageRepo.ObjectMeta.Name {
 				continue
@@ -1249,6 +1262,8 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 		return err
 	}
 
+	_, imageRepositoryUrl := r.getQuayImageNameAndURL(imageRepository)
+
 	changed := false
 	for reg := range toRemoveAuths.Auths {
 		// Check if there’s another IR with the same repo URL. In that case
@@ -1268,7 +1283,8 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 			}
 
 			// Must match the same registry URL
-			if otherIR.Status.Image.URL != imageRepository.Status.Image.URL {
+			_, otherIrImageUrl := r.getQuayImageNameAndURL(&otherIR)
+			if otherIrImageUrl != imageRepositoryUrl {
 				continue
 			}
 
@@ -1344,7 +1360,8 @@ func (r *ImageRepositoryReconciler) ensureNamespacePullSecret(ctx context.Contex
 		return err
 	}
 
-	if err := r.QuayClient.AddPermissionsForRepositoryToAccount(r.QuayOrganization, imageRepository.Spec.Image.Name, namespaceRobot.Name, true, false); err != nil {
+	imageName, _ := r.getQuayImageNameAndURL(imageRepository)
+	if err := r.QuayClient.AddPermissionsForRepositoryToAccount(r.QuayOrganization, imageName, namespaceRobot.Name, true, false); err != nil {
 		return err
 	}
 

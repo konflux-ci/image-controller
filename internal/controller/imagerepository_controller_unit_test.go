@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -249,6 +250,135 @@ func TestIsComponentLinked(t *testing.T) {
 
 			if got != tc.expect {
 				t.Errorf("isComponentLinked() for %v: expected %t but got %t", tc.imageRepository, tc.expect, got)
+			}
+		})
+	}
+}
+
+func TestGetQuayImageNameAndURL(t *testing.T) {
+	type imageRepositoryConfig struct {
+		SpecName          string
+		StatusImageUrl    string
+		IsComponentLinked bool
+	}
+	const crName = "my-image"
+	const namespace = "my-namespace"
+	const componentName = "my-component"
+	getTestImageRepo := func(config imageRepositoryConfig) *imagerepositoryv1alpha1.ImageRepository {
+		imageRepo := &imagerepositoryv1alpha1.ImageRepository{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      crName,
+				Namespace: namespace,
+			},
+			Spec: imagerepositoryv1alpha1.ImageRepositorySpec{
+				Image: imagerepositoryv1alpha1.ImageParameters{
+					Name: config.SpecName,
+				},
+			},
+			Status: imagerepositoryv1alpha1.ImageRepositoryStatus{
+				Image: imagerepositoryv1alpha1.ImageStatus{
+					URL: config.StatusImageUrl,
+				},
+			},
+		}
+		if config.IsComponentLinked {
+			imageRepo.ObjectMeta.Labels = map[string]string{
+				ComponentNameLabelName: componentName,
+			}
+		}
+		return imageRepo
+	}
+
+	r := ImageRepositoryReconciler{
+		QuayHost:         "registry.org",
+		QuayOrganization: "my-org",
+	}
+
+	testCases := []struct {
+		name              string
+		imageRepoConfig   imageRepositoryConfig
+		expectedImageName string
+		// expectedImageUrl is always registry.domain/org/ + expectedImageName, so calculate it in the test
+	}{
+		{
+			name:              "Should generate default image name based on ImageRepository object name",
+			imageRepoConfig:   imageRepositoryConfig{},
+			expectedImageName: fmt.Sprintf("%s/%s", namespace, crName),
+		},
+		{
+			name:              "Should generate default image name based on ImageRepository object name and Component name",
+			imageRepoConfig:   imageRepositoryConfig{IsComponentLinked: true},
+			expectedImageName: fmt.Sprintf("%s/%s", namespace, componentName),
+		},
+		{
+			name:              "Should generate image name based on name in spec, name doesn't include namespace",
+			imageRepoConfig:   imageRepositoryConfig{SpecName: "custom-name"},
+			expectedImageName: fmt.Sprintf("%s/custom-name", namespace),
+		},
+		{
+			name:              "Should generate image name based on name in spec, name includes namespace",
+			imageRepoConfig:   imageRepositoryConfig{SpecName: fmt.Sprintf("%s/custom-name", namespace)},
+			expectedImageName: fmt.Sprintf("%s/custom-name", namespace),
+		},
+		{
+			name:              "Should generate image name based on name in spec, name has slash prefix",
+			imageRepoConfig:   imageRepositoryConfig{SpecName: "/custom/name"},
+			expectedImageName: fmt.Sprintf("%s/custom/name", namespace),
+		},
+		{
+			name: "Should get image name from image url in status",
+			imageRepoConfig: imageRepositoryConfig{
+				SpecName:       "name-in-spec",
+				StatusImageUrl: fmt.Sprintf("%s/%s/%s/name-in-status", r.QuayHost, r.QuayOrganization, namespace),
+			},
+			expectedImageName: fmt.Sprintf("%s/name-in-status", namespace),
+		},
+		{
+			name: "Should ignore image url in status if it attempts to reference another namespace (tenant)",
+			imageRepoConfig: imageRepositoryConfig{
+				SpecName:       "name-in-spec",
+				StatusImageUrl: fmt.Sprintf("%s/%s/not-owned-namespace/name-in-status", r.QuayHost, r.QuayOrganization),
+			},
+			expectedImageName: fmt.Sprintf("%s/name-in-spec", namespace),
+		},
+		{
+			name: "Should ignore image url in status if it attempts to reference another organization",
+			imageRepoConfig: imageRepositoryConfig{
+				SpecName:       "name-in-spec",
+				StatusImageUrl: fmt.Sprintf("%s/not-owned-org/%s/name-in-status", r.QuayHost, namespace),
+			},
+			expectedImageName: fmt.Sprintf("%s/name-in-spec", namespace),
+		},
+		{
+			name: "Should ignore image url in status if it attempts to reference another registry",
+			imageRepoConfig: imageRepositoryConfig{
+				SpecName:       "name-in-spec",
+				StatusImageUrl: fmt.Sprintf("another-registry.io/%s/%s/name-in-status", r.QuayOrganization, namespace),
+			},
+			expectedImageName: fmt.Sprintf("%s/name-in-spec", namespace),
+		},
+		{
+			name: "Should ignore name in spec if it was changed and status has correct image url",
+			imageRepoConfig: imageRepositoryConfig{
+				SpecName:       "new-name",
+				StatusImageUrl: fmt.Sprintf("%s/%s/%s/name-at-creation", r.QuayHost, r.QuayOrganization, namespace),
+			},
+			expectedImageName: fmt.Sprintf("%s/name-at-creation", namespace),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			imageRepository := getTestImageRepo(tc.imageRepoConfig)
+
+			imageName, imageUrl := r.getQuayImageNameAndURL(imageRepository)
+
+			if imageName != tc.expectedImageName {
+				t.Errorf("getQuayImageNameAndURL() got %s image name, but expected %s", imageName, tc.expectedImageName)
+			}
+			expectedImageUrl := fmt.Sprintf("%s/%s/%s", r.QuayHost, r.QuayOrganization, imageName)
+			if imageUrl != expectedImageUrl {
+				t.Errorf("getQuayImageNameAndURL() got %s image url, but expected %s", imageUrl, expectedImageUrl)
 			}
 		})
 	}

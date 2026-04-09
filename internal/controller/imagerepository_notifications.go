@@ -10,10 +10,12 @@ import (
 )
 
 func (r *ImageRepositoryReconciler) AddNotification(notification imagerepositoryv1alpha1.Notifications, imageRepository *imagerepositoryv1alpha1.ImageRepository) (imagerepositoryv1alpha1.NotificationStatus, error) {
+	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository)
+
 	notificationStatus := imagerepositoryv1alpha1.NotificationStatus{}
 	quayNotification, err := r.QuayClient.CreateNotification(
 		r.QuayOrganization,
-		imageRepository.Spec.Image.Name,
+		imageRepositoryName,
 		quay.Notification{
 			Title:  notification.Title,
 			Event:  string(notification.Event),
@@ -60,7 +62,8 @@ func (r *ImageRepositoryReconciler) HandleNotifications(ctx context.Context, ima
 		// No status notifications to check
 		return nil
 	}
-	allNotifications, err := r.QuayClient.GetNotifications(r.QuayOrganization, imageRepository.Spec.Image.Name)
+	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository)
+	allNotifications, err := r.QuayClient.GetNotifications(r.QuayOrganization, imageRepositoryName)
 	if err != nil {
 		return r.handleError(ctx, imageRepository, err, "Couldn't retrieve all Quay notifications")
 	}
@@ -84,7 +87,7 @@ func (r *ImageRepositoryReconciler) HandleNotifications(ctx context.Context, ima
 					log.Info("Updating notification in Quay", "Title", notification.Title, "Event", notification.Event, "Method", notification.Method, "UUID", quayNotification.UUID)
 					updatedNotification, err := r.QuayClient.UpdateNotification(
 						r.QuayOrganization,
-						imageRepository.Spec.Image.Name,
+						imageRepositoryName,
 						statusNotification.UUID,
 						quay.Notification{
 							Title:  notification.Title,
@@ -138,7 +141,7 @@ func (r *ImageRepositoryReconciler) HandleNotifications(ctx context.Context, ima
 				log.Info("Deleting notification in Quay", "Title", statusNotification.Title, "UUID", statusNotification.UUID)
 				_, err := r.QuayClient.DeleteNotification(
 					r.QuayOrganization,
-					imageRepository.Spec.Image.Name,
+					imageRepositoryName,
 					statusNotification.UUID)
 				if err != nil {
 					log.Error(err, "failed to delete notification", "Title", statusNotification.Title, "UUID", statusNotification.UUID)
@@ -185,7 +188,8 @@ func (r *ImageRepositoryReconciler) SetNotifications(ctx context.Context, imageR
 
 func (r *ImageRepositoryReconciler) notificationExistsInQuayByUUID(UUID string, imageRepository *imagerepositoryv1alpha1.ImageRepository) (quay.Notification, error) {
 	notification := quay.Notification{}
-	allNotifications, err := r.QuayClient.GetNotifications(r.QuayOrganization, imageRepository.Spec.Image.Name)
+	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository)
+	allNotifications, err := r.QuayClient.GetNotifications(r.QuayOrganization, imageRepositoryName)
 	if err != nil {
 		return notification, nil
 	}
