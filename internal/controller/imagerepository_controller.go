@@ -1110,7 +1110,7 @@ func (r *ImageRepositoryReconciler) addPullSecretAuthToApplicationPullSecret(ctx
 	application := &compapiv1alpha1.Application{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: applicationName, Namespace: namespace}, application); err != nil {
 		log.Error(err, "failed to get Application", "application", applicationName)
-		return err
+		return nil
 	}
 
 	applicationPullSecretName := getApplicationPullSecretName(applicationName)
