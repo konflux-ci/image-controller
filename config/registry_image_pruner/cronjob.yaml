@@ -16,12 +16,12 @@ spec:
               - name: QUAY_TOKEN
                 valueFrom:
                   secretKeyRef:
-                    name: quaytoken
+                    name: image-pruner-token
                     key: quaytoken
               - name: NAMESPACE
                 valueFrom:
                   secretKeyRef:
-                    name: quaytoken
+                    name: image-pruner-token
                     key: organization
             imagePullPolicy: IfNotPresent
             command:
@@ -47,6 +47,6 @@ spec:
             - name: image-pruner-volume
               configMap:
                 name: image-pruner-configmap
-            - name: quaytoken
+            - name: image-pruner-token
               secret:
-                secretName: quaytoken
+                secretName: image-pruner-token

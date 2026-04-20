@@ -20,6 +20,7 @@ LOGGER = logging.getLogger(__name__)
 QUAY_API_URL = "https://quay.io/api/v1"
 
 processed_repos_counter = itertools.count()
+auth_errors_limit = 1000
 
 
 ImageRepo = Dict[str, Any]
@@ -28,8 +29,9 @@ ImageRepo = Dict[str, Any]
 def get_quay_tags(quay_token: str, namespace: str, name: str) -> Dict[str, Any]:
     next_page = None
     resp: HTTPResponse
-
+    auth_errors_counter = 0
     all_tags = {}
+
     while True:
         query_args = {"limit": 100, "onlyActiveTags": True}
         if next_page is not None:
@@ -45,7 +47,18 @@ def get_quay_tags(quay_token: str, namespace: str, name: str) -> Dict[str, Any]:
                 if resp.status != 200:
                     raise RuntimeError(resp.reason)
                 json_data = json.loads(resp.read())
+            auth_errors_counter = 0
         except HTTPError as ex:
+            if ex.status == 401:
+                if auth_errors_counter > auth_errors_limit:
+                    raise(ex)
+
+                auth_errors_counter += 1
+                LOGGER.info("Auth error, will retry")
+                time.sleep(1)
+                continue
+
+            auth_errors_counter = 0
             if ex.status == 404:
                 LOGGER.info("Repository doesn't exist anymore %s/%s", namespace, name)
                 return {}
@@ -54,8 +67,13 @@ def get_quay_tags(quay_token: str, namespace: str, name: str) -> Dict[str, Any]:
                 LOGGER.info("Gateway error, will retry")
                 time.sleep(1)
                 continue
-            raise
+
+            LOGGER.info("Http %s error, will retry", ex.status)
+            time.sleep(1)
+            continue
+
         except json.JSONDecodeError:
+            auth_errors_counter = 0
             LOGGER.info("Json decoder error, will retry")
             continue
 
@@ -84,12 +102,24 @@ def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> No
         "Authorization": f"Bearer {quay_token}",
     })
     resp: HTTPResponse
+    auth_errors_counter = 0
+
     while True:
         try:
             with urlopen(request) as resp:
                 if resp.status != 200 and resp.status != 204:
                     raise RuntimeError(resp.reason)
         except HTTPError as ex:
+            if ex.status == 401:
+                if auth_errors_counter > auth_errors_limit:
+                    raise(ex)
+
+                auth_errors_counter += 1
+                LOGGER.info("Auth error, will retry")
+                time.sleep(1)
+                continue
+
+            auth_errors_counter = 0
             if ex.status == 502 or ex.status == 504:
                 LOGGER.info("Gateway error, will retry")
                 time.sleep(1)
@@ -97,7 +127,9 @@ def delete_image_tag(quay_token: str, namespace: str, name: str, tag: str) -> No
 
             # ignore if not found
             if ex.status != 404:
-                raise(ex)
+                LOGGER.info("Http %s error, will retry", ex.status)
+                time.sleep(1)
+                continue
         break
 
 
@@ -108,21 +140,35 @@ def manifest_exists(quay_token: str, namespace: str, name: str, manifest: str) -
     })
     resp: HTTPResponse
     manifest_exists = True
+    auth_errors_counter = 0
+
     while True:
         try:
             with urlopen(request) as resp:
                 if resp.status != 200 and resp.status != 204:
                     raise RuntimeError(resp.reason)
         except HTTPError as ex:
+            if ex.status == 401:
+                if auth_errors_counter > auth_errors_limit:
+                    raise(ex)
+
+                auth_errors_counter += 1
+                LOGGER.info("Auth error, will retry")
+                time.sleep(1)
+                continue
+
+            auth_errors_counter = 0
             if ex.status == 502 or ex.status == 504:
                 LOGGER.info("Gateway error, will retry")
                 time.sleep(1)
                 continue
 
-            if ex.status != 404:
-                raise(ex)
-            else:
+            if ex.status == 404:
                 manifest_exists = False
+            else:
+                LOGGER.info("Http %s error, will retry", ex.status)
+                time.sleep(1)
+                continue
         break
     return manifest_exists
 
@@ -187,6 +233,8 @@ def process_repositories(repos: List[ImageRepo], quay_token: str, dry_run: bool 
 def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageRepo]]:
     next_page = None
     resp: HTTPResponse
+    auth_errors_counter = 0
+
     while True:
         query_args = {"namespace": namespace}
         if next_page is not None:
@@ -202,7 +250,30 @@ def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageR
                 if resp.status != 200:
                     raise RuntimeError(resp.reason)
                 json_data = json.loads(resp.read())
+            auth_errors_counter = 0
+
+        except HTTPError as ex:
+            if ex.status == 401:
+                if auth_errors_counter > auth_errors_limit:
+                    raise(ex)
+
+                auth_errors_counter += 1
+                LOGGER.info("Auth error, will retry")
+                time.sleep(1)
+                continue
+
+            auth_errors_counter = 0
+            if ex.status == 502 or ex.status == 504:
+                LOGGER.info("Gateway error, will retry")
+                time.sleep(1)
+                continue
+
+            LOGGER.info("Http %s error, will retry", ex.status)
+            time.sleep(1)
+            continue
+
         except json.JSONDecodeError:
+            auth_errors_counter = 0
             LOGGER.info("Json decoder error, will retry")
             continue
 
