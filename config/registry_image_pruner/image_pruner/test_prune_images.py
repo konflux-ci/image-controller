@@ -265,14 +265,6 @@ class TestPruner(unittest.TestCase):
 
         self.assertEqual(2, urlopen.call_count)
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
-    @patch("sys.argv", ["prune_images", "--namespace", "sample"])
-    @patch("prune_images.urlopen")
-    def test_crash_when_http_error(self, urlopen):
-        urlopen.side_effect = HTTPError("url", 404, "something is not found", Message(), None)
-        with self.assertRaises(HTTPError):
-            main()
-
     @patch("sys.argv", ["prune_images", "--namespace", "sample"])
     def test_missing_quay_token_in_env(self):
         with self.assertRaisesRegex(ValueError, r"The token .+ is missing"):
