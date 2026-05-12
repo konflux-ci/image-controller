@@ -37,7 +37,7 @@ func Test_getCacheExcludedObjectsTypes(t *testing.T) {
 func Test_readConfig(t *testing.T) {
 	createTempFileWithContent := func(t *testing.T, fileContent string) *os.File {
 		tempFile, err := os.CreateTemp("", "config-test-*.txt")
-		t.Cleanup(func() { os.Remove(tempFile.Name()) })
+		t.Cleanup(func() { _ = os.Remove(tempFile.Name()) })
 		g.Expect(err).ToNot(g.HaveOccurred())
 		_, err = tempFile.Write([]byte(fileContent))
 		g.Expect(err).ToNot(g.HaveOccurred())
@@ -51,8 +51,7 @@ func Test_readConfig(t *testing.T) {
 
 		envVarName := "TEST_CONFIG_VAR"
 		envVarValue := "env-value"
-		os.Setenv(envVarName, envVarValue)
-		defer os.Unsetenv(envVarName)
+		t.Setenv(envVarName, envVarValue)
 
 		result, err := readConfig(envVarName, "/nonexistent/path")
 		g.Expect(err).ToNot(g.HaveOccurred())
@@ -78,8 +77,7 @@ func Test_readConfig(t *testing.T) {
 		// Set environment variable with different value
 		envVarName := "TEST_CONFIG_VAR"
 		envVarValue := "env-value"
-		os.Setenv(envVarName, envVarValue)
-		defer os.Unsetenv(envVarName)
+		t.Setenv(envVarName, envVarValue)
 
 		result, err := readConfig(envVarName, tempFile.Name())
 		g.Expect(err).ToNot(g.HaveOccurred())
@@ -102,8 +100,7 @@ func Test_readConfig(t *testing.T) {
 
 		envVarName := "TEST_CONFIG_VAR"
 		envVarValue := "  \n\t env-value \t\n  "
-		os.Setenv(envVarName, envVarValue)
-		defer os.Unsetenv(envVarName)
+		t.Setenv(envVarName, envVarValue)
 
 		result, err := readConfig(envVarName, "/nonexistent/path")
 		g.Expect(err).ToNot(g.HaveOccurred())
@@ -134,7 +131,7 @@ func Test_readConfig(t *testing.T) {
 
 		tempDir, err := os.MkdirTemp("", "config-test-dir-*")
 		g.Expect(err).ToNot(g.HaveOccurred())
-		defer os.Remove(tempDir)
+		defer func() { _ = os.Remove(tempDir) }()
 
 		_, err = readConfig("", tempDir)
 		g.Expect(err).To(g.HaveOccurred())
@@ -145,7 +142,7 @@ func Test_readConfig(t *testing.T) {
 		g.RegisterTestingT(t)
 
 		envVarName := "NONEXISTENT_CONFIG_VAR"
-		os.Unsetenv(envVarName)
+		_ = os.Unsetenv(envVarName)
 
 		result, err := readConfig(envVarName, "/nonexistent/path")
 		g.Expect(err).ToNot(g.HaveOccurred())
@@ -169,8 +166,7 @@ func Test_readConfig(t *testing.T) {
 		tempFile := createTempFileWithContent(t, fileContent)
 
 		envVarName := "TEST_CONFIG_VAR"
-		os.Setenv(envVarName, "")
-		defer os.Unsetenv(envVarName)
+		t.Setenv(envVarName, "")
 
 		result, err := readConfig(envVarName, tempFile.Name())
 		g.Expect(err).ToNot(g.HaveOccurred())
@@ -184,7 +180,7 @@ func Test_readConfig(t *testing.T) {
 		tempFile := createTempFileWithContent(t, fileContent)
 
 		envVarName := "NONEXISTENT_CONFIG_VAR"
-		os.Unsetenv(envVarName)
+		_ = os.Unsetenv(envVarName)
 
 		result, err := readConfig(envVarName, tempFile.Name())
 		g.Expect(err).ToNot(g.HaveOccurred())
@@ -196,15 +192,9 @@ func Test_readQuayConfig(t *testing.T) {
 	t.Run("SuccessWithEnvVars", func(t *testing.T) {
 		g.RegisterTestingT(t)
 
-		// Set environment variables
-		os.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
-		os.Setenv("QUAY_ORG", "test-org")
-		os.Setenv("QUAY_TOKEN", "test-token")
-		defer func() {
-			os.Unsetenv("QUAY_API_URL")
-			os.Unsetenv("QUAY_ORG")
-			os.Unsetenv("QUAY_TOKEN")
-		}()
+		t.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
+		t.Setenv("QUAY_ORG", "test-org")
+		t.Setenv("QUAY_TOKEN", "test-token")
 
 		apiUrl, org, buildQuayClientFunc, err := readQuayConfig()
 		g.Expect(err).ToNot(g.HaveOccurred())
@@ -222,18 +212,17 @@ func Test_readQuayConfig(t *testing.T) {
 		g.RegisterTestingT(t)
 
 		// Clean env vars
-		os.Unsetenv("QUAY_API_URL")
-		os.Unsetenv("QUAY_ORG")
-		os.Unsetenv("QUAY_TOKEN")
-		os.Unsetenv("QUAY_ADDITIONAL_CA")
+		_ = os.Unsetenv("QUAY_API_URL")
+		_ = os.Unsetenv("QUAY_ORG")
+		_ = os.Unsetenv("QUAY_TOKEN")
+		_ = os.Unsetenv("QUAY_ADDITIONAL_CA")
 
 		// Create temp files
 		tempDir, err := os.MkdirTemp("", "quay-config-*")
 		g.Expect(err).ToNot(g.HaveOccurred())
-		defer os.RemoveAll(tempDir)
+		defer func() { _ = os.RemoveAll(tempDir) }()
 
-		os.Setenv("QUAY_SECRET_MOUNT_POINT", tempDir)
-		defer func() { os.Unsetenv("QUAY_SECRET_MOUNT_POINT") }()
+		t.Setenv("QUAY_SECRET_MOUNT_POINT", tempDir)
 
 		apiUrlFile := tempDir + "/quayapiurl"
 		orgFile := tempDir + "/organization"
@@ -257,13 +246,9 @@ func Test_readQuayConfig(t *testing.T) {
 		g.RegisterTestingT(t)
 
 		// Don't set QUAY_API_URL
-		os.Unsetenv("QUAY_API_URL")
-		os.Setenv("QUAY_ORG", "test-org")
-		os.Setenv("QUAY_TOKEN", "test-token")
-		defer func() {
-			os.Unsetenv("QUAY_ORG")
-			os.Unsetenv("QUAY_TOKEN")
-		}()
+		_ = os.Unsetenv("QUAY_API_URL")
+		t.Setenv("QUAY_ORG", "test-org")
+		t.Setenv("QUAY_TOKEN", "test-token")
 
 		apiUrl, org, buildQuayClientFunc, err := readQuayConfig()
 		g.Expect(err).ToNot(g.HaveOccurred())
@@ -275,35 +260,23 @@ func Test_readQuayConfig(t *testing.T) {
 	t.Run("FailsIfOrgIsNotSet", func(t *testing.T) {
 		g.RegisterTestingT(t)
 
-		os.Setenv("QUAY_SECRET_MOUNT_POINT", "/nonexistent")
-
-		os.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
-		os.Setenv("QUAY_ORG", "")
-		os.Setenv("QUAY_TOKEN", "test-token")
-		defer func() {
-			os.Unsetenv("QUAY_API_URL")
-			os.Unsetenv("QUAY_ORG")
-			os.Unsetenv("QUAY_TOKEN")
-		}()
+		t.Setenv("QUAY_SECRET_MOUNT_POINT", "/nonexistent")
+		t.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
+		t.Setenv("QUAY_ORG", "")
+		t.Setenv("QUAY_TOKEN", "test-token")
 
 		_, _, _, err := readQuayConfig()
 		g.Expect(err).To(g.HaveOccurred())
 		g.Expect(err.Error()).To(g.ContainSubstring("Quay Org is not set"))
 	})
 
-	t.Run("FailsIfOrgIsNotSet", func(t *testing.T) {
+	t.Run("FailsIfTokenIsNotSet", func(t *testing.T) {
 		g.RegisterTestingT(t)
 
-		os.Setenv("QUAY_SECRET_MOUNT_POINT", "/nonexistent")
-
-		os.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
-		os.Setenv("QUAY_ORG", "test-org")
-		os.Setenv("QUAY_TOKEN", "")
-		defer func() {
-			os.Unsetenv("QUAY_API_URL")
-			os.Unsetenv("QUAY_ORG")
-			os.Unsetenv("QUAY_TOKEN")
-		}()
+		t.Setenv("QUAY_SECRET_MOUNT_POINT", "/nonexistent")
+		t.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
+		t.Setenv("QUAY_ORG", "test-org")
+		t.Setenv("QUAY_TOKEN", "")
 
 		_, _, _, err := readQuayConfig()
 		g.Expect(err).To(g.HaveOccurred())
@@ -314,16 +287,10 @@ func Test_readQuayConfig(t *testing.T) {
 		g.RegisterTestingT(t)
 
 		// Set an invalid CA path to trigger error in buildQuayHttpClient
-		os.Setenv("QUAY_ADDITIONAL_CA", "/nonexistent/ca/path.pem")
-		os.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
-		os.Setenv("QUAY_ORG", "test-org")
-		os.Setenv("QUAY_TOKEN", "test-token")
-		defer func() {
-			os.Unsetenv("QUAY_ADDITIONAL_CA")
-			os.Unsetenv("QUAY_API_URL")
-			os.Unsetenv("QUAY_ORG")
-			os.Unsetenv("QUAY_TOKEN")
-		}()
+		t.Setenv("QUAY_ADDITIONAL_CA", "/nonexistent/ca/path.pem")
+		t.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
+		t.Setenv("QUAY_ORG", "test-org")
+		t.Setenv("QUAY_TOKEN", "test-token")
 
 		_, _, _, err := readQuayConfig()
 		g.Expect(err).To(g.HaveOccurred())
@@ -334,14 +301,9 @@ func Test_readQuayConfig(t *testing.T) {
 		g.RegisterTestingT(t)
 
 		// Set initial token
-		os.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
-		os.Setenv("QUAY_ORG", "test-org")
-		os.Setenv("QUAY_TOKEN", "initial-token")
-		defer func() {
-			os.Unsetenv("QUAY_API_URL")
-			os.Unsetenv("QUAY_ORG")
-			os.Unsetenv("QUAY_TOKEN")
-		}()
+		t.Setenv("QUAY_API_URL", "https://test-quay.io/api/v1")
+		t.Setenv("QUAY_ORG", "test-org")
+		t.Setenv("QUAY_TOKEN", "initial-token")
 
 		_, _, buildQuayClientFunc, err := readQuayConfig()
 		g.Expect(err).ToNot(g.HaveOccurred())
@@ -354,7 +316,7 @@ func Test_readQuayConfig(t *testing.T) {
 		g.Expect(c1.AuthToken).To(g.Equal("initial-token"))
 
 		// Change token (simulating rotation)
-		os.Setenv("QUAY_TOKEN", "rotated-token")
+		t.Setenv("QUAY_TOKEN", "rotated-token")
 
 		// Get second client - should use new token
 		client2, err := buildQuayClientFunc()
@@ -367,16 +329,15 @@ func Test_readQuayConfig(t *testing.T) {
 	t.Run("TokenRotationViaFile", func(t *testing.T) {
 		g.RegisterTestingT(t)
 
-		os.Unsetenv("QUAY_API_URL")
-		os.Unsetenv("QUAY_ORG")
-		os.Unsetenv("QUAY_TOKEN")
+		_ = os.Unsetenv("QUAY_API_URL")
+		_ = os.Unsetenv("QUAY_ORG")
+		_ = os.Unsetenv("QUAY_TOKEN")
 
 		tempDir, err := os.MkdirTemp("", "quay-config-*")
 		g.Expect(err).ToNot(g.HaveOccurred())
-		defer os.RemoveAll(tempDir)
+		defer func() { _ = os.RemoveAll(tempDir) }()
 
-		os.Setenv("QUAY_SECRET_MOUNT_POINT", tempDir)
-		defer func() { os.Unsetenv("QUAY_SECRET_MOUNT_POINT") }()
+		t.Setenv("QUAY_SECRET_MOUNT_POINT", tempDir)
 
 		apiUrlFile := tempDir + "/quayapiurl"
 		orgFile := tempDir + "/organization"
@@ -417,7 +378,7 @@ func Test_buildQuayHttpClient(t *testing.T) {
 		g.RegisterTestingT(t)
 
 		// Ensure no custom CA is set
-		os.Unsetenv("QUAY_ADDITIONAL_CA")
+		_ = os.Unsetenv("QUAY_ADDITIONAL_CA")
 
 		client, err := buildQuayHttpClient()
 		g.Expect(err).ToNot(g.HaveOccurred())
@@ -448,8 +409,8 @@ cG3Kp1aafIjtenvEY2y9gYClEx7q4OIsN1Lw/OUQsUbTm50=
 -----END CERTIFICATE-----`
 
 		tempCaCertFile, err := os.CreateTemp("", "ca-cert-*.pem")
-		defer os.Remove(tempCaCertFile.Name())
 		g.Expect(err).ToNot(g.HaveOccurred(), "failed to create CA cert test file")
+		defer func() { _ = os.Remove(tempCaCertFile.Name()) }()
 
 		_, err = tempCaCertFile.Write([]byte(caCert))
 		g.Expect(err).ToNot(g.HaveOccurred(), "failed to write to CA cert test file")
@@ -457,8 +418,7 @@ cG3Kp1aafIjtenvEY2y9gYClEx7q4OIsN1Lw/OUQsUbTm50=
 		g.Expect(err).ToNot(g.HaveOccurred())
 
 		// Set the environment variable
-		os.Setenv("QUAY_ADDITIONAL_CA", tempCaCertFile.Name())
-		defer os.Unsetenv("QUAY_ADDITIONAL_CA")
+		t.Setenv("QUAY_ADDITIONAL_CA", tempCaCertFile.Name())
 
 		client, err := buildQuayHttpClient()
 
@@ -497,8 +457,7 @@ cG3Kp1aafIjtenvEY2y9gYClEx7q4OIsN1Lw/OUQsUbTm50=
 		g.RegisterTestingT(t)
 
 		// Set an invalid CA path
-		os.Setenv("QUAY_ADDITIONAL_CA", "/nonexistent/path/to/ca.pem")
-		defer os.Unsetenv("QUAY_ADDITIONAL_CA")
+		t.Setenv("QUAY_ADDITIONAL_CA", "/nonexistent/path/to/ca.pem")
 
 		_, err := buildQuayHttpClient()
 		g.Expect(err).To(g.HaveOccurred(), "should have failed due to invalid CA cert path")
@@ -510,16 +469,15 @@ cG3Kp1aafIjtenvEY2y9gYClEx7q4OIsN1Lw/OUQsUbTm50=
 		const caCertInvalid = "invalid certificate content"
 
 		tempCaCertFile, err := os.CreateTemp("", "ca-cert-*.pem")
-		defer os.Remove(tempCaCertFile.Name())
 		g.Expect(err).ToNot(g.HaveOccurred(), "failed to create CA cert test file")
+		defer func() { _ = os.Remove(tempCaCertFile.Name()) }()
 
 		_, err = tempCaCertFile.Write([]byte(caCertInvalid))
 		g.Expect(err).ToNot(g.HaveOccurred(), "failed to write to CA cert test file")
 		err = tempCaCertFile.Close()
 		g.Expect(err).ToNot(g.HaveOccurred())
 
-		os.Setenv("QUAY_ADDITIONAL_CA", tempCaCertFile.Name())
-		defer os.Unsetenv("QUAY_ADDITIONAL_CA")
+		t.Setenv("QUAY_ADDITIONAL_CA", tempCaCertFile.Name())
 
 		_, err = buildQuayHttpClient()
 		g.Expect(err).To(g.HaveOccurred(), "should have failed due to invalid CA cert")
