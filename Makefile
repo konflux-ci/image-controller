@@ -122,6 +122,10 @@ lint: golangci-lint ## Run golangci-lint linter
 lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 	$(GOLANGCI_LINT) run --fix
 
+.PHONY: test/e2e
+test/e2e: ## Run image-controller E2E tests (requires a running Konflux cluster).
+	cd e2e-tests && go run github.com/onsi/ginkgo/v2/ginkgo@latest -p --procs=$${GINKGO_PROCS:-5} -v --no-color --timeout=90m --fail-on-empty --label-filter="image-controller" ./tests/
+
 ##@ Build
 
 .PHONY: build
@@ -205,8 +209,8 @@ GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.4.3
-CONTROLLER_TOOLS_VERSION ?= v0.16.3
-ENVTEST_VERSION ?= release-0.19
+CONTROLLER_TOOLS_VERSION ?= v0.20.1
+ENVTEST_VERSION ?= release-0.23
 GOLANGCI_LINT_VERSION ?= v1.59.1
 
 .PHONY: kustomize

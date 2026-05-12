@@ -28,3 +28,5 @@ go.work
 
 __pycache__/
 
+e2e-tests/tests/bin/
+
