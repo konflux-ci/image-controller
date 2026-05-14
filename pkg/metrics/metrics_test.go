@@ -54,7 +54,7 @@ func TestStartMetrics(t *testing.T) {
 		cancel()
 	})
 
-	t.Run("Should set avaliability according to the probe", func(t *testing.T) {
+	t.Run("Should set availability according to the probe", func(t *testing.T) {
 		quay.ResetTestQuayClient()
 		testQuayClient := &quay.TestQuayClient{}
 		getTestClient := func() (quay.QuayService, error) {

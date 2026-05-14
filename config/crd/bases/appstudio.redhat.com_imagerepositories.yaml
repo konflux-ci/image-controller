@@ -73,7 +73,7 @@ spec:
                   name:
                     description: |-
                       Name of the image within configured Quay organization.
-                      If ommited, then defaults to "cr-namespace/cr-name".
+                      If omitted, then defaults to "cr-namespace/cr-name".
                       This field cannot be changed after the resource creation.
                     pattern: ^[a-z0-9][.a-z0-9_-]*(/[a-z0-9][.a-z0-9_-]*)*$
                     type: string

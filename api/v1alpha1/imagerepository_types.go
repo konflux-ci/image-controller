@@ -38,7 +38,7 @@ type ImageRepositorySpec struct {
 // ImageParameters describes requested image repository configuration.
 type ImageParameters struct {
 	// Name of the image within configured Quay organization.
-	// If ommited, then defaults to "cr-namespace/cr-name".
+	// If omitted, then defaults to "cr-namespace/cr-name".
 	// This field cannot be changed after the resource creation.
 	// +optional
 	// +kubebuilder:validation:Pattern="^[a-z0-9][.a-z0-9_-]*(/[a-z0-9][.a-z0-9_-]*)*$"
@@ -51,6 +51,7 @@ type ImageParameters struct {
 	Visibility ImageVisibility `json:"visibility,omitempty"`
 }
 
+// ImageVisibility defines image repository visibility on registry side.
 // +kubebuilder:validation:Enum=public;private
 type ImageVisibility string
 

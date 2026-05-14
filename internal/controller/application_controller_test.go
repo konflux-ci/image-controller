@@ -76,13 +76,13 @@ var _ = Describe("Application controller", func() {
 
 			// verify that integration SA doesn't exist
 			saList := getServiceAccountList(appSecretTestNamespace)
-			Expect(len(saList)).Should(Equal(0))
+			Expect(saList).Should(BeEmpty())
 
 			applicationSecretDockerConfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
 
 			var decodedSecret dockerConfigJson
 			Expect(json.Unmarshal([]byte(applicationSecretDockerConfigJson), &decodedSecret)).To(Succeed())
-			Expect(len(decodedSecret.Auths)).Should(Equal(0))
+			Expect(decodedSecret.Auths).Should(BeEmpty())
 		})
 
 		It("should create empty application pull secret and link it to integration SA, because no components are owned by application", func() {
@@ -104,17 +104,17 @@ var _ = Describe("Application controller", func() {
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 
 			saList := getServiceAccountList(appSecretTestNamespace)
-			Expect(len(saList)).Should(Equal(1))
+			Expect(saList).Should(HaveLen(1))
 			Expect(saList[0].Name).Should(Equal(IntegrationServiceAccountName))
-			Expect(len(saList[0].Secrets)).Should(Equal(1))
-			Expect(len(saList[0].ImagePullSecrets)).Should(Equal(1))
+			Expect(saList[0].Secrets).Should(HaveLen(1))
+			Expect(saList[0].ImagePullSecrets).Should(HaveLen(1))
 
 			applicationSecret := waitSecretExist(namespacePullSecretName)
 			applicationSecretDockerConfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
 
 			var decodedSecret dockerConfigJson
 			Expect(json.Unmarshal([]byte(applicationSecretDockerConfigJson), &decodedSecret)).To(Succeed())
-			Expect(len(decodedSecret.Auths)).Should(Equal(0))
+			Expect(decodedSecret.Auths).Should(BeEmpty())
 		})
 
 		It("should create an application pull secret with 2 secrets and link it to integration SA", func() {
@@ -269,8 +269,8 @@ var _ = Describe("Application controller", func() {
 			// verify that after application removal application secret is no longer linked in integration SA
 			deleteApplication(applicationKey)
 			konfluxSA = getServiceAccount(appSecretTestNamespace, IntegrationServiceAccountName)
-			Expect(konfluxSA.ImagePullSecrets).To(HaveLen(0))
-			Expect(konfluxSA.Secrets).To(HaveLen(0))
+			Expect(konfluxSA.ImagePullSecrets).To(BeEmpty())
+			Expect(konfluxSA.Secrets).To(BeEmpty())
 		})
 
 		It("should create an application pull secret with 1 secret because other secret isn't SecretTypeDockerConfigJson and link it to integration SA", func() {

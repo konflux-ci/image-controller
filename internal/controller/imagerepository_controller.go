@@ -285,7 +285,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Check if the image repository exists on Quay.
 	repositoryExists, err := r.QuayClient.RepositoryExists(r.QuayOrganization, imageNameInOrg)
 	if err != nil {
-		log.Error(err, "failed to check image repository existance")
+		log.Error(err, "failed to check image repository existence")
 		return ctrl.Result{}, err
 	}
 	if !repositoryExists {

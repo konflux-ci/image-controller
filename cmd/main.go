@@ -285,7 +285,11 @@ func readConfig(envVarName string, path string) (string, error) {
 	}
 
 	if configValue == "" && path != "" {
-		fileInfo, err := os.Stat(path)
+		// There is no user-controlled input that could cause path traversal.
+		// The path is constructed filepath.Join(mountPoint, QuayApiFileName),
+		// where mountPoint is either a default constant or an environment variable.
+		// #nosec G703
+		fileInfo, err := os.Stat(path) // nolint:gosec
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				// No config provided
@@ -379,8 +383,10 @@ func buildQuayHttpClient() (*http.Client, error) {
 	if caCertPath != "" {
 		setupLog.Info(fmt.Sprintf("Loading additional CA certificate from: %s", caCertPath))
 
-		// Read the CA certificate file
-		caCert, err := os.ReadFile(caCertPath)
+		// Read the CA certificate file.
+		// caCertPath is defined via corresponding environment variable, no user input allowed.
+		// #nosec G703 G304
+		caCert, err := os.ReadFile(caCertPath) // nolint:gosec
 		if err != nil {
 			return nil, fmt.Errorf("failed to read CA certificate from %s: %w", caCertPath, err)
 		}
@@ -405,7 +411,10 @@ func buildQuayHttpClient() (*http.Client, error) {
 		setupLog.Info("Additional CA certificate loaded successfully")
 	}
 
-	return &http.Client{Transport: transport}, nil
+	return &http.Client{
+		Transport: transport,
+		Timeout:   time.Minute,
+	}, nil
 }
 
 // getQuayHost takes quay API URL and returns the host (domain and port if present).

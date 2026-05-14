@@ -72,29 +72,30 @@ func NewQuayClient(c *http.Client, authToken, url string) *QuayClient {
 	}
 }
 
-// QuayResponse wraps http.Response in order to provide custom methods, e.g. GetJson
+// QuayResponse holds data from http.Response in order to provide custom methods, e.g. GetJson
 type QuayResponse struct {
-	response *http.Response
+	body       []byte
+	statusCode int
+	status     string
 }
 
-func (r *QuayResponse) GetJson(obj interface{}) error {
-	defer r.response.Body.Close()
-	body, err := io.ReadAll(r.response.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %s", err)
-	}
-	if err := json.Unmarshal(body, obj); err != nil {
-		return fmt.Errorf("failed to unmarshal response body: %s, got body: %s", err, string(body))
+func (r *QuayResponse) GetJson(obj any) error {
+	if err := json.Unmarshal(r.body, obj); err != nil {
+		return fmt.Errorf("failed to unmarshal response body: %s, got body: %s", err, string(r.body))
 	}
 	return nil
 }
 
 func (r *QuayResponse) GetStatusCode() int {
-	return r.response.StatusCode
+	return r.statusCode
+}
+
+func (r *QuayResponse) GetStatus() string {
+	return r.status
 }
 
 func (c *QuayClient) makeRequest(url, method string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, url, body)
+	req, err := http.NewRequest(method, url, body) // nolint:noctx // No need in context, timeout already set in http client.
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -112,7 +113,18 @@ func (c *QuayClient) doRequest(url, method string, body io.Reader) (*QuayRespons
 	if err != nil {
 		return nil, fmt.Errorf("failed to Do request: %w", err)
 	}
-	return &QuayResponse{response: resp}, nil
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %s", err)
+	}
+
+	return &QuayResponse{
+		body:       respBody,
+		statusCode: resp.StatusCode,
+		status:     resp.Status,
+	}, nil
 }
 
 // CreateRepository creates a new image repository.
@@ -286,7 +298,7 @@ func (c *QuayClient) ChangeRepositoryVisibility(organization, imageRepositoryNam
 	if data.ErrorMessage != "" {
 		return errors.New(data.ErrorMessage)
 	}
-	return errors.New(resp.response.Status)
+	return errors.New(resp.GetStatus())
 }
 
 func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*RobotAccount, error) {
@@ -506,7 +518,7 @@ func (c *QuayClient) AddUserToTeam(organization, teamName, userName string) (boo
 	return false, nil
 }
 
-// RemoveUserToTeam remove user from the given team
+// RemoveUserFromTeam remove user from the given team
 func (c *QuayClient) RemoveUserFromTeam(organization, teamName, userName string) error {
 	url := fmt.Sprintf("%s/organization/%s/team/%s/members/%s", c.url, organization, teamName, userName)
 
@@ -813,9 +825,15 @@ func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, erro
 			return nil, fmt.Errorf("error getting repositories, got status code %d", res.StatusCode)
 		}
 
-		resp := QuayResponse{response: res}
-		if err := resp.GetJson(&response); err != nil {
-			return nil, err
+		resBody, err := io.ReadAll(res.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %s", err)
+		}
+		if err := res.Body.Close(); err != nil {
+			return nil, fmt.Errorf("failed to close response body: %s", err)
+		}
+		if err := json.Unmarshal(resBody, &response); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal response body: %s, got body: %s", err, string(resBody))
 		}
 
 		repositories = append(repositories, response.Repositories...)
