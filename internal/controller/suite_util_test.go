@@ -192,7 +192,7 @@ func getApplication(applicationKey types.NamespacedName) *compapiv1alpha1.Applic
 func deleteApplication(applicationKey types.NamespacedName) {
 	application := &compapiv1alpha1.Application{}
 
-	// Check if the applicaiton exists
+	// Check if the application exists
 	if err := k8sClient.Get(ctx, applicationKey, application); k8sErrors.IsNotFound(err) {
 		return
 	}
@@ -477,7 +477,7 @@ func verifySecretAuth(secretDockerconfigJson, expectedImage, robotAccountName, t
 func verifySecretAuthEmpty(secretDockerconfigJson string) {
 	var authDataJson dockerConfigJson
 	Expect(json.Unmarshal([]byte(secretDockerconfigJson), &authDataJson)).To(Succeed())
-	Expect(authDataJson.Auths).To(HaveLen(0))
+	Expect(authDataJson.Auths).To(BeEmpty())
 }
 
 func verifySecretSpec(secret *corev1.Secret, ownerKind, ownerName, secretName string) {

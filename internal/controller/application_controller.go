@@ -354,6 +354,8 @@ func (r *ApplicationPullSecretCreator) doesApplicationPullSecretExist(ctx contex
 }
 
 // unlinkApplicationSecretFromIntegrationTestsSa ensures that the given secret is not linked with the integration tests service account.
+//
+//nolint:dupl // This is deprecated controller, no need to refactor.
 func (r *ApplicationPullSecretCreator) unlinkApplicationSecretFromIntegrationTestsSa(ctx context.Context, secretNameToRemove, namespace string) error {
 	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", IntegrationServiceAccountName, "SecretName", secretNameToRemove)
 

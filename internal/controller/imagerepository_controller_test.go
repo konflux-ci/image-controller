@@ -158,7 +158,7 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Annotations[namespacePullSecretEnsuredAnnotation]).To(Equal("true"))
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
 			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
-			Expect(imageRepository.OwnerReferences).To(HaveLen(0))
+			Expect(imageRepository.OwnerReferences).To(BeEmpty())
 			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
@@ -169,7 +169,7 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HaveSuffix("_pull"))
 			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-image-pull"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
-			Expect(imageRepository.Status.Notifications).To(HaveLen(0))
+			Expect(imageRepository.Status.Notifications).To(BeEmpty())
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
@@ -637,7 +637,7 @@ var _ = Describe("Image repository controller", func() {
 				Expect(imageRepository.Status.Notifications[0].UUID).To(Equal("uuid"))
 				Expect(imageRepository.Status.Notifications[0].Title).To(Equal("test-notification"))
 			} else {
-				Expect(imageRepository.Status.Notifications).To(HaveLen(0))
+				Expect(imageRepository.Status.Notifications).To(BeEmpty())
 			}
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
@@ -671,7 +671,7 @@ var _ = Describe("Image repository controller", func() {
 
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(2))
-			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
+			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
 			integrationSa := getServiceAccount(defaultNamespace, IntegrationServiceAccountName)
@@ -687,7 +687,7 @@ var _ = Describe("Image repository controller", func() {
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
+			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
 			integrationSa := getServiceAccount(defaultNamespace, IntegrationServiceAccountName)
 			Expect(integrationSa.Secrets).To(HaveLen(2))
 			Expect(integrationSa.ImagePullSecrets).To(HaveLen(2))
@@ -982,7 +982,7 @@ var _ = Describe("Image repository controller", func() {
 			applicationSa = getServiceAccount(defaultNamespace, IntegrationServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(2))
-			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
+			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
 			Expect(applicationSa.Secrets).To(HaveLen(2))
@@ -1018,7 +1018,7 @@ var _ = Describe("Image repository controller", func() {
 			applicationSa = getServiceAccount(defaultNamespace, IntegrationServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(2))
-			Expect(componentSa.ImagePullSecrets).To(HaveLen(0))
+			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
 			Expect(applicationSa.Secrets).To(HaveLen(2))
@@ -1191,7 +1191,7 @@ var _ = Describe("Image repository controller", func() {
 			imageRepository := getImageRepository(resourceKey)
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
 			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
-			Expect(imageRepository.OwnerReferences).To(HaveLen(0))
+			Expect(imageRepository.OwnerReferences).To(BeEmpty())
 			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
@@ -1199,7 +1199,7 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
-			Expect(imageRepository.Status.Notifications).To(HaveLen(0))
+			Expect(imageRepository.Status.Notifications).To(BeEmpty())
 		})
 
 		It("should add notification", func() {
@@ -1546,10 +1546,10 @@ var _ = Describe("Image repository controller", func() {
 			someComponentSa := getServiceAccount(defaultNamespace, serviceAccountForSomeComponent)
 			commonSa := getServiceAccount(defaultNamespace, serviceAccountCommon)
 			// verify that created SAs have 2 secrets in each section
-			Expect(len(someComponentSa.Secrets)).To(Equal(2))
-			Expect(len(someComponentSa.ImagePullSecrets)).To(Equal(2))
-			Expect(len(commonSa.Secrets)).To(Equal(2))
-			Expect(len(commonSa.ImagePullSecrets)).To(Equal(2))
+			Expect(someComponentSa.Secrets).To(HaveLen(2))
+			Expect(someComponentSa.ImagePullSecrets).To(HaveLen(2))
+			Expect(commonSa.Secrets).To(HaveLen(2))
+			Expect(commonSa.ImagePullSecrets).To(HaveLen(2))
 			// and also both contain pullSecret from nudging component's imageRepository
 			Expect(someComponentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
 			Expect(someComponentSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
@@ -1582,13 +1582,13 @@ var _ = Describe("Image repository controller", func() {
 			commonSa = getServiceAccount(defaultNamespace, serviceAccountCommon)
 
 			// common SA and some component SA will still have 2 secrets linked and one of them is pull secret from nudged Component
-			Expect(len(commonSa.Secrets)).To(Equal(2))
-			Expect(len(commonSa.ImagePullSecrets)).To(Equal(2))
+			Expect(commonSa.Secrets).To(HaveLen(2))
+			Expect(commonSa.ImagePullSecrets).To(HaveLen(2))
 			Expect(commonSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
 			Expect(commonSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
 
-			Expect(len(someComponentSa.Secrets)).To(Equal(2))
-			Expect(len(someComponentSa.ImagePullSecrets)).To(Equal(2))
+			Expect(someComponentSa.Secrets).To(HaveLen(2))
+			Expect(someComponentSa.ImagePullSecrets).To(HaveLen(2))
 			Expect(someComponentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
 			Expect(someComponentSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
 		})
@@ -1649,10 +1649,10 @@ var _ = Describe("Image repository controller", func() {
 			nudgedComponentSa := getServiceAccount(defaultNamespace, serviceAccountForNudgedComponent)
 			commonSa := getServiceAccount(defaultNamespace, serviceAccountCommon)
 			// verify that created SAs have 2 secrets in each section
-			Expect(len(nudgedComponentSa.Secrets)).To(Equal(2))
-			Expect(len(nudgedComponentSa.ImagePullSecrets)).To(Equal(2))
-			Expect(len(commonSa.Secrets)).To(Equal(2))
-			Expect(len(commonSa.ImagePullSecrets)).To(Equal(2))
+			Expect(nudgedComponentSa.Secrets).To(HaveLen(2))
+			Expect(nudgedComponentSa.ImagePullSecrets).To(HaveLen(2))
+			Expect(commonSa.Secrets).To(HaveLen(2))
+			Expect(commonSa.ImagePullSecrets).To(HaveLen(2))
 			// and also both contain pullSecret from nudging component's imageRepository
 			Expect(nudgedComponentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
 			Expect(nudgedComponentSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
@@ -1687,14 +1687,14 @@ var _ = Describe("Image repository controller", func() {
 			commonSa = getServiceAccount(defaultNamespace, serviceAccountCommon)
 
 			// common SA will still have 2 secrets linked and one of them is pull secret from nudged Component
-			Expect(len(commonSa.Secrets)).To(Equal(2))
-			Expect(len(commonSa.ImagePullSecrets)).To(Equal(2))
+			Expect(commonSa.Secrets).To(HaveLen(2))
+			Expect(commonSa.ImagePullSecrets).To(HaveLen(2))
 			Expect(commonSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
 			Expect(commonSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
 
 			// nudged component SA will have only 1 secret and pull secret from nudged Component will be gone
-			Expect(len(nudgedComponentSa.Secrets)).To(Equal(1))
-			Expect(len(nudgedComponentSa.ImagePullSecrets)).To(Equal(1))
+			Expect(nudgedComponentSa.Secrets).To(HaveLen(1))
+			Expect(nudgedComponentSa.ImagePullSecrets).To(HaveLen(1))
 			Expect(nudgedComponentSa.Secrets).To(Equal([]corev1.ObjectReference{{Name: commonPushSecretName}}))
 			Expect(nudgedComponentSa.ImagePullSecrets).To(Equal([]corev1.LocalObjectReference{{Name: commonPullSecretName}}))
 		})

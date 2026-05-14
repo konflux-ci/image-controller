@@ -156,7 +156,7 @@ func (r *ImageRepositoryReconciler) HandleNotifications(ctx context.Context, ima
 	return nil
 }
 
-// This function adds all Spec.Notifications to Quay and overwrites all existing notifications in ImageRepository Status
+// SetNotifications adds all Spec.Notifications to Quay and overwrites all existing notifications in ImageRepository Status
 func (r *ImageRepositoryReconciler) SetNotifications(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) ([]imagerepositoryv1alpha1.NotificationStatus, error) {
 	log := ctrllog.FromContext(ctx).WithName("ConfigureNotifications")
 
@@ -186,15 +186,15 @@ func (r *ImageRepositoryReconciler) SetNotifications(ctx context.Context, imageR
 	return notificationStatus, nil
 }
 
-func (r *ImageRepositoryReconciler) notificationExistsInQuayByUUID(UUID string, imageRepository *imagerepositoryv1alpha1.ImageRepository) (quay.Notification, error) {
+func (r *ImageRepositoryReconciler) notificationExistsInQuayByUUID(uuid string, imageRepository *imagerepositoryv1alpha1.ImageRepository) (quay.Notification, error) {
 	notification := quay.Notification{}
 	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository)
 	allNotifications, err := r.QuayClient.GetNotifications(r.QuayOrganization, imageRepositoryName)
 	if err != nil {
-		return notification, nil
+		return notification, err
 	}
 	for _, quayNotification := range allNotifications {
-		if quayNotification.UUID == UUID {
+		if quayNotification.UUID == uuid {
 			notification = quayNotification
 			break
 		}

@@ -93,6 +93,8 @@ func (r *ImageRepositoryReconciler) linkSecretToServiceAccount(ctx context.Conte
 }
 
 // unlinkSecretFromServiceAccount ensures that the given secret is not linked with the provided service account.
+//
+//nolint:dupl // TODO remove this exclusion once unlinkApplicationSecretFromIntegrationTestsSa is removed in ApplicationPullSecretCreator.
 func (r *ImageRepositoryReconciler) unlinkSecretFromServiceAccount(ctx context.Context, saName, secretNameToRemove, namespace string) error {
 	log := ctrllog.FromContext(ctx).WithValues("ServiceAccountName", saName, "SecretName", secretNameToRemove)
 
@@ -249,7 +251,7 @@ func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Conte
 	if isComponentLinked(imageRepository) {
 		// link secret to component service account if isn't linked already
 		if err := r.linkSecretToServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace, false, false); err != nil {
-			log.Error(err, "failed to link secret to component service account", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
+			log.Error(err, "failed to link secret to component service account", "saName", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
 			return err
 		}
 

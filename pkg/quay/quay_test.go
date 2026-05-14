@@ -778,7 +778,7 @@ func TestQuayClient_ListPermissionsForRepository(t *testing.T) {
 			name:                "list permissions for repository normally",
 			statusCode:          200,
 			responseData:        "{\"permissions\": {\"user1\": {\"name\": \"user1\", \"role\": \"read\", \"is_robot\": false, \"is_org_member\": true}}}",
-			expectedPermissions: map[string]UserAccount{"user1": UserAccount{Name: "user1", Role: "read", IsRobot: false, IsOrgMember: true}},
+			expectedPermissions: map[string]UserAccount{"user1": {Name: "user1", Role: "read", IsRobot: false, IsOrgMember: true}},
 			expectedErr:         "",
 		},
 		{
@@ -1363,10 +1363,10 @@ func TestQuayClient_DeleteTag(t *testing.T) {
 		deleted     bool
 		expectedErr string
 		statusCode  int
-		response    interface{}
+		response    any
 	}{
 		{
-			name:        "tag deleted succesfully",
+			name:        "tag deleted successfully",
 			tag:         "tag",
 			deleted:     true,
 			expectedErr: "",
@@ -2096,14 +2096,14 @@ func TestQuayClient_CreateNotification(t *testing.T) {
 					MatchHeader("Authorization", "Bearer authtoken").
 					Get(fmt.Sprintf("repository/%s/%s/notification/", org, repo)).
 					Reply(200).
-					JSON(map[string][]Notification{"notifications": []Notification{*tc.notification}})
+					JSON(map[string][]Notification{"notifications": {*tc.notification}})
 			} else {
 				gock.New(testQuayApiUrl).
 					MatchHeader("Content-Type", "application/json").
 					MatchHeader("Authorization", "Bearer authtoken").
 					Get(fmt.Sprintf("repository/%s/%s/notification/", org, repo)).
 					Reply(200).
-					JSON(map[string][]Notification{"notifications": []Notification{}})
+					JSON(map[string][]Notification{"notifications": {}})
 			}
 
 			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
@@ -2238,14 +2238,14 @@ func TestQuayClient_UpdateNotification(t *testing.T) {
 					MatchHeader("Authorization", "Bearer authtoken").
 					Get(fmt.Sprintf("repository/%s/%s/notification/", org, repo)).
 					Reply(200).
-					JSON(map[string][]Notification{"notifications": []Notification{}})
+					JSON(map[string][]Notification{"notifications": {}})
 			} else {
 				gock.New(testQuayApiUrl).
 					MatchHeader("Content-Type", "application/json").
 					MatchHeader("Authorization", "Bearer authtoken").
 					Get(fmt.Sprintf("repository/%s/%s/notification/", org, repo)).
 					Reply(200).
-					JSON(map[string][]Notification{"notifications": []Notification{*tc.notification}})
+					JSON(map[string][]Notification{"notifications": {*tc.notification}})
 			}
 
 			quayClient := NewQuayClient(client, "authtoken", testQuayApiUrl)
@@ -2352,7 +2352,7 @@ func TestDoRequest(t *testing.T) {
 			if tc.expectErr == "" {
 				assert.NilError(t, err)
 				assert.Assert(t, resp != nil)
-				assert.Equal(t, 403, resp.response.StatusCode)
+				assert.Equal(t, 403, resp.GetStatusCode())
 			} else {
 				assert.Assert(t, resp == nil, fmt.Sprintf("expected nil QuayResponse object, got %v", resp))
 				re := regexp.MustCompile(tc.expectErr)

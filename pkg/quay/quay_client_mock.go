@@ -17,7 +17,7 @@ limitations under the License.
 package quay
 
 import (
-	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/ginkgo/v2" // nolint:staticcheck
 )
 
 const (

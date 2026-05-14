@@ -21,7 +21,7 @@ const (
 	Audit  = "audit"
 )
 
-// Action type represents all possible value of 'action' log field.
+// ActionLogValue type represents all possible value of 'action' log field.
 // For more details see https://github.com/redhat-appstudio/book/blob/main/ADR/0006-log-conventions.md
 type ActionLogValue string
 
