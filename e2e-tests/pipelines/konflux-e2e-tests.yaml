@@ -106,7 +106,7 @@ spec:
         - name: cluster-access-secret
           value: kfg-$(context.pipelineRun.name)
         - name: overrides-yaml
-          value:
+          value: |
             - name: image-controller
               git:
                 - sourceRepo: konflux-ci/image-controller
