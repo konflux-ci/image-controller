@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,82 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
+
+func clearRepositoryTimes() {
+	repositoryTimesForMetricsMu.Lock()
+	defer repositoryTimesForMetricsMu.Unlock()
+	for k := range repositoryTimesForMetrics {
+		delete(repositoryTimesForMetrics, k)
+	}
+}
+
+func TestSetRepositoryTimeIfAbsent(t *testing.T) {
+	t.Cleanup(clearRepositoryTimes)
+
+	t1 := time.Now()
+	t2 := t1.Add(time.Second)
+
+	SetRepositoryTimeIfAbsent("key1", t1)
+	got, ok := GetRepositoryTime("key1")
+	if !ok || !got.Equal(t1) {
+		t.Fatalf("expected %v, got %v (ok=%v)", t1, got, ok)
+	}
+
+	SetRepositoryTimeIfAbsent("key1", t2)
+	got, ok = GetRepositoryTime("key1")
+	if !ok || !got.Equal(t1) {
+		t.Fatalf("expected original time %v to be preserved, got %v", t1, got)
+	}
+}
+
+func TestGetRepositoryTime(t *testing.T) {
+	t.Cleanup(clearRepositoryTimes)
+
+	_, ok := GetRepositoryTime("missing")
+	if ok {
+		t.Fatal("expected ok=false for missing key")
+	}
+
+	now := time.Now()
+	SetRepositoryTimeIfAbsent("present", now)
+	got, ok := GetRepositoryTime("present")
+	if !ok || !got.Equal(now) {
+		t.Fatalf("expected %v, got %v (ok=%v)", now, got, ok)
+	}
+}
+
+func TestDeleteRepositoryTime(t *testing.T) {
+	t.Cleanup(clearRepositoryTimes)
+
+	DeleteRepositoryTime("missing")
+
+	now := time.Now()
+	SetRepositoryTimeIfAbsent("key1", now)
+	DeleteRepositoryTime("key1")
+	_, ok := GetRepositoryTime("key1")
+	if ok {
+		t.Fatal("expected key to be deleted")
+	}
+}
+
+func TestRepositoryTimeConcurrency(t *testing.T) {
+	t.Cleanup(clearRepositoryTimes)
+
+	const goroutines = 100
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			key := "key"
+			now := time.Now()
+			SetRepositoryTimeIfAbsent(key, now)
+			GetRepositoryTime(key)
+			DeleteRepositoryTime(key)
+		}(i)
+	}
+	wg.Wait()
+}
 
 func TestInitMetrics(t *testing.T) {
 	getTestClient := func() (quay.QuayService, error) {

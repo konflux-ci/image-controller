@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -32,8 +33,30 @@ var (
 		Help:      "The time in seconds spent from the moment of Image repository provision request to Image repository failure.",
 	})
 
-	RepositoryTimesForMetrics = map[string]time.Time{}
+	repositoryTimesForMetrics   = map[string]time.Time{}
+	repositoryTimesForMetricsMu sync.Mutex
 )
+
+func SetRepositoryTimeIfAbsent(key string, t time.Time) {
+	repositoryTimesForMetricsMu.Lock()
+	defer repositoryTimesForMetricsMu.Unlock()
+	if _, ok := repositoryTimesForMetrics[key]; !ok {
+		repositoryTimesForMetrics[key] = t
+	}
+}
+
+func GetRepositoryTime(key string) (time.Time, bool) {
+	repositoryTimesForMetricsMu.Lock()
+	defer repositoryTimesForMetricsMu.Unlock()
+	t, ok := repositoryTimesForMetrics[key]
+	return t, ok
+}
+
+func DeleteRepositoryTime(key string) {
+	repositoryTimesForMetricsMu.Lock()
+	defer repositoryTimesForMetricsMu.Unlock()
+	delete(repositoryTimesForMetrics, key)
+}
 
 func (m *ImageControllerMetrics) InitMetrics(registerer prometheus.Registerer) error {
 	// controller metrics
