@@ -6,7 +6,7 @@ toolchain go1.25.10
 
 require (
 	github.com/devfile/library/v2 v2.2.1-0.20230418160146-e75481b7eebd
-	github.com/konflux-ci/application-api v0.0.0-20260312190025-5154ad273e17
+	github.com/konflux-ci/application-api v0.0.0-20260529131129-a9594acdc104
 	github.com/konflux-ci/build-service v0.0.0-20240611083846-2dee6cfe6fe4
 	github.com/konflux-ci/e2e-tests v0.0.0-20260521070148-51052ba6ac77
 	github.com/onsi/ginkgo/v2 v2.28.0
