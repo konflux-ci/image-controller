@@ -37,7 +37,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
-	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
+	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
+	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1" // remove after fully migrated to new group
 	"github.com/konflux-ci/image-controller/pkg/quay"
 	//+kubebuilder:scaffold:imports
 )
@@ -89,7 +90,10 @@ var _ = BeforeSuite(func() {
 	err = compapiv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = imagerepositoryv1alpha1.AddToScheme(scheme.Scheme)
+	err = irv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = imagerepositoryv1alpha1.AddToScheme(scheme.Scheme) // remove after fully migrated to new group
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme

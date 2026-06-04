@@ -13,6 +13,10 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+// remove after component v2 migration - entire file
+// This test file is for application_controller.go which won't be used with component v2.
+
 package controllers
 
 import (
@@ -54,8 +58,8 @@ var _ = Describe("Application controller", func() {
 		AfterEach(func() {
 			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: appSecretTestNamespace})
 			deleteSecret(namespacePullSecretName)
-			deleteImageRepository(imageRepository2Key)
-			deleteImageRepository(imageRepository1Key)
+			deleteImageRepository_old(imageRepository2Key)
+			deleteImageRepository_old(imageRepository1Key)
 			deleteComponent(component1Key)
 			deleteComponent(component2Key)
 			deleteApplication(applicationKey)
@@ -68,8 +72,8 @@ var _ = Describe("Application controller", func() {
 		})
 
 		It("should create empty application pull secret and without link it to not existing integration SA, because no components are owned by application", func() {
-			createComponent(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
-			createApplication(applicationConfig{ApplicationKey: applicationKey})
+			createComponent_old(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
+			createApplication_old(applicationConfig{ApplicationKey: applicationKey})
 
 			// wait until application secret is created
 			applicationSecret := waitSecretExist(namespacePullSecretName)
@@ -87,8 +91,8 @@ var _ = Describe("Application controller", func() {
 
 		It("should create empty application pull secret and link it to integration SA, because no components are owned by application", func() {
 			createServiceAccount(appSecretTestNamespace, IntegrationServiceAccountName)
-			createComponent(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
-			createApplication(applicationConfig{ApplicationKey: applicationKey})
+			createComponent_old(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
+			createApplication_old(applicationConfig{ApplicationKey: applicationKey})
 
 			// wait until empty secret is linked to integration SA
 			Eventually(func() bool {
@@ -128,9 +132,9 @@ var _ = Describe("Application controller", func() {
 			createDockerConfigSecret(pullSecret2Key, pullSecret2Data, true)
 
 			// will trigger application controller and create empty secret
-			application := createApplication(applicationConfig{ApplicationKey: applicationKey})
-			component1 := createComponent(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
-			component2 := createComponent(componentConfig{ComponentKey: component2Key, ComponentApplication: applicationKey.Name})
+			application := createApplication_old(applicationConfig{ApplicationKey: applicationKey})
+			component1 := createComponent_old(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
+			component2 := createComponent_old(componentConfig{ComponentKey: component2Key, ComponentApplication: applicationKey.Name})
 
 			// wait until empty secret is linked to integration SA
 			Eventually(func() bool {
@@ -169,7 +173,7 @@ var _ = Describe("Application controller", func() {
 
 			// create image repository with finalizer so it won't try to provision repo
 			// also without component & application labels so controller won't try any secrets linking
-			imageConfig1 := imageRepositoryConfig{
+			imageConfig1 := imageRepositoryConfig_old{
 				ResourceKey: &imageRepository1Key,
 				Finalizers:  []string{ImageRepositoryFinalizer},
 				OwnerReferences: []metav1.OwnerReference{{
@@ -181,7 +185,7 @@ var _ = Describe("Application controller", func() {
 				// set annotation so that imageRepository isn't updated with the annotation
 				Annotations: map[string]string{namespacePullSecretEnsuredAnnotation: "true"},
 			}
-			imageConfig2 := imageRepositoryConfig{
+			imageConfig2 := imageRepositoryConfig_old{
 				ResourceKey: &imageRepository2Key,
 				Finalizers:  []string{ImageRepositoryFinalizer},
 				OwnerReferences: []metav1.OwnerReference{{
@@ -193,11 +197,11 @@ var _ = Describe("Application controller", func() {
 				// set annotation so that imageRepository isn't updated with the annotation
 				Annotations: map[string]string{namespacePullSecretEnsuredAnnotation: "true"},
 			}
-			ir1 := createImageRepository(imageConfig1)
-			ir2 := createImageRepository(imageConfig2)
+			ir1 := createImageRepository_old(imageConfig1)
+			ir2 := createImageRepository_old(imageConfig2)
 			Eventually(func() bool {
-				ir1 = getImageRepository(*imageConfig1.ResourceKey)
-				ir2 = getImageRepository(*imageConfig2.ResourceKey)
+				ir1 = getImageRepository_old(*imageConfig1.ResourceKey)
+				ir2 = getImageRepository_old(*imageConfig2.ResourceKey)
 				return ir1.Status.State != "" && ir2.Status.State != ""
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 
@@ -284,9 +288,9 @@ var _ = Describe("Application controller", func() {
 			createDockerConfigSecret(pullSecret2Key, pullSecret2Data, false)
 
 			// will trigger application controller and create empty secret
-			application := createApplication(applicationConfig{ApplicationKey: applicationKey})
-			component1 := createComponent(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
-			component2 := createComponent(componentConfig{ComponentKey: component2Key, ComponentApplication: applicationKey.Name})
+			application := createApplication_old(applicationConfig{ApplicationKey: applicationKey})
+			component1 := createComponent_old(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
+			component2 := createComponent_old(componentConfig{ComponentKey: component2Key, ComponentApplication: applicationKey.Name})
 
 			// wait until empty secret is linked to integration SA
 			Eventually(func() bool {
@@ -325,7 +329,7 @@ var _ = Describe("Application controller", func() {
 
 			// create image repository with finalizer so it won't try to provision repo
 			// also without component & application labels so controller won't try any secrets linking
-			imageConfig1 := imageRepositoryConfig{
+			imageConfig1 := imageRepositoryConfig_old{
 				ResourceKey: &imageRepository1Key,
 				Finalizers:  []string{ImageRepositoryFinalizer},
 				OwnerReferences: []metav1.OwnerReference{{
@@ -337,7 +341,7 @@ var _ = Describe("Application controller", func() {
 				// set annotation so that imageRepository isn't updated with the annotation
 				Annotations: map[string]string{namespacePullSecretEnsuredAnnotation: "true"},
 			}
-			imageConfig2 := imageRepositoryConfig{
+			imageConfig2 := imageRepositoryConfig_old{
 				ResourceKey: &imageRepository2Key,
 				Finalizers:  []string{ImageRepositoryFinalizer},
 				OwnerReferences: []metav1.OwnerReference{{
@@ -349,11 +353,11 @@ var _ = Describe("Application controller", func() {
 				// set annotation so that imageRepository isn't updated with the annotation
 				Annotations: map[string]string{namespacePullSecretEnsuredAnnotation: "true"},
 			}
-			ir1 := createImageRepository(imageConfig1)
-			ir2 := createImageRepository(imageConfig2)
+			ir1 := createImageRepository_old(imageConfig1)
+			ir2 := createImageRepository_old(imageConfig2)
 			Eventually(func() bool {
-				ir1 = getImageRepository(*imageConfig1.ResourceKey)
-				ir2 = getImageRepository(*imageConfig2.ResourceKey)
+				ir1 = getImageRepository_old(*imageConfig1.ResourceKey)
+				ir2 = getImageRepository_old(*imageConfig2.ResourceKey)
 				return ir1.Status.State != "" && ir2.Status.State != ""
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 

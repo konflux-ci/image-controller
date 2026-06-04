@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
-	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
+	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
 	l "github.com/konflux-ci/image-controller/pkg/logs"
 )
 
@@ -240,7 +240,7 @@ func (r *ImageRepositoryReconciler) cleanUpSecretInServiceAccount(ctx context.Co
 }
 
 // VerifyAndFixSecretsLinking ensures that the given secret is linked to the provided service account, and also removes duplicated link for the secret.
-func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
+func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Context, imageRepository *irv1alpha1.ImageRepository) error {
 	log := ctrllog.FromContext(ctx)
 
 	componentSaName := getComponentSaName(imageRepository.Labels[ComponentNameLabelName])
@@ -277,7 +277,10 @@ func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Conte
 	}
 
 	imageRepository.Spec.Credentials.VerifyLinking = nil
-	if err := r.Client.Update(ctx, imageRepository); err != nil {
+	// remove after fully migrated to new group - start (uncomment line below and remove helper call)
+	// if err := r.Client.Update(ctx, imageRepository); err != nil
+	if err := r.updateImageRepository(ctx, imageRepository); err != nil {
+		// remove after fully migrated to new group - end
 		log.Error(err, "failed to update imageRepository", l.Action, l.ActionUpdate)
 		return err
 	}

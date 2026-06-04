@@ -51,7 +51,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
-	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
+	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
+	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1" // remove after fully migrated to new group
 	controllers "github.com/konflux-ci/image-controller/internal/controller"
 	controllermetrics "github.com/konflux-ci/image-controller/pkg/metrics"
 	"github.com/konflux-ci/image-controller/pkg/quay"
@@ -84,7 +85,8 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(compapiv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(imagerepositoryv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(imagerepositoryv1alpha1.AddToScheme(scheme)) // remove after fully migrated to new group
+	utilruntime.Must(irv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -267,7 +269,8 @@ func main() {
 
 func getCacheExcludedObjectsTypes() []client.Object {
 	return []client.Object{
-		&imagerepositoryv1alpha1.ImageRepository{},
+		&imagerepositoryv1alpha1.ImageRepository{}, // remove after fully migrated to new group
+		&irv1alpha1.ImageRepository{},
 		&corev1.Secret{},
 		&corev1.ConfigMap{},
 	}

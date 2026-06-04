@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// remove after component v2 migration - entire file
+// This controller is only used with Application CRD and old component model.
+// With component v2, Application CRD won't be used, so this can be removed.
+
 package controllers
 
 import (
