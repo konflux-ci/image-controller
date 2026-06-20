@@ -86,10 +86,7 @@ func (r *ImageRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func setMetricsTime(idForMetrics string, reconcileStartTime time.Time) {
-	_, timeRecorded := metrics.RepositoryTimesForMetrics[idForMetrics]
-	if !timeRecorded {
-		metrics.RepositoryTimesForMetrics[idForMetrics] = reconcileStartTime
-	}
+	metrics.SetRepositoryTimeIfAbsent(idForMetrics, reconcileStartTime)
 }
 
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories,verbs=get;list;watch;create;update;patch;delete
@@ -122,7 +119,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	if !imageRepository.DeletionTimestamp.IsZero() {
 		// remove component from metrics map
-		delete(metrics.RepositoryTimesForMetrics, repositoryIdForMetrics)
+		metrics.DeleteRepositoryTime(repositoryIdForMetrics)
 
 		// Reread quay token
 		r.QuayClient, err = r.BuildQuayClient()
@@ -209,12 +206,12 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateFailed {
-		provisionTime, timeRecorded := metrics.RepositoryTimesForMetrics[repositoryIdForMetrics]
+		provisionTime, timeRecorded := metrics.GetRepositoryTime(repositoryIdForMetrics)
 		if timeRecorded {
 			metrics.ImageRepositoryProvisionFailureTimeMetric.Observe(time.Since(provisionTime).Seconds())
 
 			// remove component from metrics map
-			delete(metrics.RepositoryTimesForMetrics, repositoryIdForMetrics)
+			metrics.DeleteRepositoryTime(repositoryIdForMetrics)
 		}
 
 		return ctrl.Result{}, nil
@@ -471,12 +468,12 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// we are adding to map only for new provision, not for some partial actions,
 	// so report time only if time was recorded
-	provisionTime, timeRecorded := metrics.RepositoryTimesForMetrics[repositoryIdForMetrics]
+	provisionTime, timeRecorded := metrics.GetRepositoryTime(repositoryIdForMetrics)
 	if timeRecorded {
 		metrics.ImageRepositoryProvisionTimeMetric.Observe(time.Since(provisionTime).Seconds())
 	}
 	// remove component from metrics map
-	delete(metrics.RepositoryTimesForMetrics, repositoryIdForMetrics)
+	metrics.DeleteRepositoryTime(repositoryIdForMetrics)
 
 	return ctrl.Result{}, nil
 }
