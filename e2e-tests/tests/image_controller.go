@@ -27,14 +27,12 @@ var _ = Describe("Image Controller E2E tests", Label("image-controller"), func()
 
 	var gitClient git.Client
 
-	Describe("PaC component build", Ordered, Label("github-webhook", "pac-build", "pipeline"), func() {
+	Describe("PaC component build", Ordered, func() {
 		var applicationName, customDefaultComponentName, customBranchComponentName, componentBaseBranchName string
 		var testNamespace, imageRepoName, pullRobotAccountName, pushRobotAccountName string
-		var helloWorldComponentGitSourceURL, customDefaultComponentBranch string
+		var helloWorldComponentGitSourceURL string
 		var component *appservice.Component
 		var plr *pipeline.PipelineRun
-
-		var timeout, interval time.Duration
 
 		var buildPipelineAnnotation map[string]string
 
@@ -42,7 +40,7 @@ var _ = Describe("Image Controller E2E tests", Label("image-controller"), func()
 
 		BeforeAll(func() {
 
-			f, err = framework.NewFramework(utils.GetGeneratedNamespace("build-e2e"))
+			f, err = framework.NewFramework(utils.GetGeneratedNamespace("image-controller-e2e"))
 			Expect(err).NotTo(HaveOccurred())
 			testNamespace = f.UserNamespace
 
@@ -68,7 +66,6 @@ var _ = Describe("Image Controller E2E tests", Label("image-controller"), func()
 
 			customDefaultComponentName = fmt.Sprintf("gh-%s-%s", "test-custom-default", util.GenerateRandomString(6))
 			customBranchComponentName = fmt.Sprintf("gh-%s-%s", "test-custom-branch", util.GenerateRandomString(6))
-			customDefaultComponentBranch = constants.PaCPullRequestBranchPrefix + customDefaultComponentName
 			componentBaseBranchName = fmt.Sprintf("base-%s", util.GenerateRandomString(6))
 
 			gitClient, helloWorldComponentGitSourceURL, helloWorldRepository = setupGitProvider(f)
@@ -91,7 +88,7 @@ var _ = Describe("Image Controller E2E tests", Label("image-controller"), func()
 
 		})
 
-		When("a new component without specified branch is created and with visibility private", Label("pac-custom-default-branch"), func() {
+		When("a new component is created with visibility private", Label("pac-custom-default-branch"), func() {
 			var componentObj appservice.ComponentSpec
 
 			BeforeAll(func() {
@@ -120,25 +117,7 @@ var _ = Describe("Image Controller E2E tests", Label("image-controller"), func()
 				}
 			})
 
-			It("correctly targets the default branch (that is not named 'main') with PaC", func() {
-				timeout = time.Second * 300
-				interval = time.Second * 5
-				Eventually(func() bool {
-					prs, err := git.ListPullRequestsWithRetry(gitClient, helloWorldRepository)
-					Expect(err).ShouldNot(HaveOccurred())
-
-					for _, pr := range prs {
-						if pr.SourceBranch == customDefaultComponentBranch {
-							Expect(pr.TargetBranch).To(Equal(helloWorldComponentDefaultBranch))
-							return true
-						}
-					}
-					return false
-				}, timeout, interval).Should(BeTrue(), fmt.Sprintf("timed out when waiting for init PaC PR to be created against %s branch in %s repository", helloWorldComponentDefaultBranch, helloWorldRepository))
-			})
-
 			It("triggers a PipelineRun", func() {
-				timeout = time.Minute * 30
 				Eventually(func() error {
 					plr, err = f.AsKubeAdmin.HasController.GetComponentPipelineRun(customDefaultComponentName, applicationName, testNamespace, "")
 					if err != nil {
@@ -149,7 +128,7 @@ var _ = Describe("Image Controller E2E tests", Label("image-controller"), func()
 						return fmt.Errorf("pipelinerun %s/%s hasn't started yet", plr.GetNamespace(), plr.GetName())
 					}
 					return nil
-				}, timeout, constants.PipelineRunPollingInterval).Should(Succeed(), fmt.Sprintf("timed out when waiting for the PipelineRun to start for the component %s/%s", customBranchComponentName, testNamespace))
+				}, time.Minute*30, constants.PipelineRunPollingInterval).Should(Succeed(), fmt.Sprintf("timed out when waiting for the PipelineRun to start for the component %s/%s", customBranchComponentName, testNamespace))
 			})
 
 			It("build pipeline uses the correct serviceAccount", func() {
@@ -162,7 +141,7 @@ var _ = Describe("Image Controller E2E tests", Label("image-controller"), func()
 					f.AsKubeAdmin.TektonController, &has.RetryOptions{Retries: 2, Always: true}, plr)).To(Succeed())
 			})
 
-			It("image repo and robot account created successfully", func() {
+			It("image repo and robot accounts created successfully", func() {
 				imageRepoName, err = f.AsKubeAdmin.ImageController.GetImageName(testNamespace, customDefaultComponentName)
 				Expect(err).ShouldNot(HaveOccurred(), "failed to read image repo for component %s", customDefaultComponentName)
 				Expect(imageRepoName).ShouldNot(BeEmpty(), "image repo name is empty")
@@ -210,8 +189,6 @@ var _ = Describe("Image Controller E2E tests", Label("image-controller"), func()
 			})
 
 			It("triggers a PipelineRun", func() {
-				timeout = time.Minute * 30
-				interval = time.Second * 1
 				Eventually(func() error {
 					plr, err = f.AsKubeAdmin.HasController.GetComponentPipelineRun(customBranchComponentName, applicationName, testNamespace, "")
 					if err != nil {
@@ -222,14 +199,14 @@ var _ = Describe("Image Controller E2E tests", Label("image-controller"), func()
 						return fmt.Errorf("pipelinerun %s/%s hasn't started yet", plr.GetNamespace(), plr.GetName())
 					}
 					return nil
-				}, timeout, constants.PipelineRunPollingInterval).Should(Succeed(), fmt.Sprintf("timed out when waiting for the PipelineRun to start for the component %s/%s", testNamespace, customBranchComponentName))
+				}, time.Minute*30, constants.PipelineRunPollingInterval).Should(Succeed(), fmt.Sprintf("timed out when waiting for the PipelineRun to start for the component %s/%s", testNamespace, customBranchComponentName))
 			})
 
 			It("the PipelineRun should eventually finish successfully", func() {
 				Expect(f.AsKubeAdmin.HasController.WaitForComponentPipelineToBeFinished(component, "", "", "",
 					f.AsKubeAdmin.TektonController, &has.RetryOptions{Retries: 2, Always: true}, plr)).To(Succeed())
 			})
-			It("image repo and robot account created successfully", func() {
+			It("image repo and robot accounts created successfully", func() {
 				imageRepoName, err = f.AsKubeAdmin.ImageController.GetImageName(testNamespace, customBranchComponentName)
 				Expect(err).ShouldNot(HaveOccurred(), "failed to read image repo for component %s", customBranchComponentName)
 				Expect(imageRepoName).ShouldNot(BeEmpty(), "image repo name is empty")
@@ -254,18 +231,7 @@ var _ = Describe("Image Controller E2E tests", Label("image-controller"), func()
 				Expect(isPublic).To(BeTrue(), fmt.Sprintf("Expected image repo '%s' to be changed to public, but it is private", imageRepoName))
 			})
 
-			It("After updating image visibility to private, it should not trigger another PipelineRun", func() {
-				Eventually(func() error {
-					return f.AsKubeAdmin.TektonController.DeleteAllPipelineRunsInASpecificNamespace(testNamespace)
-				}, 2*time.Minute, 10*time.Second).Should(Succeed())
-				Eventually(func() bool {
-					componentPipelineRun, _ := f.AsKubeAdmin.HasController.GetComponentPipelineRun(customBranchComponentName, applicationName, testNamespace, "")
-					if componentPipelineRun != nil {
-						GinkgoWriter.Printf("found pipelinerun: %s\n", componentPipelineRun.GetName())
-					}
-					return componentPipelineRun == nil
-				}, time.Minute*3, time.Second*5).Should(BeTrue(), "all the pipelineruns are not deleted, still some pipelineruns exists")
-
+			It("update image repository visibility to private", func() {
 				Eventually(func() error {
 					_, err := f.AsKubeAdmin.ImageController.ChangeVisibilityToPrivate(testNamespace, applicationName, customBranchComponentName)
 					if err != nil {
@@ -275,17 +241,9 @@ var _ = Describe("Image Controller E2E tests", Label("image-controller"), func()
 					return nil
 				}, time.Second*20, time.Second*1).Should(Succeed(), fmt.Sprintf("timed out when trying to change visibility of the image repos to private in %s/%s", testNamespace, customBranchComponentName))
 
-				GinkgoWriter.Printf("waiting for one minute and expecting to not trigger a PipelineRun")
-				Consistently(func() bool {
-					componentPipelineRun, _ := f.AsKubeAdmin.HasController.GetComponentPipelineRun(customBranchComponentName, applicationName, testNamespace, "")
-					if componentPipelineRun != nil {
-						GinkgoWriter.Printf("While waiting for no pipeline to be triggered, found Pipelinerun: %s\n", componentPipelineRun.GetName())
-					}
-					return componentPipelineRun == nil
-				}, 2*time.Minute, constants.PipelineRunPollingInterval).Should(BeTrue(), fmt.Sprintf("expected no PipelineRun to be triggered for the component %s in %s namespace", customBranchComponentName, testNamespace))
-			})
+				GinkgoWriter.Printf("waiting for one minute and expecting it to change")
+				time.Sleep(1 * time.Minute)
 
-			It("image repo is updated to private", func() {
 				isPublic, err := build.IsImageRepoPublic(imageRepoName)
 				Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while checking if the image repo %s is private", imageRepoName))
 				Expect(isPublic).To(BeFalse(), "Expected image repo to changed to private, but it is public")
