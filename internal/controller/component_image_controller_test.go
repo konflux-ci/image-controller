@@ -65,7 +65,7 @@ var _ = Describe("Component image controller", func() {
 
 		AfterEach(func() {
 			deleteApplication(applicationKey)
-			deleteComponent(resourceImageProvisionKey)
+			deleteComponent_old(resourceImageProvisionKey)
 		})
 
 		It("should prepare environment", func() {
@@ -98,7 +98,7 @@ var _ = Describe("Component image controller", func() {
 			Expect(k8sClient.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: resourceImageProvisionKey.Namespace})).To(Succeed())
 			Expect(imageRepositoriesList.Items).To(HaveLen(1))
 
-			component := getComponent(resourceImageProvisionKey)
+			component := getComponent_old(resourceImageProvisionKey)
 			// wait for imagerepository_controller to finish
 			waitImageRepositoryFinalizerOnImageRepository_old(imageRepositoryName)
 			imageRepository := getImageRepository_old(imageRepositoryName)
@@ -109,7 +109,7 @@ var _ = Describe("Component image controller", func() {
 			Expect(imageRepository.ObjectMeta.OwnerReferences[0].UID).To(Equal(component.UID))
 			Expect(imageRepository.ObjectMeta.Annotations[updateComponentAnnotationName]).To(BeEmpty())
 
-			component = getComponent(resourceImageProvisionKey)
+			component = getComponent_old(resourceImageProvisionKey)
 			Expect(component.Annotations[ImageAnnotationName]).To(BeEmpty())
 			Expect(component.Spec.ContainerImage).ToNot(BeEmpty())
 
@@ -131,7 +131,7 @@ var _ = Describe("Component image controller", func() {
 			Expect(k8sClient.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: resourceImageProvisionKey.Namespace})).To(Succeed())
 			Expect(imageRepositoriesList.Items).To(HaveLen(1))
 
-			component := getComponent(resourceImageProvisionKey)
+			component := getComponent_old(resourceImageProvisionKey)
 			// wait for imagerepository_controller to finish
 			waitImageRepositoryFinalizerOnImageRepository_old(imageRepositoryWithoutApplicationName)
 			imageRepository := getImageRepository_old(imageRepositoryWithoutApplicationName)
@@ -143,7 +143,7 @@ var _ = Describe("Component image controller", func() {
 			Expect(imageRepository.ObjectMeta.OwnerReferences[0].UID).To(Equal(component.UID))
 			Expect(imageRepository.ObjectMeta.Annotations[updateComponentAnnotationName]).To(BeEmpty())
 
-			component = getComponent(resourceImageProvisionKey)
+			component = getComponent_old(resourceImageProvisionKey)
 			Expect(component.Annotations[ImageAnnotationName]).To(BeEmpty())
 			Expect(component.Spec.ContainerImage).ToNot(BeEmpty())
 
@@ -167,7 +167,7 @@ var _ = Describe("Component image controller", func() {
 			Expect(k8sClient.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: resourceImageProvisionKey.Namespace})).To(Succeed())
 			Expect(imageRepositoriesList.Items).To(HaveLen(1))
 
-			component := getComponent(resourceImageProvisionKey)
+			component := getComponent_old(resourceImageProvisionKey)
 			// wait for imagerepository_controller to finish
 			waitImageRepositoryFinalizerOnImageRepository_old(imageRepositoryName)
 			imageRepository := getImageRepository_old(imageRepositoryName)
@@ -178,7 +178,7 @@ var _ = Describe("Component image controller", func() {
 			Expect(imageRepository.ObjectMeta.OwnerReferences[0].UID).To(Equal(component.UID))
 			Expect(imageRepository.ObjectMeta.Annotations[updateComponentAnnotationName]).To(BeEmpty())
 
-			component = getComponent(resourceImageProvisionKey)
+			component = getComponent_old(resourceImageProvisionKey)
 			Expect(component.Annotations[ImageAnnotationName]).To(BeEmpty())
 			Expect(component.Spec.ContainerImage).ToNot(BeEmpty())
 
@@ -194,7 +194,7 @@ var _ = Describe("Component image controller", func() {
 		var componentSaName = getComponentSaName(resourceImageErrorKey.Name)
 
 		It("should prepare environment", func() {
-			deleteComponent(resourceImageErrorKey)
+			deleteComponent_old(resourceImageErrorKey)
 			quay.ResetTestQuayClient()
 			createApplication_old(applicationConfig{ApplicationKey: applicationKey})
 
@@ -222,7 +222,7 @@ var _ = Describe("Component image controller", func() {
 		})
 
 		It("should do nothing if imageRepository for the component already exists, with expected name", func() {
-			component := getComponent(resourceImageErrorKey)
+			component := getComponent_old(resourceImageErrorKey)
 			imageRepositoryName := fmt.Sprintf("imagerepository-for-%s-%s", component.Spec.Application, component.Name)
 			imageRepositoryKey := types.NamespacedName{Name: imageRepositoryName, Namespace: component.Namespace}
 
@@ -233,7 +233,7 @@ var _ = Describe("Component image controller", func() {
 			setComponentAnnotationValue(resourceImageErrorKey, GenerateImageAnnotationName, `{"visibility": "public"}`)
 			waitComponentAnnotationGone(resourceImageErrorKey, GenerateImageAnnotationName)
 
-			component = getComponent(resourceImageErrorKey)
+			component = getComponent_old(resourceImageErrorKey)
 			Expect(component.Annotations[ImageAnnotationName]).To(BeEmpty())
 			// just to double check that new ImageRepository wasn't created, which would add ContainerImage
 			Expect(component.Spec.ContainerImage).To(BeEmpty())
@@ -255,7 +255,7 @@ var _ = Describe("Component image controller", func() {
 		})
 
 		It("should do nothing if imageRepository for the component already exists, with different name", func() {
-			component := getComponent(resourceImageErrorKey)
+			component := getComponent_old(resourceImageErrorKey)
 			imageRepositoryName := fmt.Sprintf("differently-named-%s-%s", component.Spec.Application, component.Name)
 			imageRepository := types.NamespacedName{Name: imageRepositoryName, Namespace: component.Namespace}
 			ownerReferences := []metav1.OwnerReference{
@@ -272,7 +272,7 @@ var _ = Describe("Component image controller", func() {
 			setComponentAnnotationValue(resourceImageErrorKey, GenerateImageAnnotationName, `{"visibility": "public"}`)
 			waitComponentAnnotationGone(resourceImageErrorKey, GenerateImageAnnotationName)
 
-			component = getComponent(resourceImageErrorKey)
+			component = getComponent_old(resourceImageErrorKey)
 			Expect(component.Annotations[ImageAnnotationName]).To(BeEmpty())
 			// just to double check that new ImageRepository wasn't created, which would add ContainerImage
 			Expect(component.Spec.ContainerImage).To(BeEmpty())
@@ -291,7 +291,7 @@ var _ = Describe("Component image controller", func() {
 			waitComponentAnnotation(resourceImageErrorKey, ImageAnnotationName)
 
 			repoImageInfo := &ImageRepositoryStatus{}
-			component := getComponent(resourceImageErrorKey)
+			component := getComponent_old(resourceImageErrorKey)
 			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
 			Expect(repoImageInfo.Message).To(ContainSubstring("invalid JSON"))
 
@@ -307,7 +307,7 @@ var _ = Describe("Component image controller", func() {
 			waitComponentAnnotation(resourceImageErrorKey, ImageAnnotationName)
 
 			repoImageInfo := &ImageRepositoryStatus{}
-			component := getComponent(resourceImageErrorKey)
+			component := getComponent_old(resourceImageErrorKey)
 			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
 			Expect(repoImageInfo.Message).To(ContainSubstring("invalid value: none in visibility field"))
 
@@ -317,7 +317,7 @@ var _ = Describe("Component image controller", func() {
 		})
 
 		It("should clean environment", func() {
-			deleteComponent(resourceImageErrorKey)
+			deleteComponent_old(resourceImageErrorKey)
 			deleteApplication(applicationKey)
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: imageTestNamespace})
