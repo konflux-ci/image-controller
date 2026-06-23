@@ -35,13 +35,19 @@ For example: `quayapiurl: https://quay.local:8443/api/v1`
 If a self-signed TLS certifiacte is used in self-hosted Quay instance,
 mount CA cert into the operator pod and set `QUAY_ADDITIONAL_CA` environament variable to point to the CA cert file.
 
+## Image repository API groups
+- New API group : `konflux-ci.dev/v1alpha1`
+- Old API group : `appstudio.redhat.com/v1alpha1`
+
+Old API group will be eventually removed in favor of new one.
+
 ## General purpose image repository
 
 ### Requesting image repository
 
 To request an image repository one should create `ImageRepository` custom resource:
 ```yaml
-apiVersion: appstudio.redhat.com/v1alpha1
+apiVersion: konflux-ci.dev/v1alpha1 // or old API group appstudio.redhat.com/v1alpha1
 kind: ImageRepository
 metadata:
   name: imagerepository-sample
@@ -51,7 +57,7 @@ As a result, a public image repository `quay.io/my-org/test-ns/imagerepository-s
 When `status.state` is set to `ready`, the image repository is ready for use.
 Additional information about the image repository one may obtain from the `ImageRepository` object `status`:
 ```yaml
-apiVersion: appstudio.redhat.com/v1alpha1
+apiVersion: konflux-ci.dev/v1alpha1 // or old API group appstudio.redhat.com/v1alpha1
 kind: ImageRepository
 metadata:
   name: imagerepository-sample
@@ -137,7 +143,7 @@ After token rotation, the `spec.credentials.regenerate-namespace-pull-token` sec
 
 **NOTE**
 
-ImageRepository will have annotation `image-controller.appstudio.redhat.com/namespace-pull-secret-ensured` set to `true` which means that namespace secret was created and namespace robot account was created with proper permissions.
+ImageRepository will have annotation `build.konflux-ci.dev/namespace-pull-secret-ensured` (`image-controller.appstudio.redhat.com/namespace-pull-secret-ensured` in case of old ImageRepository API Group used) set to `true` which means that namespace secret was created and namespace robot account was created with proper permissions.
 
 When secret is removed by mistake, it can be recreated by removal of that annotation.
 
@@ -180,7 +186,7 @@ After any successful operation, `status.message` is cleared.
 By default, if the ImageRepository resource is deleted, the repository it created
 in Quay will get deleted as well.
 
-In order to skip the deletion of the repository in Quay, the `image-controller.appstudio.redhat.com/skip-repository-deletion` annotation should be set to "true".
+In order to skip the deletion of the repository in Quay, the `build.konflux-ci.dev/skip-repository-deletion` (`image-controller.appstudio.redhat.com/skip-repository-deletion` in case of old ImageRepository API Group used) annotation should be set to "true".
 
 ## Konflux Component image repository
 
@@ -189,8 +195,8 @@ In order to skip the deletion of the repository in Quay, the `image-controller.a
 There is a special use case for image repository that stores user's `Component` built images.
 
 To request image repository provision for the `Component`'s builds, the following labels must be added on `ImageRepository` creation:
- - `appstudio.redhat.com/component` with the `Component` name as the value
- - `appstudio.redhat.com/application` with the `Application` name to which the `Component` belongs to.
+ - `build.konflux-ci.dev/component` (`appstudio.redhat.com/component` in case of old ImageRepository API Group used) with the `Component` name as the value
+ - `appstudio.redhat.com/application` with the `Application` name to which the `Component` belongs to (used only in case of old ImageRepository API Group used).
 
 ---
 **NOTE**
@@ -213,27 +219,27 @@ All other functionality is the same as for general purpose object.
 
 To request an image repository for storing `Component` built images, one should create `ImageRepository` custom resource:
 ```yaml
-apiVersion: appstudio.redhat.com/v1alpha1
+apiVersion: konflux-ci.dev/v1alpha1 // or old API group appstudio.redhat.com/v1alpha1
 kind: ImageRepository
 metadata:
   name: imagerepository-for-component-sample
   namespace: test-ns
   annotations:
-    image-controller.appstudio.redhat.com/update-component-image: 'true'
+    build.konflux-ci.dev/update-component-image: 'true' // `image-controller.appstudio.redhat.com/update-component-image` in case of old ImageRepository API Group used
   labels:
-    appstudio.redhat.com/component: my-component
-    appstudio.redhat.com/application: my-app
+    build.konflux-ci.dev/component: my-component // `appstudio.redhat.com/component` in case of old ImageRepository API Group used
+    appstudio.redhat.com/application: my-app // used only in case of old ImageRepository API Group used
 ```
 As a result, a public image repository `quay.io/my-org/test-ns/my-app/my-component` will be created.
 When `status.state` is set to `ready`, the image repository is ready for use.
 
-Annotation `image-controller.appstudio.redhat.com/update-component-image` is required when using
+Annotation `build.konflux-ci.dev/update-component-image` (`image-controller.appstudio.redhat.com/update-component-image` in case of old ImageRepository API Group used) is required when using
 ImageRepository with Component, as it will set Component's `spec.containerImage` allowing
 Build service controller to continue.
 
 Additional information about the image repository one may obtain from the `ImageRepository` object `status`:
 ```yaml
-apiVersion: appstudio.redhat.com/v1alpha1
+apiVersion: konflux-ci.dev/v1alpha1 // or old API group appstudio.redhat.com/v1alpha1
 kind: ImageRepository
 metadata:
   name: imagerepository-for-component-sample
@@ -262,7 +268,7 @@ status:
 To request the controller to set up an image repository for a component, annotate the `Component` with `image.redhat.com/generate: '{"visibility": "public"}'` or `image.redhat.com/generate: '{"visibility": "private"}'` depending on desired repository visibility.
 
 ```yaml
-apiVersion: appstudio.redhat.com/v1alpha1
+apiVersion: konflux-ci.dev/v1alpha1 // or old API group appstudio.redhat.com/v1alpha1
 kind: Component
 metadata:
   annotations:

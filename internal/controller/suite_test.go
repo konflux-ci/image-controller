@@ -36,6 +36,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	compv1alpha1 "github.com/konflux-ci/application-api/api/konflux/v1alpha1"
 	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
 	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1" // remove after fully migrated to new group
@@ -69,7 +70,7 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 
-	applicationApiDepVersion := "v0.0.0-20260529131129-a9594acdc104"
+	applicationApiDepVersion := "v0.0.0-20260727123715-2999a91451c6"
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
@@ -88,6 +89,9 @@ var _ = BeforeSuite(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	err = compapiv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = compv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = irv1alpha1.AddToScheme(scheme.Scheme)

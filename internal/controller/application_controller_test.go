@@ -58,10 +58,10 @@ var _ = Describe("Application controller", func() {
 		AfterEach(func() {
 			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: appSecretTestNamespace})
 			deleteSecret(namespacePullSecretName)
-			deleteImageRepository_old(imageRepository2Key)
-			deleteImageRepository_old(imageRepository1Key)
-			deleteComponent(component1Key)
-			deleteComponent(component2Key)
+			deleteImageRepositoryOldModel(imageRepository2Key)
+			deleteImageRepositoryOldModel(imageRepository1Key)
+			deleteComponentOldModel(component1Key)
+			deleteComponentOldModel(component2Key)
 			deleteApplication(applicationKey)
 			deleteSecret(types.NamespacedName{Name: pullSecret1, Namespace: appSecretTestNamespace})
 			deleteSecret(types.NamespacedName{Name: pullSecret2, Namespace: appSecretTestNamespace})
@@ -72,8 +72,8 @@ var _ = Describe("Application controller", func() {
 		})
 
 		It("should create empty application pull secret and without link it to not existing integration SA, because no components are owned by application", func() {
-			createComponent_old(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
-			createApplication_old(applicationConfig{ApplicationKey: applicationKey})
+			createComponentOldModel(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
+			createApplicationOldModel(applicationConfig{ApplicationKey: applicationKey})
 
 			// wait until application secret is created
 			applicationSecret := waitSecretExist(namespacePullSecretName)
@@ -91,8 +91,8 @@ var _ = Describe("Application controller", func() {
 
 		It("should create empty application pull secret and link it to integration SA, because no components are owned by application", func() {
 			createServiceAccount(appSecretTestNamespace, IntegrationServiceAccountName)
-			createComponent_old(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
-			createApplication_old(applicationConfig{ApplicationKey: applicationKey})
+			createComponentOldModel(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
+			createApplicationOldModel(applicationConfig{ApplicationKey: applicationKey})
 
 			// wait until empty secret is linked to integration SA
 			Eventually(func() bool {
@@ -132,9 +132,9 @@ var _ = Describe("Application controller", func() {
 			createDockerConfigSecret(pullSecret2Key, pullSecret2Data, true)
 
 			// will trigger application controller and create empty secret
-			application := createApplication_old(applicationConfig{ApplicationKey: applicationKey})
-			component1 := createComponent_old(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
-			component2 := createComponent_old(componentConfig{ComponentKey: component2Key, ComponentApplication: applicationKey.Name})
+			application := createApplicationOldModel(applicationConfig{ApplicationKey: applicationKey})
+			component1 := createComponentOldModel(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
+			component2 := createComponentOldModel(componentConfig{ComponentKey: component2Key, ComponentApplication: applicationKey.Name})
 
 			// wait until empty secret is linked to integration SA
 			Eventually(func() bool {
@@ -173,9 +173,9 @@ var _ = Describe("Application controller", func() {
 
 			// create image repository with finalizer so it won't try to provision repo
 			// also without component & application labels so controller won't try any secrets linking
-			imageConfig1 := imageRepositoryConfig_old{
+			imageConfig1 := imageRepositoryConfigOldModel{
 				ResourceKey: &imageRepository1Key,
-				Finalizers:  []string{ImageRepositoryFinalizer},
+				Finalizers:  []string{ImageRepositoryFinalizerOldModel},
 				OwnerReferences: []metav1.OwnerReference{{
 					APIVersion: "appstudio.redhat.com/v1alpha1",
 					Kind:       "Component",
@@ -183,11 +183,11 @@ var _ = Describe("Application controller", func() {
 					UID:        component1.UID,
 				}},
 				// set annotation so that imageRepository isn't updated with the annotation
-				Annotations: map[string]string{namespacePullSecretEnsuredAnnotation: "true"},
+				Annotations: map[string]string{namespacePullSecretEnsuredAnnotationOldModel: "true"},
 			}
-			imageConfig2 := imageRepositoryConfig_old{
+			imageConfig2 := imageRepositoryConfigOldModel{
 				ResourceKey: &imageRepository2Key,
-				Finalizers:  []string{ImageRepositoryFinalizer},
+				Finalizers:  []string{ImageRepositoryFinalizerOldModel},
 				OwnerReferences: []metav1.OwnerReference{{
 					APIVersion: "appstudio.redhat.com/v1alpha1",
 					Kind:       "Component",
@@ -195,13 +195,13 @@ var _ = Describe("Application controller", func() {
 					UID:        component2.UID,
 				}},
 				// set annotation so that imageRepository isn't updated with the annotation
-				Annotations: map[string]string{namespacePullSecretEnsuredAnnotation: "true"},
+				Annotations: map[string]string{namespacePullSecretEnsuredAnnotationOldModel: "true"},
 			}
-			ir1 := createImageRepository_old(imageConfig1)
-			ir2 := createImageRepository_old(imageConfig2)
+			ir1 := createImageRepositoryOldModel(imageConfig1)
+			ir2 := createImageRepositoryOldModel(imageConfig2)
 			Eventually(func() bool {
-				ir1 = getImageRepository_old(*imageConfig1.ResourceKey)
-				ir2 = getImageRepository_old(*imageConfig2.ResourceKey)
+				ir1 = getImageRepositoryOldModel(*imageConfig1.ResourceKey)
+				ir2 = getImageRepositoryOldModel(*imageConfig2.ResourceKey)
 				return ir1.Status.State != "" && ir2.Status.State != ""
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 
@@ -218,12 +218,12 @@ var _ = Describe("Application controller", func() {
 
 			// set image repository component & application labels
 			ir1.Labels = map[string]string{
-				ApplicationNameLabelName: applicationKey.Name,
-				ComponentNameLabelName:   component1.Name,
+				ApplicationNameLabelName:       applicationKey.Name,
+				ComponentNameLabelNameOldModel: component1.Name,
 			}
 			ir2.Labels = map[string]string{
-				ApplicationNameLabelName: applicationKey.Name,
-				ComponentNameLabelName:   component2.Name,
+				ApplicationNameLabelName:       applicationKey.Name,
+				ComponentNameLabelNameOldModel: component2.Name,
 			}
 			Expect(k8sClient.Update(ctx, ir1)).To(Succeed())
 			Expect(k8sClient.Update(ctx, ir2)).To(Succeed())
@@ -288,9 +288,9 @@ var _ = Describe("Application controller", func() {
 			createDockerConfigSecret(pullSecret2Key, pullSecret2Data, false)
 
 			// will trigger application controller and create empty secret
-			application := createApplication_old(applicationConfig{ApplicationKey: applicationKey})
-			component1 := createComponent_old(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
-			component2 := createComponent_old(componentConfig{ComponentKey: component2Key, ComponentApplication: applicationKey.Name})
+			application := createApplicationOldModel(applicationConfig{ApplicationKey: applicationKey})
+			component1 := createComponentOldModel(componentConfig{ComponentKey: component1Key, ComponentApplication: applicationKey.Name})
+			component2 := createComponentOldModel(componentConfig{ComponentKey: component2Key, ComponentApplication: applicationKey.Name})
 
 			// wait until empty secret is linked to integration SA
 			Eventually(func() bool {
@@ -329,9 +329,9 @@ var _ = Describe("Application controller", func() {
 
 			// create image repository with finalizer so it won't try to provision repo
 			// also without component & application labels so controller won't try any secrets linking
-			imageConfig1 := imageRepositoryConfig_old{
+			imageConfig1 := imageRepositoryConfigOldModel{
 				ResourceKey: &imageRepository1Key,
-				Finalizers:  []string{ImageRepositoryFinalizer},
+				Finalizers:  []string{ImageRepositoryFinalizerOldModel},
 				OwnerReferences: []metav1.OwnerReference{{
 					APIVersion: "appstudio.redhat.com/v1alpha1",
 					Kind:       "Component",
@@ -339,11 +339,11 @@ var _ = Describe("Application controller", func() {
 					UID:        component1.UID,
 				}},
 				// set annotation so that imageRepository isn't updated with the annotation
-				Annotations: map[string]string{namespacePullSecretEnsuredAnnotation: "true"},
+				Annotations: map[string]string{namespacePullSecretEnsuredAnnotationOldModel: "true"},
 			}
-			imageConfig2 := imageRepositoryConfig_old{
+			imageConfig2 := imageRepositoryConfigOldModel{
 				ResourceKey: &imageRepository2Key,
-				Finalizers:  []string{ImageRepositoryFinalizer},
+				Finalizers:  []string{ImageRepositoryFinalizerOldModel},
 				OwnerReferences: []metav1.OwnerReference{{
 					APIVersion: "appstudio.redhat.com/v1alpha1",
 					Kind:       "Component",
@@ -351,13 +351,13 @@ var _ = Describe("Application controller", func() {
 					UID:        component2.UID,
 				}},
 				// set annotation so that imageRepository isn't updated with the annotation
-				Annotations: map[string]string{namespacePullSecretEnsuredAnnotation: "true"},
+				Annotations: map[string]string{namespacePullSecretEnsuredAnnotationOldModel: "true"},
 			}
-			ir1 := createImageRepository_old(imageConfig1)
-			ir2 := createImageRepository_old(imageConfig2)
+			ir1 := createImageRepositoryOldModel(imageConfig1)
+			ir2 := createImageRepositoryOldModel(imageConfig2)
 			Eventually(func() bool {
-				ir1 = getImageRepository_old(*imageConfig1.ResourceKey)
-				ir2 = getImageRepository_old(*imageConfig2.ResourceKey)
+				ir1 = getImageRepositoryOldModel(*imageConfig1.ResourceKey)
+				ir2 = getImageRepositoryOldModel(*imageConfig2.ResourceKey)
 				return ir1.Status.State != "" && ir2.Status.State != ""
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 
@@ -374,12 +374,12 @@ var _ = Describe("Application controller", func() {
 
 			// set image repository component & application labels
 			ir1.Labels = map[string]string{
-				ApplicationNameLabelName: applicationKey.Name,
-				ComponentNameLabelName:   component1.Name,
+				ApplicationNameLabelName:       applicationKey.Name,
+				ComponentNameLabelNameOldModel: component1.Name,
 			}
 			ir2.Labels = map[string]string{
-				ApplicationNameLabelName: applicationKey.Name,
-				ComponentNameLabelName:   component2.Name,
+				ApplicationNameLabelName:       applicationKey.Name,
+				ComponentNameLabelNameOldModel: component2.Name,
 			}
 			Expect(k8sClient.Update(ctx, ir1)).To(Succeed())
 			Expect(k8sClient.Update(ctx, ir2)).To(Succeed())

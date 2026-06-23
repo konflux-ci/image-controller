@@ -47,8 +47,8 @@ const (
 
 	ImageRepositoryComponentFinalizer = "image-controller.appstudio.openshift.io/image-repository"
 
-	ApplicationNameLabelName = "appstudio.redhat.com/application"
-	ComponentNameLabelName   = "appstudio.redhat.com/component"
+	ApplicationNameLabelName       = "appstudio.redhat.com/application"
+	ComponentNameLabelNameOldModel = "appstudio.redhat.com/component"
 )
 
 // GenerateRepositoryOpts defines patameters for image repository to be generated.
@@ -198,10 +198,10 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				Name:      imageRepositoryName,
 				Namespace: component.Namespace,
 				Labels: map[string]string{
-					ComponentNameLabelName: component.Name,
+					ComponentNameLabelNameOldModel: component.Name,
 				},
 				Annotations: map[string]string{
-					updateComponentAnnotationName: "true",
+					updateComponentAnnotationNameOldModel: "true",
 				},
 			},
 			Spec: imagerepositoryv1alpha1.ImageRepositorySpec{

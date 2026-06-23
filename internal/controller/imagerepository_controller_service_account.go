@@ -244,11 +244,16 @@ func (r *ImageRepositoryReconciler) VerifyAndFixSecretsLinking(ctx context.Conte
 	log := ctrllog.FromContext(ctx)
 
 	componentSaName := getComponentSaName(imageRepository.Labels[ComponentNameLabelName])
+	// remove after fully migrated to new group
+	if r.IsOldGroup {
+		componentSaName = getComponentSaName(imageRepository.Labels[ComponentNameLabelNameOldModel])
+	}
+
 	pushSecretName := imageRepository.Status.Credentials.PushSecretName
 	applicationName := imageRepository.Labels[ApplicationNameLabelName]
 	applicationPullSecretName := getApplicationPullSecretName(applicationName)
 
-	if isComponentLinked(imageRepository) {
+	if isComponentLinked(imageRepository, r.IsOldGroup) {
 		// link secret to component service account if isn't linked already
 		if err := r.linkSecretToServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace, false, false); err != nil {
 			log.Error(err, "failed to link secret to component service account", "saName", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
