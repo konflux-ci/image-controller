@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: imagerepositories.appstudio.redhat.com
+  name: imagerepositories.konflux-ci.dev
 spec:
-  group: appstudio.redhat.com
+  group: konflux-ci.dev
   names:
     kind: ImageRepository
     listKind: ImageRepositoryList
@@ -75,8 +75,12 @@ spec:
                       Name of the image within configured Quay organization.
                       If omitted, then defaults to "cr-namespace/cr-name".
                       This field cannot be changed after the resource creation.
+                    maxLength: 2048
                     pattern: ^[a-z0-9][.a-z0-9_-]*(/[a-z0-9][.a-z0-9_-]*)*$
                     type: string
+                    x-kubernetes-validations:
+                    - message: Image repository name cannot be changed
+                      rule: oldSelf == '' || self == oldSelf
                   visibility:
                     description: |-
                       Visibility defines whether the image is publicly visible.

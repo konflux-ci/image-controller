@@ -13,6 +13,12 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+// remove after fully migrated to new group - entire file
+// This file contains tests for OLD group (appstudio.redhat.com/v1alpha1) including
+// application pull secret functionality. Keep this file during migration to ensure
+// old group continues to work. Delete after migration is complete.
+
 package controllers
 
 import (
@@ -28,10 +34,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
+	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
 )
 
-var _ = Describe("Image repository controller", func() {
+var _ = Describe("Image repository controller (old group)", func() {
 	const (
 		namespaceRobotToken           = "namespace_token"
 		namespaceRobotTokenRefreshed1 = "namespace_token_new1"
@@ -49,12 +55,12 @@ var _ = Describe("Image repository controller", func() {
 	)
 
 	BeforeEach(func() {
-		createNamespace(defaultNamespace)
+		createNamespace(defaultNamespaceOld)
 		createNamespace(kubeSystemNamespace)
 	})
 
 	Context("Image repository provision without component", func() {
-		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-isnotlinked", Namespace: defaultNamespace}
+		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-isnotlinked", Namespace: defaultNamespaceOld}
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClientToFails()
@@ -64,7 +70,7 @@ var _ = Describe("Image repository controller", func() {
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
-			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
+			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespaceOld, resourceKey.Name)
 			expectedImage = fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
 			kubeSystemNamespace := getNamespace(kubeSystemNamespace)
@@ -140,7 +146,7 @@ var _ = Describe("Image repository controller", func() {
 				return nil, nil
 			}
 
-			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
+			createImageRepository_old(imageRepositoryConfig_old{ResourceKey: &resourceKey})
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreatePullRobotAccountInvoked }, timeout, interval).Should(BeTrue())
@@ -151,35 +157,35 @@ var _ = Describe("Image repository controller", func() {
 			Eventually(func() bool { return isAddPullPermissionsToAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isAddPullPermissionsToNamespaceAccountInvoked }, timeout, interval).Should(BeTrue())
 
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			Expect(imageRepository.Annotations).To(HaveLen(1))
 			Expect(imageRepository.Annotations[namespacePullSecretEnsuredAnnotation]).To(Equal("true"))
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
-			Expect(imageRepository.Spec.Image.Visibility).To(Equal(irv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.OwnerReferences).To(BeEmpty())
-			Expect(imageRepository.Status.State).To(Equal(irv1alpha1.ImageRepositoryStateReady))
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
-			Expect(imageRepository.Status.Image.Visibility).To(Equal(irv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
-			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-img-push"))
+			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HaveSuffix("_pull"))
-			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-img-pull"))
+			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-image-pull"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
 			Expect(imageRepository.Status.Notifications).To(BeEmpty())
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
 			defer deleteSecret(pushSecretKey)
-			verifySecretSpec(pushSecret, "ImageRepository", irv1alpha1.GroupVersion.String(), imageRepository.GetName(), pushSecret.Name)
+			verifySecretSpec(pushSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pushSecret.Name)
 
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
 			defer deleteSecret(pullSecretKey)
-			verifySecretSpec(pullSecret, "ImageRepository", irv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
+			verifySecretSpec(pullSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
 
 			namespaceSecretKey := types.NamespacedName{Name: namespacePullSecretName, Namespace: imageRepository.Namespace}
 			namespaceSecret := waitSecretExist(namespaceSecretKey)
@@ -215,16 +221,16 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.RobotAccount{Name: robotName, Token: newPushToken}, nil
 			}
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			oldTokenGenerationTimestamp := *imageRepository.Status.Credentials.GenerationTimestamp
 			regenerateToken := true
-			imageRepository.Spec.Credentials = &irv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
+			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isRegenerateRobotAccountTokenForPullInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isRegenerateRobotAccountTokenForPushInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return imageRepository.Spec.Credentials.RegenerateToken == nil &&
 					imageRepository.Status.Credentials.GenerationTimestamp != nil &&
 					*imageRepository.Status.Credentials.GenerationTimestamp != oldTokenGenerationTimestamp
@@ -232,13 +238,13 @@ var _ = Describe("Image repository controller", func() {
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
-			verifySecretSpec(pushSecret, "ImageRepository", irv1alpha1.GroupVersion.String(), imageRepository.GetName(), pushSecret.Name)
+			verifySecretSpec(pushSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pushSecret.Name)
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, newPushToken)
 
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
-			verifySecretSpec(pullSecret, "ImageRepository", irv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
+			verifySecretSpec(pullSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
 			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
 		})
@@ -255,14 +261,14 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.RobotAccount{Name: robotName, Token: newNamespaceToken}, nil
 			}
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			regenerateToken := true
-			imageRepository.Spec.Credentials = &irv1alpha1.ImageCredentials{RegenerateNamespacePullToken: &regenerateToken}
+			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateNamespacePullToken: &regenerateToken}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isRegenerateNamespaceRobotAccountTokenInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return imageRepository.Spec.Credentials.RegenerateNamespacePullToken == nil
 			}, timeout, interval).Should(BeTrue())
 
@@ -280,28 +286,43 @@ var _ = Describe("Image repository controller", func() {
 				isChangeRepositoryVisibilityInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
-				Expect(visibility).To(Equal(string(irv1alpha1.ImageVisibilityPrivate)))
+				Expect(visibility).To(Equal(string(imagerepositoryv1alpha1.ImageVisibilityPrivate)))
 				return nil
 			}
 
-			imageRepository := getImageRepository(resourceKey)
-			imageRepository.Spec.Image.Visibility = irv1alpha1.ImageVisibilityPrivate
+			imageRepository := getImageRepository_old(resourceKey)
+			imageRepository.Spec.Image.Visibility = imagerepositoryv1alpha1.ImageVisibilityPrivate
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
-				return imageRepository.Spec.Image.Visibility == irv1alpha1.ImageVisibilityPrivate &&
-					imageRepository.Status.Image.Visibility == irv1alpha1.ImageVisibilityPrivate &&
+				imageRepository := getImageRepository_old(resourceKey)
+				return imageRepository.Spec.Image.Visibility == imagerepositoryv1alpha1.ImageVisibilityPrivate &&
+					imageRepository.Status.Image.Visibility == imagerepositoryv1alpha1.ImageVisibilityPrivate &&
 					imageRepository.Status.Message == ""
 			}, timeout, interval).Should(BeTrue())
 		})
 
-		It("should fail when trying to update image name", func() {
-			imageRepository := getImageRepository(resourceKey)
+		It("should add message when image name was edited", func() {
+			imageRepository := getImageRepository_old(resourceKey)
 			imageRepository.Spec.Image.Name = "renamed"
-			// Update image name in spec, update will fail because Name can't be modified in new model
-			Expect(k8sClient.Update(ctx, imageRepository)).To(MatchError(ContainSubstring("Image repository name cannot be changed")))
+			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+
+			Eventually(func() bool {
+				imageRepository := getImageRepository_old(resourceKey)
+				return strings.HasPrefix(imageRepository.Status.Message, imageRepositoryNameChangedMessagePrefix)
+			}, timeout, interval).Should(BeTrue())
+		})
+
+		It("should remove message when image name is the same again", func() {
+			imageRepository := getImageRepository_old(resourceKey)
+			imageRepository.Spec.Image.Name = expectedImageName
+			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+
+			Eventually(func() bool {
+				imageRepository := getImageRepository_old(resourceKey)
+				return imageRepository.Status.Message == ""
+			}, timeout, interval).Should(BeTrue())
 		})
 
 		// TODO: remove after all IRs are processed and all have new namespace pull ensured annotation
@@ -338,13 +359,13 @@ var _ = Describe("Image repository controller", func() {
 			}
 
 			// remove namespace pull secret ensured annotation to force new reconcile and simulate old IR
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			delete(imageRepository.Annotations, namespacePullSecretEnsuredAnnotation)
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			// Wait for the annotation to be set to true
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return imageRepository.Annotations[namespacePullSecretEnsuredAnnotation] == "true"
 			}, timeout, interval).Should(BeTrue())
 
@@ -394,7 +415,7 @@ var _ = Describe("Image repository controller", func() {
 				return nil
 			}
 
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 
 			Eventually(func() bool { return isDeleteRobotAccountForPullInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRobotAccountForPushInvoked }, timeout, interval).Should(BeTrue())
@@ -411,36 +432,44 @@ var _ = Describe("Image repository controller", func() {
 	})
 
 	Context("Image repository for component provision", func() {
-		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-componentprovision", Namespace: defaultNamespace}
-		var componentKey = types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespace}
+		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-componentprovision", Namespace: defaultNamespaceOld}
+		var componentKey = types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespaceOld}
+		var applicationKey = types.NamespacedName{Name: defaultComponentApplication, Namespace: defaultNamespaceOld}
 		var componentSaName = getComponentSaName(defaultComponentName)
+		var applicationSecretName = getApplicationPullSecretName(applicationKey.Name)
 
 		BeforeEach(func() {
+			// Create test-namespace-old for old group tests
+			createNamespace(defaultNamespaceOld)
+
 			quay.ResetTestQuayClientToFails()
 			quay.RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) { return true, nil }
-			createComponent(componentConfig{})
+			// Use _old helpers that default to defaultNamespaceOld
+			createApplication_old(applicationConfig{})
+			createComponent_old(componentConfig{ComponentApplication: defaultComponentApplication})
 		})
 
 		AfterEach(func() {
 			deleteComponent(componentKey)
+			deleteApplication(applicationKey)
 		})
 
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
 			pullToken = "pull-token1234"
-			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, defaultComponentName)
+			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespaceOld, defaultComponentName)
 			expectedImage = fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
 			kubeSystemNamespace := getNamespace(kubeSystemNamespace)
 			expectedNamespaceRobotAccountName = fmt.Sprintf("%s_%s", resourceKey.Namespace, kubeSystemNamespace.UID)
 			expectedNamespaceRobotAccountName = sanitizeNameForQuay(expectedNamespaceRobotAccountName)
 
-			createServiceAccount(defaultNamespace, componentSaName)
-			createServiceAccount(defaultNamespace, IntegrationServiceAccountName)
+			createServiceAccount(defaultNamespaceOld, componentSaName)
+			createServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
 
 			// wait for SAs to be created
 			Eventually(func() bool {
-				saList := getServiceAccountList(defaultNamespace)
+				saList := getServiceAccountList(defaultNamespaceOld)
 				// there will be 2 service accounts
 				// component SA and integration SA
 				return len(saList) == 2
@@ -523,8 +552,8 @@ var _ = Describe("Image repository controller", func() {
 					return []quay.Notification{
 						{
 							Title:  "test-notification",
-							Event:  string(irv1alpha1.NotificationEventRepoPush),
-							Method: string(irv1alpha1.NotificationMethodWebhook),
+							Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
+							Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
 							Config: quay.NotificationConfig{
 								Url: "http://test-url",
 							},
@@ -544,19 +573,20 @@ var _ = Describe("Image repository controller", func() {
 				return nil
 			}
 
-			imageRepositoryConfigObject := imageRepositoryConfig{
+			imageRepositoryConfigObject := imageRepositoryConfig_old{
 				ResourceKey: &resourceKey,
 				Labels: map[string]string{
-					ComponentNameLabelName: defaultComponentName,
+					ApplicationNameLabelName: defaultComponentApplication,
+					ComponentNameLabelName:   defaultComponentName,
 				},
 			}
 			if setNotification {
-				imageRepositoryConfigObject.Notifications = []irv1alpha1.Notifications{
+				imageRepositoryConfigObject.Notifications = []imagerepositoryv1alpha1.Notifications{
 					{
 						Title:  "test-notification",
-						Event:  irv1alpha1.NotificationEventRepoPush,
-						Method: irv1alpha1.NotificationMethodWebhook,
-						Config: irv1alpha1.NotificationConfig{
+						Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+						Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+						Config: imagerepositoryv1alpha1.NotificationConfig{
 							Url: "http://test-url",
 						},
 					},
@@ -567,7 +597,7 @@ var _ = Describe("Image repository controller", func() {
 				imageRepositoryConfigObject.Annotations = map[string]string{updateComponentAnnotationName: "true"}
 			}
 
-			createImageRepository(imageRepositoryConfigObject)
+			createImageRepository_old(imageRepositoryConfigObject)
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isCreatePushRobotAccountInvoked }, timeout, interval).Should(BeTrue())
@@ -581,10 +611,10 @@ var _ = Describe("Image repository controller", func() {
 			}
 			Eventually(func() bool { return isGetRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
 			component := getComponent(componentKey)
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 
 			if setNotification {
 				Eventually(func() bool { return isGetNotificationsInvoked }, timeout, interval).Should(BeTrue())
@@ -597,20 +627,20 @@ var _ = Describe("Image repository controller", func() {
 			Expect(imageRepository.Annotations).To(HaveLen(1))
 			Expect(imageRepository.Annotations[namespacePullSecretEnsuredAnnotation]).To(Equal("true"))
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
-			Expect(imageRepository.Spec.Image.Visibility).To(Equal(irv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.OwnerReferences).To(HaveLen(1))
 			Expect(imageRepository.OwnerReferences[0].Name).To(Equal(defaultComponentName))
 			Expect(imageRepository.OwnerReferences[0].Kind).To(Equal("Component"))
 			Expect(imageRepository.OwnerReferences[0].UID).ToNot(BeEmpty())
-			Expect(imageRepository.Status.State).To(Equal(irv1alpha1.ImageRepositoryStateReady))
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
-			Expect(imageRepository.Status.Image.Visibility).To(Equal(irv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
-			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-img-push"))
+			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HaveSuffix("_pull"))
-			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-img-pull"))
+			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-image-pull"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
 			if setNotification {
 				Expect(imageRepository.Status.Notifications).To(HaveLen(1))
@@ -623,12 +653,17 @@ var _ = Describe("Image repository controller", func() {
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
 			defer deleteSecret(pushSecretKey)
-			verifySecretSpec(pushSecret, "ImageRepository", irv1alpha1.GroupVersion.String(), imageRepository.GetName(), pushSecret.Name)
+			verifySecretSpec(pushSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pushSecret.Name)
 
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
 			defer deleteSecret(pullSecretKey)
-			verifySecretSpec(pullSecret, "ImageRepository", irv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
+			verifySecretSpec(pullSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
+
+			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: imageRepository.Namespace}
+			applicationSecret := waitSecretExist(applicationSecretKey)
+			defer deleteSecret(applicationSecretKey)
+			verifySecretSpec(applicationSecret, "Application", applicationGroupVersion, applicationKey.Name, applicationSecretName)
 
 			namespaceSecretKey := types.NamespacedName{Name: namespacePullSecretName, Namespace: imageRepository.Namespace}
 			namespaceSecret := waitSecretExist(namespaceSecretKey)
@@ -639,30 +674,36 @@ var _ = Describe("Image repository controller", func() {
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, pushToken)
 			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
+			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
 			namespaceSecretDockerconfigJson := string(namespaceSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(namespaceSecretDockerconfigJson, expectedNamespaceImage, expectedNamespaceRobotAccountName, namespaceRobotToken)
 
-			componentSa := getServiceAccount(defaultNamespace, componentSaName)
+			componentSa := getServiceAccount(defaultNamespaceOld, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(2))
 			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			integrationSa := getServiceAccount(defaultNamespace, IntegrationServiceAccountName)
-			Expect(integrationSa.Secrets).To(HaveLen(1))
-			Expect(integrationSa.ImagePullSecrets).To(HaveLen(1))
+			integrationSa := getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
+			Expect(integrationSa.Secrets).To(HaveLen(2))
+			Expect(integrationSa.ImagePullSecrets).To(HaveLen(2))
+			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
 			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
+			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: applicationSecretName}))
 			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		}
 
 		assertSecretsGoneFromServiceAccounts := func() {
-			componentSa := getServiceAccount(defaultNamespace, componentSaName)
+			componentSa := getServiceAccount(defaultNamespaceOld, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
 			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
-			integrationSa := getServiceAccount(defaultNamespace, IntegrationServiceAccountName)
-			Expect(integrationSa.Secrets).To(HaveLen(1))
-			Expect(integrationSa.ImagePullSecrets).To(HaveLen(1))
+			integrationSa := getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
+			Expect(integrationSa.Secrets).To(HaveLen(2))
+			Expect(integrationSa.ImagePullSecrets).To(HaveLen(2))
+			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
 			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
+			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: applicationSecretName}))
 			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		}
 
@@ -676,7 +717,7 @@ var _ = Describe("Image repository controller", func() {
 				return true, nil
 			}
 
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 			assertSecretsGoneFromServiceAccounts()
 		})
 
@@ -693,11 +734,11 @@ var _ = Describe("Image repository controller", func() {
 			}
 
 			// Remove all status fields
-			imageRepository := getImageRepository(resourceKey)
-			imageRepository.Status = irv1alpha1.ImageRepositoryStatus{}
+			imageRepository := getImageRepository_old(resourceKey)
+			imageRepository.Status = imagerepositoryv1alpha1.ImageRepositoryStatus{}
 			Expect(k8sClient.Status().Update(ctx, imageRepository)).To(Succeed())
 
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 			assertSecretsGoneFromServiceAccounts()
 		})
 
@@ -706,7 +747,7 @@ var _ = Describe("Image repository controller", func() {
 			// it is possible to fully recover missing info and do full cleanup.
 			assertProvisionRepository(false, false)
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			pushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
 			pullRobotAccountName := imageRepository.Status.Credentials.PullRobotAccountName
 
@@ -730,12 +771,12 @@ var _ = Describe("Image repository controller", func() {
 			}
 
 			// Remove status fields but keep robot acount names
-			imageRepository.Status = irv1alpha1.ImageRepositoryStatus{}
+			imageRepository.Status = imagerepositoryv1alpha1.ImageRepositoryStatus{}
 			imageRepository.Status.Credentials.PushRobotAccountName = pushRobotAccountName
 			imageRepository.Status.Credentials.PullRobotAccountName = pullRobotAccountName
 			Expect(k8sClient.Status().Update(ctx, imageRepository)).To(Succeed())
 
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 			assertSecretsGoneFromServiceAccounts()
 			Eventually(func() bool { return isPushRobotAccountDeleted }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isPullRobotAccountDeleted }, timeout, interval).Should(BeTrue())
@@ -769,16 +810,16 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.RobotAccount{Name: robotName, Token: newPushToken}, nil
 			}
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			oldTokenGenerationTimestamp := *imageRepository.Status.Credentials.GenerationTimestamp
 			regenerateToken := true
-			imageRepository.Spec.Credentials = &irv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
+			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isRegenerateRobotAccountTokenForPushInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isRegenerateRobotAccountTokenForPullInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return imageRepository.Spec.Credentials.RegenerateToken == nil &&
 					imageRepository.Status.Credentials.GenerationTimestamp != nil &&
 					*imageRepository.Status.Credentials.GenerationTimestamp != oldTokenGenerationTimestamp
@@ -786,17 +827,24 @@ var _ = Describe("Image repository controller", func() {
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
-			verifySecretSpec(pushSecret, "ImageRepository", irv1alpha1.GroupVersion.String(), imageRepository.GetName(), pushSecret.Name)
+			verifySecretSpec(pushSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pushSecret.Name)
 
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
-			verifySecretSpec(pullSecret, "ImageRepository", irv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
+			verifySecretSpec(pullSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
+
+			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: imageRepository.Namespace}
+			applicationSecret := waitSecretExist(applicationSecretKey)
+			verifySecretSpec(applicationSecret, "Application", applicationGroupVersion, imageRepository.Labels[ApplicationNameLabelName], applicationSecretName)
 
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, newPushToken)
 
 			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
+
+			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
 		})
 
 		It("should regenerate pull & push tokens and update pull && push secrets when they exist", func() {
@@ -823,16 +871,16 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.RobotAccount{Name: robotName, Token: newPushToken}, nil
 			}
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			oldTokenGenerationTimestamp := *imageRepository.Status.Credentials.GenerationTimestamp
 			regenerateToken := true
-			imageRepository.Spec.Credentials = &irv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
+			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateToken: &regenerateToken}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isRegenerateRobotAccountTokenForPushInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isRegenerateRobotAccountTokenForPullInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return imageRepository.Spec.Credentials.RegenerateToken == nil &&
 					imageRepository.Status.Credentials.GenerationTimestamp != nil &&
 					*imageRepository.Status.Credentials.GenerationTimestamp != oldTokenGenerationTimestamp
@@ -840,17 +888,24 @@ var _ = Describe("Image repository controller", func() {
 
 			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
 			pushSecret := waitSecretExist(pushSecretKey)
-			verifySecretSpec(pushSecret, "ImageRepository", irv1alpha1.GroupVersion.String(), imageRepository.GetName(), pushSecret.Name)
+			verifySecretSpec(pushSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pushSecret.Name)
 
 			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
 			pullSecret := waitSecretExist(pullSecretKey)
-			verifySecretSpec(pullSecret, "ImageRepository", irv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
+			verifySecretSpec(pullSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
+
+			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: imageRepository.Namespace}
+			applicationSecret := waitSecretExist(applicationSecretKey)
+			verifySecretSpec(applicationSecret, "Application", applicationGroupVersion, imageRepository.Labels[ApplicationNameLabelName], applicationSecretName)
 
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, newPushToken)
 
 			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
+
+			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
 		})
 
 		It("should regenerate namespace pull token and create namespace pull secret when it doesn't exists", func() {
@@ -865,14 +920,14 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.RobotAccount{Name: robotName, Token: newNamespaceToken}, nil
 			}
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			regenerateToken := true
-			imageRepository.Spec.Credentials = &irv1alpha1.ImageCredentials{RegenerateNamespacePullToken: &regenerateToken}
+			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateNamespacePullToken: &regenerateToken}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isRegenerateNamespaceRobotAccountTokenInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return imageRepository.Spec.Credentials.RegenerateNamespacePullToken == nil
 			}, timeout, interval).Should(BeTrue())
 
@@ -895,14 +950,14 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.RobotAccount{Name: robotName, Token: newNamespaceToken}, nil
 			}
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			regenerateToken := true
-			imageRepository.Spec.Credentials = &irv1alpha1.ImageCredentials{RegenerateNamespacePullToken: &regenerateToken}
+			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{RegenerateNamespacePullToken: &regenerateToken}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isRegenerateNamespaceRobotAccountTokenInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return imageRepository.Spec.Credentials.RegenerateNamespacePullToken == nil
 			}, timeout, interval).Should(BeTrue())
 
@@ -916,48 +971,72 @@ var _ = Describe("Image repository controller", func() {
 		It("verify and fix, secret is missing from SAs", func() {
 			quay.ResetTestQuayClient()
 
+			integrationSa := getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
+			integrationSa.Secrets = []corev1.ObjectReference{}
+			integrationSa.ImagePullSecrets = []corev1.LocalObjectReference{}
+			Expect(k8sClient.Update(ctx, &integrationSa)).To(Succeed())
+
 			// will add it to SA, but not to ImagePullSecrets
-			componentSa := getServiceAccount(defaultNamespace, componentSaName)
+			componentSa := getServiceAccount(defaultNamespaceOld, componentSaName)
 			componentSa.Secrets = []corev1.ObjectReference{}
 			Expect(k8sClient.Update(ctx, &componentSa)).To(Succeed())
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			verifyLinking := true
-			imageRepository.Spec.Credentials = &irv1alpha1.ImageCredentials{VerifyLinking: &verifyLinking}
+			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{VerifyLinking: &verifyLinking}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
-			waitImageRepositoryCredentialSectionRequestGone(resourceKey, "verify")
+			waitImageRepositoryCredentialSectionRequestGone_old(resourceKey, "verify")
 
-			pushSecretName := fmt.Sprintf("%s-img-push", resourceKey.Name)
-			componentSa = getServiceAccount(defaultNamespace, componentSaName)
+			pushSecretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
+			integrationSa = getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
+			componentSa = getServiceAccount(defaultNamespaceOld, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(2))
 			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
+			Expect(integrationSa.Secrets).To(HaveLen(2))
+			Expect(integrationSa.ImagePullSecrets).To(HaveLen(2))
+			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
+			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
+			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: applicationSecretName}))
+			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		})
 
 		It("verify and fix, secret is duplicated in SA, also is in ImagePullSecrets", func() {
 			quay.ResetTestQuayClient()
-			pushSecretName := fmt.Sprintf("%s-img-push", resourceKey.Name)
+			pushSecretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
+
+			applicationSa := getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
+			applicationSa.Secrets = []corev1.ObjectReference{{Name: applicationSecretName}, {Name: applicationSecretName}}
+			applicationSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: applicationSecretName}, {Name: applicationSecretName}}
+			Expect(k8sClient.Update(ctx, &applicationSa)).To(Succeed())
 
 			// will remove duplicate, and remove it from ImagePullSecrets
-			componentSa := getServiceAccount(defaultNamespace, componentSaName)
+			componentSa := getServiceAccount(defaultNamespaceOld, componentSaName)
 			componentSa.Secrets = []corev1.ObjectReference{{Name: pushSecretName}, {Name: pushSecretName}}
 			componentSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: pushSecretName}, {Name: pushSecretName}}
 			Expect(k8sClient.Update(ctx, &componentSa)).To(Succeed())
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			verifyLinking := true
-			imageRepository.Spec.Credentials = &irv1alpha1.ImageCredentials{VerifyLinking: &verifyLinking}
+			imageRepository.Spec.Credentials = &imagerepositoryv1alpha1.ImageCredentials{VerifyLinking: &verifyLinking}
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
-			waitImageRepositoryCredentialSectionRequestGone(resourceKey, "verify")
+			waitImageRepositoryCredentialSectionRequestGone_old(resourceKey, "verify")
 
-			componentSa = getServiceAccount(defaultNamespace, componentSaName)
+			applicationSa = getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
+			componentSa = getServiceAccount(defaultNamespaceOld, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(2))
 			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
+			Expect(applicationSa.Secrets).To(HaveLen(2))
+			Expect(applicationSa.ImagePullSecrets).To(HaveLen(2))
+			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
+			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
+			Expect(applicationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: applicationSecretName}))
+			Expect(applicationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		})
 
 		// TODO: remove after all IRs are processed and all have new namespace pull ensured annotation
@@ -996,13 +1075,13 @@ var _ = Describe("Image repository controller", func() {
 			componentSaName := getComponentSaName(defaultComponentName)
 
 			// remove namespace pull secret ensured annotation to force new reconcile and simulate old IR
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			delete(imageRepository.Annotations, namespacePullSecretEnsuredAnnotation)
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			// Wait for the annotation to be set to true
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return imageRepository.Annotations[namespacePullSecretEnsuredAnnotation] == "true"
 			}, timeout, interval).Should(BeTrue())
 
@@ -1015,9 +1094,9 @@ var _ = Describe("Image repository controller", func() {
 			namespaceSecretDockerconfigJson := string(namespaceSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(namespaceSecretDockerconfigJson, expectedNamespaceImage, expectedNamespaceRobotAccountName, namespaceRobotTokenRefreshed2)
 
-			componentSa := getServiceAccount(defaultNamespace, componentSaName)
+			componentSa := getServiceAccount(defaultNamespaceOld, componentSaName)
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			integrationSa := getServiceAccount(defaultNamespace, IntegrationServiceAccountName)
+			integrationSa := getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
 			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
 			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		})
@@ -1058,13 +1137,18 @@ var _ = Describe("Image repository controller", func() {
 				return nil
 			}
 
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 
 			Eventually(func() bool { return isDeleteRobotAccountForPushInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRobotAccountForPullInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isGetRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isRemovePermissionsToRepositoryForAccountInvoked }, timeout, interval).Should(BeTrue())
+
+			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: defaultNamespaceOld}
+			applicationSecret := waitSecretExist(applicationSecretKey)
+			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
+			verifySecretAuthEmpty(applicationSecretDockerconfigJson)
 
 			namespaceSecretKey := types.NamespacedName{Name: namespacePullSecretName, Namespace: resourceKey.Namespace}
 			namespaceSecret := waitSecretExist(namespaceSecretKey)
@@ -1074,13 +1158,13 @@ var _ = Describe("Image repository controller", func() {
 
 			assertSecretsGoneFromServiceAccounts()
 
-			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespace})
-			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: defaultNamespace})
+			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespaceOld})
+			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: defaultNamespaceOld})
 		})
 	})
 
 	Context("Notifications", func() {
-		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-notification", Namespace: defaultNamespace}
+		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-notification", Namespace: defaultNamespaceOld}
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
@@ -1088,7 +1172,7 @@ var _ = Describe("Image repository controller", func() {
 
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
-			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
+			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespaceOld, resourceKey.Name)
 			expectedImage = fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
 		})
@@ -1105,25 +1189,25 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
 
-			createImageRepository(imageRepositoryConfig{
+			createImageRepository_old(imageRepositoryConfig_old{
 				ResourceKey:   &resourceKey,
-				Notifications: []irv1alpha1.Notifications{},
+				Notifications: []imagerepositoryv1alpha1.Notifications{},
 			})
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
-			Expect(imageRepository.Spec.Image.Visibility).To(Equal(irv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.Spec.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.OwnerReferences).To(BeEmpty())
-			Expect(imageRepository.Status.State).To(Equal(irv1alpha1.ImageRepositoryStateReady))
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
-			Expect(imageRepository.Status.Image.Visibility).To(Equal(irv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
-			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-img-push"))
+			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.GenerationTimestamp).ToNot(BeNil())
 			Expect(imageRepository.Status.Notifications).To(BeEmpty())
 		})
@@ -1153,22 +1237,22 @@ var _ = Describe("Image repository controller", func() {
 				return notifications, nil
 			}
 
-			newNotification := irv1alpha1.Notifications{
+			newNotification := imagerepositoryv1alpha1.Notifications{
 				Title:  "test-notification",
-				Event:  irv1alpha1.NotificationEventRepoPush,
-				Method: irv1alpha1.NotificationMethodWebhook,
-				Config: irv1alpha1.NotificationConfig{
+				Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+				Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+				Config: imagerepositoryv1alpha1.NotificationConfig{
 					Url: "http://test-url",
 				},
 			}
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			imageRepository.Spec.Notifications = append(imageRepository.Spec.Notifications, newNotification)
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isGetNotificationsInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return len(imageRepository.Status.Notifications) == 1
 			}, timeout, interval).Should(BeTrue())
 		})
@@ -1182,8 +1266,8 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.Notification{
 					UUID:   "uuid_new",
 					Title:  "test-notification",
-					Event:  string(irv1alpha1.NotificationEventRepoPush),
-					Method: string(irv1alpha1.NotificationMethodWebhook),
+					Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
+					Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
 					Config: quay.NotificationConfig{
 						Url: updatedUrl,
 					},
@@ -1197,8 +1281,8 @@ var _ = Describe("Image repository controller", func() {
 					{
 						UUID:   "uuid",
 						Title:  "test-notification",
-						Event:  string(irv1alpha1.NotificationEventRepoPush),
-						Method: string(irv1alpha1.NotificationMethodWebhook),
+						Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
+						Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
 						Config: quay.NotificationConfig{
 							Url: "http://test-url",
 						},
@@ -1206,14 +1290,14 @@ var _ = Describe("Image repository controller", func() {
 				}
 				return notifications, nil
 			}
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			imageRepository.Spec.Notifications[0].Config.Url = updatedUrl
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isUpdateNotificationInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isGetNotificationsInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return len(imageRepository.Status.Notifications) == 1 && imageRepository.Spec.Notifications[0].Config.Url == updatedUrl && imageRepository.Status.Notifications[0].UUID == "uuid_new"
 			}, timeout, interval).Should(BeTrue())
 		})
@@ -1223,8 +1307,8 @@ var _ = Describe("Image repository controller", func() {
 				{
 					UUID:   "uuid_new",
 					Title:  "test-notification",
-					Event:  string(irv1alpha1.NotificationEventRepoPush),
-					Method: string(irv1alpha1.NotificationMethodWebhook),
+					Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
+					Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
 					Config: quay.NotificationConfig{
 						Url: "http://test-url_new",
 					},
@@ -1244,7 +1328,7 @@ var _ = Describe("Image repository controller", func() {
 				return notifications, nil
 			}
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			Expect(imageRepository.Status.Notifications).To(HaveLen(1))
 			imageRepository.Spec.Notifications = imageRepository.Spec.Notifications[:len(imageRepository.Spec.Notifications)-1]
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
@@ -1252,35 +1336,35 @@ var _ = Describe("Image repository controller", func() {
 			Eventually(func() bool { return isDeleteNotificationInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isGetNotificationsInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return len(imageRepository.Status.Notifications) == 0
 			}, timeout, interval).Should(BeTrue())
 		})
 
 		It("should provision image repository with some notifications to create", func() {
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 			isCreateNotificationInvoked := false
 			quay.CreateNotificationFunc = func(organization, repository string, notification quay.Notification) (*quay.Notification, error) {
 				isCreateNotificationInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				return &quay.Notification{UUID: "uuid"}, nil
 			}
-			createImageRepository(imageRepositoryConfig{
+			createImageRepository_old(imageRepositoryConfig_old{
 				ResourceKey: &resourceKey,
-				Notifications: []irv1alpha1.Notifications{
+				Notifications: []imagerepositoryv1alpha1.Notifications{
 					{
 						Title:  "test-notification",
-						Event:  irv1alpha1.NotificationEventRepoPush,
-						Method: irv1alpha1.NotificationMethodWebhook,
-						Config: irv1alpha1.NotificationConfig{
+						Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+						Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+						Config: imagerepositoryv1alpha1.NotificationConfig{
 							Url: "http://test-url",
 						},
 					},
 					{
 						Title:  "test-notification-2",
-						Event:  irv1alpha1.NotificationEventRepoPush,
-						Method: irv1alpha1.NotificationMethodWebhook,
-						Config: irv1alpha1.NotificationConfig{
+						Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+						Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+						Config: imagerepositoryv1alpha1.NotificationConfig{
 							Url: "http://test-url-2",
 						},
 					},
@@ -1288,30 +1372,30 @@ var _ = Describe("Image repository controller", func() {
 			})
 			Eventually(func() bool { return isCreateNotificationInvoked }, timeout, interval).Should(BeTrue())
 
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			Expect(imageRepository.Status.Notifications).To(HaveLen(2))
 			Expect(imageRepository.Status.Notifications[0].Title).To(Equal("test-notification"))
 			Expect(imageRepository.Status.Notifications[1].Title).To(Equal("test-notification-2"))
 		})
 
 		It("should clean environment", func() {
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 		})
 	})
 
 	Context("Other image repository scenarios", func() {
-		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-other", Namespace: defaultNamespace}
+		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-other", Namespace: defaultNamespaceOld}
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 		})
 
 		It("should create image repository with requested name", func() {
 			customImageName := "my-image"
-			expectedImageName = defaultNamespace + "/" + customImageName
+			expectedImageName = defaultNamespaceOld + "/" + customImageName
 			expectedStatusImageName := fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, expectedImageName)
 
 			isCreateRepositoryInvoked := false
@@ -1325,21 +1409,20 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
 
-			createImageRepository(imageRepositoryConfig{ImageName: customImageName, ResourceKey: &resourceKey})
-			defer deleteImageRepository(resourceKey)
+			createImageRepository_old(imageRepositoryConfig_old{ImageName: customImageName, ResourceKey: &resourceKey})
+			defer deleteImageRepository_old(resourceKey)
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
-			imageRepository := getImageRepository(resourceKey)
-			// we no longer override image name in the spec unless it was empty
+			imageRepository := getImageRepository_old(resourceKey)
 			Expect(imageRepository.Spec.Image.Name).To(Equal(customImageName))
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedStatusImageName))
 		})
 
 		It("should create image repository with requested name that already includes namespace", func() {
-			customImageName := defaultNamespace + "/" + "my-image-with-namespace"
+			customImageName := defaultNamespaceOld + "/" + "my-image-with-namespace"
 			expectedImageName = customImageName
 
 			isCreateRepositoryInvoked := false
@@ -1353,19 +1436,19 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
 
-			createImageRepository(imageRepositoryConfig{ImageName: customImageName, ResourceKey: &resourceKey})
-			defer deleteImageRepository(resourceKey)
+			createImageRepository_old(imageRepositoryConfig_old{ImageName: customImageName, ResourceKey: &resourceKey})
+			defer deleteImageRepository_old(resourceKey)
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
 		})
 
 		It("don't remove repository if 2 imageRepositories use the same repo and one is removed", func() {
-			customImageName := defaultNamespace + "/" + "my-image-used-by-multiple-imagerepositories"
+			customImageName := defaultNamespaceOld + "/" + "my-image-used-by-multiple-imagerepositories"
 			expectedImageName = customImageName
 			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
 
@@ -1378,20 +1461,20 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
 
-			createImageRepository(imageRepositoryConfig{ImageName: customImageName, ResourceKey: &resourceKey})
+			createImageRepository_old(imageRepositoryConfig_old{ImageName: customImageName, ResourceKey: &resourceKey})
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
-			anotherImageRepositoryKey := types.NamespacedName{Name: defaultImageRepositoryName + "-other2", Namespace: defaultNamespace}
+			anotherImageRepositoryKey := types.NamespacedName{Name: defaultImageRepositoryName + "-other2", Namespace: defaultNamespaceOld}
 			isCreateRepositoryInvoked = false
 
-			createImageRepository(imageRepositoryConfig{ImageName: customImageName, ResourceKey: &anotherImageRepositoryKey})
+			createImageRepository_old(imageRepositoryConfig_old{ImageName: customImageName, ResourceKey: &anotherImageRepositoryKey})
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
-			waitImageRepositoryFinalizerOnImageRepository(anotherImageRepositoryKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(anotherImageRepositoryKey)
 
-			imageRepository1 := getImageRepository(resourceKey)
+			imageRepository1 := getImageRepository_old(resourceKey)
 			Expect(imageRepository1.Spec.Image.Name).To(Equal(expectedImageName))
-			imageRepository2 := getImageRepository(anotherImageRepositoryKey)
+			imageRepository2 := getImageRepository_old(anotherImageRepositoryKey)
 			Expect(imageRepository2.Spec.Image.Name).To(Equal(expectedImageName))
 			Expect(imageRepository1.Status.Image.URL).To(Equal(imageRepository2.Status.Image.URL))
 
@@ -1411,10 +1494,10 @@ var _ = Describe("Image repository controller", func() {
 				return true, nil
 			}
 
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 			// should not delete repository, because it is used by other ImageRepository
 			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
-			waitImageRepositoryGone(resourceKey)
+			waitImageRepositoryGone_old(resourceKey)
 
 			isDeleteRepositoryInvoked := false
 			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
@@ -1426,14 +1509,282 @@ var _ = Describe("Image repository controller", func() {
 			}
 
 			isDeleteRobotAccountInvoked = false
-			deleteImageRepository(anotherImageRepositoryKey)
+			deleteImageRepository_old(anotherImageRepositoryKey)
 			// should delete repository, because no other ImageRepository uses the repository
 			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
 		})
 
+		It("don't remove repository if 2 imageRepositories from different API groups use the same repo and one is removed", func() {
+			customImageName := defaultNamespaceOld + "/" + "my-image-used-by-cross-group-imagerepositories"
+			expectedImageName = customImageName
+			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
+
+			isCreateRepositoryInvoked := false
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				isCreateRepositoryInvoked = true
+				Expect(repository.Repository).To(Equal(expectedImageName))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
+				return &quay.Repository{Name: expectedImageName}, nil
+			}
+
+			// Create OLD group ImageRepository
+			createImageRepository_old(imageRepositoryConfig_old{ImageName: customImageName, ResourceKey: &resourceKey})
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
+
+			// Create NEW group ImageRepository with same image name in SAME namespace (typical migration scenario)
+			newGroupImageRepositoryKey := types.NamespacedName{Name: defaultImageRepositoryName + "-new-group", Namespace: defaultNamespaceOld}
+			isCreateRepositoryInvoked = false
+
+			createImageRepository(imageRepositoryConfig{ImageName: customImageName, ResourceKey: &newGroupImageRepositoryKey})
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+			waitImageRepositoryFinalizerOnImageRepository(newGroupImageRepositoryKey)
+
+			imageRepositoryOld := getImageRepository_old(resourceKey)
+			Expect(imageRepositoryOld.Spec.Image.Name).To(Equal(expectedImageName))
+			imageRepositoryNew := getImageRepository(newGroupImageRepositoryKey)
+			Expect(imageRepositoryNew.Spec.Image.Name).To(Equal(expectedImageName))
+			Expect(imageRepositoryOld.Status.Image.URL).To(Equal(imageRepositoryNew.Status.Image.URL))
+
+			isDeleteRobotAccountInvoked := false
+			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRobotAccountInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
+				return true, nil
+			}
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				defer GinkgoRecover()
+				if imageRepository == customImageName {
+					Fail("Delete repository should not be invoked - other group's ImageRepository still uses it")
+				}
+				return true, nil
+			}
+
+			// Delete OLD group ImageRepository
+			deleteImageRepository_old(resourceKey)
+			// should NOT delete Quay repository, because NEW group ImageRepository still uses it
+			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			waitImageRepositoryGone_old(resourceKey)
+
+			// Now delete NEW group ImageRepository
+			isDeleteRepositoryInvoked := false
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRepositoryInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(imageRepository).To(Equal(customImageName))
+				return true, nil
+			}
+
+			isDeleteRobotAccountInvoked = false
+			deleteImageRepository(newGroupImageRepositoryKey)
+			// should delete repository, because no ImageRepository (in either group) uses it anymore
+			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
+		})
+
+		It("don't remove nudging pull secret from component's SA, if ImageRepository is not for component", func() {
+			serviceAccountForSomeComponent := fmt.Sprintf("%s%s", componentSaNamePrefix, "sa-for-some-component")
+			serviceAccountCommon := "common-sa"
+
+			customImageName := defaultNamespaceOld + "/" + "my-image-for-nudging-component"
+			expectedImageName = customImageName
+			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
+
+			isCreateRepositoryInvoked := false
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				isCreateRepositoryInvoked = true
+				Expect(repository.Repository).To(Equal(expectedImageName))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
+				return &quay.Repository{Name: expectedImageName}, nil
+			}
+
+			// create imageRepository without component
+			createImageRepository_old(imageRepositoryConfig_old{
+				ResourceKey: &resourceKey,
+				ImageName:   customImageName,
+			})
+
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
+
+			nudgingImageRepository := getImageRepository_old(resourceKey)
+			nudgedPullSecretName := nudgingImageRepository.Status.Credentials.PullSecretName
+			commonPullSecretName := "common-pull-secret"
+			commonPushSecretName := "common-push-secret"
+
+			// create 2 SAs, one common, another for some component, both will include pullSecret from nudging component's imageRepository
+			// and one common pull & push secret
+			pullSecrets := []string{commonPullSecretName, nudgedPullSecretName}
+			pushSecrets := []string{commonPushSecretName, nudgedPullSecretName}
+			createServiceAccountWithSecrets(defaultNamespaceOld, serviceAccountForSomeComponent, pushSecrets, pullSecrets)
+			createServiceAccountWithSecrets(defaultNamespaceOld, serviceAccountCommon, pushSecrets, pullSecrets)
+			defer deleteServiceAccount(types.NamespacedName{Name: serviceAccountForSomeComponent, Namespace: defaultNamespaceOld})
+			defer deleteServiceAccount(types.NamespacedName{Name: serviceAccountCommon, Namespace: defaultNamespaceOld})
+
+			someComponentSa := getServiceAccount(defaultNamespaceOld, serviceAccountForSomeComponent)
+			commonSa := getServiceAccount(defaultNamespaceOld, serviceAccountCommon)
+			// verify that created SAs have 2 secrets in each section
+			Expect(someComponentSa.Secrets).To(HaveLen(2))
+			Expect(someComponentSa.ImagePullSecrets).To(HaveLen(2))
+			Expect(commonSa.Secrets).To(HaveLen(2))
+			Expect(commonSa.ImagePullSecrets).To(HaveLen(2))
+			// and also both contain pullSecret from nudging component's imageRepository
+			Expect(someComponentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(someComponentSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+
+			isDeleteRobotAccountInvoked := false
+			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRobotAccountInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
+				return true, nil
+			}
+			isDeleteRepositoryInvoked := false
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRepositoryInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(imageRepository).To(Equal(customImageName))
+				return true, nil
+			}
+
+			deleteImageRepository_old(resourceKey)
+			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
+
+			// deleting imageRepository won't remove imageRepository's pull secret, because it wasn't for any component
+			someComponentSa = getServiceAccount(defaultNamespaceOld, serviceAccountForSomeComponent)
+			commonSa = getServiceAccount(defaultNamespaceOld, serviceAccountCommon)
+
+			// common SA and some component SA will still have 2 secrets linked and one of them is pull secret from nudged Component
+			Expect(commonSa.Secrets).To(HaveLen(2))
+			Expect(commonSa.ImagePullSecrets).To(HaveLen(2))
+			Expect(commonSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+
+			Expect(someComponentSa.Secrets).To(HaveLen(2))
+			Expect(someComponentSa.ImagePullSecrets).To(HaveLen(2))
+			Expect(someComponentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(someComponentSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+		})
+
+		It("remove nudging pull secret from nudged components SA", func() {
+			serviceAccountForNudgedComponent := fmt.Sprintf("%s%s", componentSaNamePrefix, "sa-for-nudged-component")
+			serviceAccountCommon := "common-sa"
+			applicationKey := types.NamespacedName{Name: "nudging-application", Namespace: defaultNamespaceOld}
+			componentKey := types.NamespacedName{Name: "nudging-component", Namespace: defaultNamespaceOld}
+			componentSaName := getComponentSaName(componentKey.Name)
+			createApplication_old(applicationConfig{ApplicationKey: applicationKey})
+			createComponent_old(componentConfig{ComponentKey: componentKey, ComponentApplication: defaultComponentApplication})
+			createServiceAccount(defaultNamespaceOld, componentSaName)
+			defer deleteComponent(componentKey)
+			defer deleteApplication(applicationKey)
+			defer deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespaceOld})
+
+			customImageName := defaultNamespaceOld + "/" + "my-image-for-nudging-component"
+			expectedImageName = customImageName
+			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
+
+			isCreateRepositoryInvoked := false
+			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
+				defer GinkgoRecover()
+				isCreateRepositoryInvoked = true
+				Expect(repository.Repository).To(Equal(expectedImageName))
+				Expect(repository.Namespace).To(Equal(quay.TestQuayOrg))
+				return &quay.Repository{Name: expectedImageName}, nil
+			}
+
+			// create imageRepository for component
+			createImageRepository_old(imageRepositoryConfig_old{
+				ResourceKey: &resourceKey,
+				ImageName:   customImageName,
+				Labels: map[string]string{
+					ApplicationNameLabelName: applicationKey.Name,
+					ComponentNameLabelName:   componentKey.Name,
+				},
+			})
+
+			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
+
+			nudgingImageRepository := getImageRepository_old(resourceKey)
+			nudgedPullSecretName := nudgingImageRepository.Status.Credentials.PullSecretName
+			commonPullSecretName := "common-pull-secret"
+			commonPushSecretName := "common-push-secret"
+
+			// create 2 SAs, one common, another for nudged component, both will include pullSecret from nudging component's imageRepository
+			// and one common pull & push secret
+			pullSecrets := []string{commonPullSecretName, nudgedPullSecretName}
+			pushSecrets := []string{commonPushSecretName, nudgedPullSecretName}
+			createServiceAccountWithSecrets(defaultNamespaceOld, serviceAccountForNudgedComponent, pushSecrets, pullSecrets)
+			createServiceAccountWithSecrets(defaultNamespaceOld, serviceAccountCommon, pushSecrets, pullSecrets)
+			defer deleteServiceAccount(types.NamespacedName{Name: serviceAccountForNudgedComponent, Namespace: defaultNamespaceOld})
+			defer deleteServiceAccount(types.NamespacedName{Name: serviceAccountCommon, Namespace: defaultNamespaceOld})
+
+			nudgedComponentSa := getServiceAccount(defaultNamespaceOld, serviceAccountForNudgedComponent)
+			commonSa := getServiceAccount(defaultNamespaceOld, serviceAccountCommon)
+			// verify that created SAs have 2 secrets in each section
+			Expect(nudgedComponentSa.Secrets).To(HaveLen(2))
+			Expect(nudgedComponentSa.ImagePullSecrets).To(HaveLen(2))
+			Expect(commonSa.Secrets).To(HaveLen(2))
+			Expect(commonSa.ImagePullSecrets).To(HaveLen(2))
+			// and also both contain pullSecret from nudging component's imageRepository
+			Expect(nudgedComponentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(nudgedComponentSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+
+			isDeleteRobotAccountInvoked := false
+			quay.DeleteRobotAccountFunc = func(organization, robotAccountName string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRobotAccountInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(strings.HasPrefix(robotAccountName, expectedRobotAccountPrefix)).To(BeTrue())
+				return true, nil
+			}
+			isDeleteRepositoryInvoked := false
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				defer GinkgoRecover()
+				isDeleteRepositoryInvoked = true
+				Expect(organization).To(Equal(quay.TestQuayOrg))
+				Expect(imageRepository).To(Equal(customImageName))
+				return true, nil
+			}
+
+			deleteImageRepository_old(resourceKey)
+			Eventually(func() bool { return isDeleteRobotAccountInvoked }, timeout, interval).Should(BeTrue())
+			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
+
+			// deleting imageRepository will also remove nudging pull secret from nudged component's SA
+			// but will leave common secret
+			// and won't remove anything from common SA
+			nudgedComponentSa = getServiceAccount(defaultNamespaceOld, serviceAccountForNudgedComponent)
+			commonSa = getServiceAccount(defaultNamespaceOld, serviceAccountCommon)
+
+			// common SA will still have 2 secrets linked and one of them is pull secret from nudged Component
+			Expect(commonSa.Secrets).To(HaveLen(2))
+			Expect(commonSa.ImagePullSecrets).To(HaveLen(2))
+			Expect(commonSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: nudgedPullSecretName}))
+			Expect(commonSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: nudgedPullSecretName}))
+
+			// nudged component SA will have only 1 secret and pull secret from nudged Component will be gone
+			Expect(nudgedComponentSa.Secrets).To(HaveLen(1))
+			Expect(nudgedComponentSa.ImagePullSecrets).To(HaveLen(1))
+			Expect(nudgedComponentSa.Secrets).To(Equal([]corev1.ObjectReference{{Name: commonPushSecretName}}))
+			Expect(nudgedComponentSa.ImagePullSecrets).To(Equal([]corev1.LocalObjectReference{{Name: commonPullSecretName}}))
+		})
+
 		It("should create image repository if 502 Bad Gateway is returned by Quay intermittently", func() {
-			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
+			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespaceOld, resourceKey.Name)
 
 			createRepositoryInvocationCount := 0
 			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
@@ -1451,25 +1802,27 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
 
-			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
-			defer deleteImageRepository(resourceKey)
+			createImageRepository_old(imageRepositoryConfig_old{ResourceKey: &resourceKey})
+			defer deleteImageRepository_old(resourceKey)
 
 			Eventually(func() bool { return createRepositoryInvocationCount == 3 }, timeout, interval).Should(BeTrue())
 
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
 		})
 
 		It("should operate with correct image on quay even if spec.image has wrong data", func() {
-			componentKey := types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespace}
+			applicationKey := types.NamespacedName{Name: defaultComponentApplication, Namespace: defaultNamespaceOld}
+			componentKey := types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespaceOld}
 			componentSaName := getComponentSaName(componentKey.Name)
-			customImageName := "my-image-without-namespace"
-			createComponent(componentConfig{ComponentKey: componentKey})
-			createServiceAccount(defaultNamespace, componentSaName)
+			createApplication_old(applicationConfig{ApplicationKey: applicationKey})
+			createComponent_old(componentConfig{ComponentKey: componentKey, ComponentApplication: defaultComponentApplication})
+			createServiceAccount(defaultNamespaceOld, componentSaName)
 			defer deleteComponent(componentKey)
-			defer deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespace})
+			defer deleteApplication(applicationKey)
+			defer deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespaceOld})
 
 			prepareNotificationResponse := func(notification quay.Notification) *quay.Notification {
 				var uuid string
@@ -1494,36 +1847,40 @@ var _ = Describe("Image repository controller", func() {
 			quay.CreateNotificationFunc = func(organization, repository string, notification quay.Notification) (*quay.Notification, error) {
 				return prepareNotificationResponse(notification), nil
 			}
-			createImageRepository(imageRepositoryConfig{
+			createImageRepository_old(imageRepositoryConfig_old{
 				ResourceKey: &resourceKey,
-				ImageName:   customImageName,
 				Labels: map[string]string{
-					ComponentNameLabelName: defaultComponentName,
+					ApplicationNameLabelName: defaultComponentApplication,
+					ComponentNameLabelName:   defaultComponentName,
 				},
-				Notifications: []irv1alpha1.Notifications{
+				Notifications: []imagerepositoryv1alpha1.Notifications{
 					{
 						Title:  "notification-to-update",
-						Event:  irv1alpha1.NotificationEventRepoPush,
-						Method: irv1alpha1.NotificationMethodWebhook,
-						Config: irv1alpha1.NotificationConfig{Url: "http://test-url"},
+						Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+						Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+						Config: imagerepositoryv1alpha1.NotificationConfig{Url: "http://test-url"},
 					},
 					{
 						Title:  "notification-to-delete",
-						Event:  irv1alpha1.NotificationEventRepoPush,
-						Method: irv1alpha1.NotificationMethodWebhook,
-						Config: irv1alpha1.NotificationConfig{Url: "http://test-url"},
+						Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+						Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+						Config: imagerepositoryv1alpha1.NotificationConfig{Url: "http://test-url"},
 					},
 				},
 			})
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
-			// Update image name in spec, update will fail because Name can't be modified in new model
-			imageRepository := getImageRepository(resourceKey)
+			// Update image name in spec and wait status update
+			imageRepository := getImageRepository_old(resourceKey)
 			imageRepository.Spec.Image.Name = "renamed"
-			Expect(k8sClient.Update(ctx, imageRepository)).To(MatchError(ContainSubstring("Image repository name cannot be changed")))
+			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+			Eventually(func() bool {
+				imageRepository = getImageRepository_old(resourceKey)
+				return strings.HasPrefix(imageRepository.Status.Message, imageRepositoryNameChangedMessagePrefix)
+			}, timeout, interval).Should(BeTrue())
 
 			// Perform actions that initiate requests to quay and ensure that correct image reference is used
-			expectedImageName = fmt.Sprintf("%s/%s", imageRepository.Namespace, customImageName)
+			expectedImageName = fmt.Sprintf("%s/%s", imageRepository.Namespace, componentKey.Name)
 
 			isRepositoryExistsInvoked := false
 			quay.RepositoryExistsFunc = func(organization, repository string) (bool, error) {
@@ -1555,15 +1912,15 @@ var _ = Describe("Image repository controller", func() {
 					{
 						UUID:   "uuid-update",
 						Title:  "notification-to-update",
-						Event:  string(irv1alpha1.NotificationEventRepoPush),
-						Method: string(irv1alpha1.NotificationMethodWebhook),
+						Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
+						Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
 						Config: quay.NotificationConfig{Url: "http://test-url"},
 					},
 					{
 						UUID:   "uuid-delete",
 						Title:  "notification-to-delete",
-						Event:  string(irv1alpha1.NotificationEventRepoPush),
-						Method: string(irv1alpha1.NotificationMethodWebhook),
+						Event:  string(imagerepositoryv1alpha1.NotificationEventRepoPush),
+						Method: string(imagerepositoryv1alpha1.NotificationMethodWebhook),
 						Config: quay.NotificationConfig{Url: "http://test-url"},
 					},
 				}, nil
@@ -1590,26 +1947,26 @@ var _ = Describe("Image repository controller", func() {
 				return true, nil
 			}
 
-			imageRepository = getImageRepository(resourceKey)
+			imageRepository = getImageRepository_old(resourceKey)
 			// update component image scenario
 			imageRepository.Annotations[updateComponentAnnotationName] = "true"
 			// ensure namespace pull secret scenario
 			delete(imageRepository.Annotations, namespacePullSecretEnsuredAnnotation)
 			// change visibility scenario
-			imageRepository.Spec.Image.Visibility = irv1alpha1.ImageVisibilityPrivate
+			imageRepository.Spec.Image.Visibility = imagerepositoryv1alpha1.ImageVisibilityPrivate
 			// notifications scenarios
-			imageRepository.Spec.Notifications = []irv1alpha1.Notifications{
+			imageRepository.Spec.Notifications = []imagerepositoryv1alpha1.Notifications{
 				{
 					Title:  "notification-to-update",
-					Event:  irv1alpha1.NotificationEventRepoPush,
-					Method: irv1alpha1.NotificationMethodWebhook,
-					Config: irv1alpha1.NotificationConfig{Url: "http://test-url-updated"},
+					Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+					Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+					Config: imagerepositoryv1alpha1.NotificationConfig{Url: "http://test-url-updated"},
 				},
 				{
 					Title:  "notification-to-create",
-					Event:  irv1alpha1.NotificationEventRepoPush,
-					Method: irv1alpha1.NotificationMethodWebhook,
-					Config: irv1alpha1.NotificationConfig{Url: "http://test-url"},
+					Event:  imagerepositoryv1alpha1.NotificationEventRepoPush,
+					Method: imagerepositoryv1alpha1.NotificationMethodWebhook,
+					Config: imagerepositoryv1alpha1.NotificationConfig{Url: "http://test-url"},
 				},
 			}
 
@@ -1643,14 +2000,14 @@ var _ = Describe("Image repository controller", func() {
 				return true, nil
 			}
 
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 
 			Eventually(func() bool { return isRemovePermissionsForRepositoryFromAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isDeleteRepositoryInvoked }, timeout, interval).Should(BeTrue())
 		})
 
 		It("should mark image repository as missing if delete from Quay and restore after finalyzer removal", func() {
-			expectedImageName = defaultNamespace + "/" + resourceKey.Name
+			expectedImageName = defaultNamespaceOld + "/" + resourceKey.Name
 
 			isCreateRepositoryInvoked := false
 			quay.CreateRepositoryFunc = func(repository quay.RepositoryRequest) (*quay.Repository, error) {
@@ -1662,15 +2019,15 @@ var _ = Describe("Image repository controller", func() {
 				Expect(repository.Description).ToNot(BeEmpty())
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
-			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
-			defer deleteImageRepository(resourceKey)
+			createImageRepository_old(imageRepositoryConfig_old{ResourceKey: &resourceKey})
+			defer deleteImageRepository_old(resourceKey)
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
 			// Check that the image repository was provisioned successfully
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
-			imageRepository := getImageRepository(resourceKey)
-			Expect(imageRepository.Status.State).To(Equal(irv1alpha1.ImageRepositoryStateReady))
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 
 			// Simulate that the image repository was deleted from Quay
@@ -1683,7 +2040,7 @@ var _ = Describe("Image repository controller", func() {
 				return false, nil
 			}
 			// Make a change to trigger a reconcile
-			imageRepository = getImageRepository(resourceKey)
+			imageRepository = getImageRepository_old(resourceKey)
 			imageRepository.ObjectMeta.Annotations["new-reconcile"] = "true"
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
@@ -1691,8 +2048,8 @@ var _ = Describe("Image repository controller", func() {
 
 			// Wait status updated with state missing and corresponding error message
 			Eventually(func() bool {
-				imageRepository = getImageRepository(resourceKey)
-				isStateMissing := imageRepository.Status.State == irv1alpha1.ImageRepositoryStateMissing
+				imageRepository = getImageRepository_old(resourceKey)
+				isStateMissing := imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateMissing
 				isErrorMessageSet := imageRepository.Status.Message != "" && strings.Contains(imageRepository.Status.Message, "Image repository is missing")
 				return isStateMissing && isErrorMessageSet
 			}, timeout, interval).Should(BeTrue())
@@ -1719,14 +2076,14 @@ var _ = Describe("Image repository controller", func() {
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
-			imageRepository = getImageRepository(resourceKey)
-			Expect(imageRepository.Status.State).To(Equal(irv1alpha1.ImageRepositoryStateReady))
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
+			imageRepository = getImageRepository_old(resourceKey)
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 		})
 
 		It("should detect broken status and mark object as damaged, then recover after finalizer deletion", func() {
-			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
+			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespaceOld, resourceKey.Name)
 			expectedImage = fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
 			kubeSystemNamespaceObject := getNamespace(kubeSystemNamespace)
@@ -1743,34 +2100,34 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
 
-			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
-			defer deleteImageRepository(resourceKey)
+			createImageRepository_old(imageRepositoryConfig_old{ResourceKey: &resourceKey})
+			defer deleteImageRepository_old(resourceKey)
 
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 			Expect(isCreateRepositoryInvoked).To(BeTrue())
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
-			Expect(imageRepository.Status.State).To(Equal(irv1alpha1.ImageRepositoryStateReady))
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
-			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-img-push"))
+			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HaveSuffix("_pull"))
-			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-img-pull"))
+			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-image-pull"))
 
 			oldPushRobotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
 			oldPullRobotAccountName := imageRepository.Status.Credentials.PullRobotAccountName
 
 			// Break image respotiry status
-			imageRepository.Status = irv1alpha1.ImageRepositoryStatus{}
+			imageRepository.Status = imagerepositoryv1alpha1.ImageRepositoryStatus{}
 			Expect(k8sClient.Status().Update(ctx, imageRepository)).To(Succeed())
 
 			// Wait status updated with state damaged and corresponding error message
 			Eventually(func() bool {
-				imageRepository = getImageRepository(resourceKey)
-				isStateDamaged := imageRepository.Status.State == irv1alpha1.ImageRepositoryStateDamaged
+				imageRepository = getImageRepository_old(resourceKey)
+				isStateDamaged := imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateDamaged
 				isErrorMessageSet := imageRepository.Status.Message != "" && strings.Contains(imageRepository.Status.Message, "status was damaged")
 				return isStateDamaged && isErrorMessageSet
 			}, timeout, interval).Should(BeTrue())
@@ -1840,8 +2197,8 @@ var _ = Describe("Image repository controller", func() {
 			Expect(controllerutil.RemoveFinalizer(imageRepository, ImageRepositoryFinalizer)).To(BeTrue())
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
-			imageRepository = getImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
+			imageRepository = getImageRepository_old(resourceKey)
 
 			Expect(createRobotAccountInvokedTimes).To(Equal(2))
 			Expect(newPushRobotAccountName).ToNot(BeEmpty())
@@ -1853,30 +2210,30 @@ var _ = Describe("Image repository controller", func() {
 			Expect(isAddPullPermissionsToAccountInvoked).To(BeTrue())
 			Expect(isAddPullPermissionsToNamespaceAccountInvoked).To(BeTrue())
 
-			Expect(imageRepository.Status.State).To(Equal(irv1alpha1.ImageRepositoryStateReady))
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateReady))
 			Expect(imageRepository.Status.Message).To(BeEmpty())
-			Expect(imageRepository.Status.Image.Visibility).To(Equal(irv1alpha1.ImageVisibilityPublic))
+			Expect(imageRepository.Status.Image.Visibility).To(Equal(imagerepositoryv1alpha1.ImageVisibilityPublic))
 			Expect(imageRepository.Status.Image.URL).To(Equal(expectedImage))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PushRobotAccountName).To(Equal(newPushRobotAccountName))
-			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-img-push"))
+			Expect(imageRepository.Status.Credentials.PushSecretName).To(Equal(imageRepository.Name + "-image-push"))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HavePrefix(expectedRobotAccountPrefix))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(HaveSuffix("_pull"))
 			Expect(imageRepository.Status.Credentials.PullRobotAccountName).To(Equal(newPullRobotAccountName))
-			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-img-pull"))
+			Expect(imageRepository.Status.Credentials.PullSecretName).To(Equal(imageRepository.Name + "-image-pull"))
 		})
 	})
 
 	Context("Skip quay repository deletion", func() {
-		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-skip-delete", Namespace: defaultNamespace}
+		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-skip-delete", Namespace: defaultNamespaceOld}
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 		})
 
 		It("don't remove repository if explicitly requested using annotation", func() {
-			customImageName := defaultNamespace + "/" + "my-image-should-not-be-removed"
+			customImageName := defaultNamespaceOld + "/" + "my-image-should-not-be-removed"
 			expectedImageName = customImageName
 			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
 
@@ -1889,15 +2246,15 @@ var _ = Describe("Image repository controller", func() {
 				return &quay.Repository{Name: expectedImageName}, nil
 			}
 
-			createImageRepository(imageRepositoryConfig{
+			createImageRepository_old(imageRepositoryConfig_old{
 				ImageName:   customImageName,
 				ResourceKey: &resourceKey,
 				Annotations: map[string]string{skipRepositoryDeletionAnnotationName: "true"},
 			})
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
-			imageRepository := getImageRepository(resourceKey)
+			imageRepository := getImageRepository_old(resourceKey)
 			Expect(imageRepository.Spec.Image.Name).To(Equal(expectedImageName))
 
 			isDeleteRobotAccountInvoked := false
@@ -1915,7 +2272,7 @@ var _ = Describe("Image repository controller", func() {
 				return true, nil
 			}
 
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 			// should not delete repository, because of the annotation
 			Expect(isDeleteRobotAccountInvoked).To(BeTrue())
 			Expect(isDeleteRepositoryInvoked).To(BeFalse())
@@ -1923,16 +2280,16 @@ var _ = Describe("Image repository controller", func() {
 	})
 
 	Context("Image repository error scenarios", func() {
-		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-error", Namespace: defaultNamespace}
+		var resourceKey = types.NamespacedName{Name: defaultImageRepositoryName + "-error", Namespace: defaultNamespaceOld}
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 		})
 
 		It("should prepare environment", func() {
 			pushToken = "push-token1234"
-			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespace, resourceKey.Name)
+			expectedImageName = fmt.Sprintf("%s/%s", defaultNamespaceOld, resourceKey.Name)
 			expectedImage = fmt.Sprintf("%s/%s/%s", quay.TestQuayDomain, quay.TestQuayOrg, expectedImageName)
 			expectedRobotAccountPrefix = sanitizeNameForQuay(expectedImageName)
 		})
@@ -1949,20 +2306,20 @@ var _ = Describe("Image repository controller", func() {
 				return nil, fmt.Errorf("payment required")
 			}
 
-			createImageRepository(imageRepositoryConfig{Visibility: "private", ResourceKey: &resourceKey})
+			createImageRepository_old(imageRepositoryConfig_old{Visibility: "private", ResourceKey: &resourceKey})
 
 			Eventually(func() bool { return isCreateRepositoryInvoked }, timeout, interval).Should(BeTrue())
 
-			imageRepository := &irv1alpha1.ImageRepository{}
+			imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
 			Eventually(func() bool {
-				imageRepository = getImageRepository(resourceKey)
+				imageRepository = getImageRepository_old(resourceKey)
 				return string(imageRepository.Status.State) != ""
 			}, timeout, interval).Should(BeTrue())
-			Expect(imageRepository.Status.State).To(Equal(irv1alpha1.ImageRepositoryStateFailed))
+			Expect(imageRepository.Status.State).To(Equal(imagerepositoryv1alpha1.ImageRepositoryStateFailed))
 			Expect(imageRepository.Status.Message).ToNot(BeEmpty())
 			Expect(imageRepository.Status.Message).To(ContainSubstring("exceeds current quay plan limit"))
 
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 		})
 
 		It("should add error message and revert visibility in spec if private visibility requested after provision but quota exceeded", func() {
@@ -1974,10 +2331,10 @@ var _ = Describe("Image repository controller", func() {
 			quay.CreateRobotAccountFunc = func(organization, robotName string) (*quay.RobotAccount, error) {
 				return &quay.RobotAccount{Name: robotName, Token: pushToken}, nil
 			}
-			createImageRepository(imageRepositoryConfig{ResourceKey: &resourceKey})
-			defer deleteImageRepository(resourceKey)
+			createImageRepository_old(imageRepositoryConfig_old{ResourceKey: &resourceKey})
+			defer deleteImageRepository_old(resourceKey)
 
-			waitImageRepositoryFinalizerOnImageRepository(resourceKey)
+			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
 			quay.ResetTestQuayClientToFails()
 			quay.RepositoryExistsFunc = func(organization, imageRepository string) (bool, error) { return true, nil }
@@ -1988,47 +2345,48 @@ var _ = Describe("Image repository controller", func() {
 				isChangeRepositoryVisibilityInvoked = true
 				Expect(organization).To(Equal(quay.TestQuayOrg))
 				Expect(imageRepository).To(Equal(expectedImageName))
-				Expect(visibility).To(Equal(string(irv1alpha1.ImageVisibilityPrivate)))
+				Expect(visibility).To(Equal(string(imagerepositoryv1alpha1.ImageVisibilityPrivate)))
 				return fmt.Errorf("payment required")
 			}
 
-			imageRepository := getImageRepository(resourceKey)
-			imageRepository.Spec.Image.Visibility = irv1alpha1.ImageVisibilityPrivate
+			imageRepository := getImageRepository_old(resourceKey)
+			imageRepository.Spec.Image.Visibility = imagerepositoryv1alpha1.ImageVisibilityPrivate
 			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
 
 			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
-				return imageRepository.Spec.Image.Visibility == irv1alpha1.ImageVisibilityPublic &&
-					imageRepository.Status.Image.Visibility == irv1alpha1.ImageVisibilityPublic &&
+				imageRepository := getImageRepository_old(resourceKey)
+				return imageRepository.Spec.Image.Visibility == imagerepositoryv1alpha1.ImageVisibilityPublic &&
+					imageRepository.Status.Image.Visibility == imagerepositoryv1alpha1.ImageVisibilityPublic &&
 					imageRepository.Status.Message != ""
 			}, timeout, interval).Should(BeTrue())
 
 			quay.ResetTestQuayClient()
-			deleteImageRepository(resourceKey)
+			deleteImageRepository_old(resourceKey)
 		})
 
 		It("should fail if invalid image repository linked by annotation to unexisting component", func() {
 			quay.ResetTestQuayClientToFails()
 
-			createImageRepository(imageRepositoryConfig{
+			createImageRepository_old(imageRepositoryConfig_old{
 				ResourceKey: &resourceKey,
-				ImageName:   defaultComponentName,
+				ImageName:   fmt.Sprintf("%s/%s", defaultComponentApplication, defaultComponentName),
 				Labels: map[string]string{
-					ComponentNameLabelName: defaultComponentName,
+					ApplicationNameLabelName: defaultComponentApplication,
+					ComponentNameLabelName:   defaultComponentName,
 				},
 			})
-			defer deleteImageRepository(resourceKey)
+			defer deleteImageRepository_old(resourceKey)
 
 			errorMessage := fmt.Sprintf("Component '%s' does not exist", defaultComponentName)
 			Eventually(func() bool {
-				imageRepository := getImageRepository(resourceKey)
+				imageRepository := getImageRepository_old(resourceKey)
 				return imageRepository.Status.Message == errorMessage
 			}, timeout, interval).Should(BeTrue())
 		})
 
 		It("should fail if invalid image repository name given", func() {
-			imageRepository := getImageRepositoryConfig(imageRepositoryConfig{
+			imageRepository := getImageRepositoryConfig_old(imageRepositoryConfig_old{
 				ImageName: "wrong&name",
 			})
 			Expect(k8sClient.Create(ctx, imageRepository)).ToNot(Succeed())

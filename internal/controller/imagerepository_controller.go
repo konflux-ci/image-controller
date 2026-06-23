@@ -28,7 +28,8 @@ import (
 	"time"
 
 	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
-	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
+	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
+	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1" // remove after fully migrated to new group
 	l "github.com/konflux-ci/image-controller/pkg/logs"
 	"github.com/konflux-ci/image-controller/pkg/metrics"
 	"github.com/konflux-ci/image-controller/pkg/quay"
@@ -76,13 +77,139 @@ type ImageRepositoryReconciler struct {
 	BuildQuayClient  func() (quay.QuayService, error)
 	QuayHost         string
 	QuayOrganization string
+
+	// IsOldGroup indicates if this reconciler instance is for the old API group
+	// remove after fully migrated to new group
+	IsOldGroup bool
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ImageRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	// remove after fully migrated to new group - start
+	// During migration: Create two separate controller instances for each API group
+	// After migration: Replace entire function body with single line:
+	//   return ctrl.NewControllerManagedBy(mgr).For(&irv1alpha1.ImageRepository{}).Complete(r)
+
+	// Controller for new group (konflux-ci.dev)
+	newGroupReconciler := &ImageRepositoryReconciler{
+		Client:           r.Client,
+		Scheme:           r.Scheme,
+		QuayClient:       r.QuayClient,
+		BuildQuayClient:  r.BuildQuayClient,
+		QuayHost:         r.QuayHost,
+		QuayOrganization: r.QuayOrganization,
+		IsOldGroup:       false,
+	}
+	if err := ctrl.NewControllerManagedBy(mgr).
+		Named("imagerepository-konflux").
+		For(&irv1alpha1.ImageRepository{}).
+		Complete(newGroupReconciler); err != nil {
+		return err
+	}
+
+	// Controller for old group (appstudio.redhat.com)
+	oldGroupReconciler := &ImageRepositoryReconciler{
+		Client:           r.Client,
+		Scheme:           r.Scheme,
+		QuayClient:       r.QuayClient,
+		BuildQuayClient:  r.BuildQuayClient,
+		QuayHost:         r.QuayHost,
+		QuayOrganization: r.QuayOrganization,
+		IsOldGroup:       true,
+	}
+	if err := ctrl.NewControllerManagedBy(mgr).
+		Named("imagerepository-appstudio").
 		For(&imagerepositoryv1alpha1.ImageRepository{}).
-		Complete(r)
+		Complete(oldGroupReconciler); err != nil {
+		return err
+	}
+
+	return nil
+	// remove after fully migrated to new group - end
+}
+
+// convertAppstudioToKonflux converts appstudio.redhat.com ImageRepository to konflux-ci.dev ImageRepository
+// remove after fully migrated to new group
+func convertAppstudioToKonflux(old *imagerepositoryv1alpha1.ImageRepository) *irv1alpha1.ImageRepository {
+	// Marshal old to JSON and unmarshal to new - works because schemas are identical
+	data, err := json.Marshal(old)
+	if err != nil {
+		return nil
+	}
+	new := &irv1alpha1.ImageRepository{}
+	if err := json.Unmarshal(data, new); err != nil {
+		return nil
+	}
+	return new
+}
+
+// convertKonfluxToAppstudio converts konflux-ci.dev ImageRepository back to appstudio.redhat.com ImageRepository
+// This updates the old object with changes from the new object
+// remove after fully migrated to new group
+func convertKonfluxToAppstudio(new *irv1alpha1.ImageRepository, old *imagerepositoryv1alpha1.ImageRepository) error {
+	// Marshal new to JSON and unmarshal to old - works because schemas are identical
+	data, err := json.Marshal(new)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, old); err != nil {
+		return err
+	}
+	return nil
+}
+
+// updateImageRepository updates the ImageRepository in the correct API group
+// Converts back to old group if needed based on r.IsOldGroup
+// remove after fully migrated to new group - entire function
+func (r *ImageRepositoryReconciler) updateImageRepository(ctx context.Context, imageRepository *irv1alpha1.ImageRepository) error {
+	if r.IsOldGroup {
+		// Convert back to old group and update
+		// The conversion preserves ResourceVersion, UID, and all metadata
+		imageRepositoryOld := &imagerepositoryv1alpha1.ImageRepository{}
+		if err := convertKonfluxToAppstudio(imageRepository, imageRepositoryOld); err != nil {
+			return err
+		}
+		if err := r.Client.Update(ctx, imageRepositoryOld); err != nil {
+			return err
+		}
+		// CRITICAL: Convert the updated old object back to new to sync ResourceVersion and metadata
+		// After Update(), Kubernetes returns updated ResourceVersion and other metadata in imageRepositoryOld
+		// We must convert it back to sync those updates to the in-memory imageRepository object
+		updatedNew := convertAppstudioToKonflux(imageRepositoryOld)
+		if updatedNew == nil {
+			return fmt.Errorf("failed to convert updated old ImageRepository back to new group")
+		}
+		*imageRepository = *updatedNew
+		return nil
+	}
+	return r.Client.Update(ctx, imageRepository)
+}
+
+// updateImageRepositoryStatus updates the ImageRepository status in the correct API group
+// Converts back to old group if needed based on r.IsOldGroup
+// remove after fully migrated to new group - entire function
+func (r *ImageRepositoryReconciler) updateImageRepositoryStatus(ctx context.Context, imageRepository *irv1alpha1.ImageRepository) error {
+	if r.IsOldGroup {
+		// Convert back to old group and update status
+		// The conversion preserves ResourceVersion, UID, and all metadata
+		imageRepositoryOld := &imagerepositoryv1alpha1.ImageRepository{}
+		if err := convertKonfluxToAppstudio(imageRepository, imageRepositoryOld); err != nil {
+			return err
+		}
+		if err := r.Client.Status().Update(ctx, imageRepositoryOld); err != nil {
+			return err
+		}
+		// CRITICAL: Convert the updated old object back to new to sync ResourceVersion and metadata
+		// After Status().Update(), Kubernetes returns updated ResourceVersion and other metadata in imageRepositoryOld
+		// We must convert it back to sync those updates to the in-memory imageRepository object
+		updatedNew := convertAppstudioToKonflux(imageRepositoryOld)
+		if updatedNew == nil {
+			return fmt.Errorf("failed to convert updated old ImageRepository back to new group")
+		}
+		*imageRepository = *updatedNew
+		return nil
+	}
+	return r.Client.Status().Update(ctx, imageRepository)
 }
 
 func setMetricsTime(idForMetrics string, reconcileStartTime time.Time) {
@@ -95,6 +222,10 @@ func setMetricsTime(idForMetrics string, reconcileStartTime time.Time) {
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=imagerepositories/finalizers,verbs=update
+// remove after fully migrated to new group - the above 3 lines for appstudio.redhat.com
+//+kubebuilder:rbac:groups=konflux-ci.dev,resources=imagerepositories,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=konflux-ci.dev,resources=imagerepositories/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=konflux-ci.dev,resources=imagerepositories/finalizers,verbs=update
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
@@ -106,19 +237,41 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	ctx = ctrllog.IntoContext(ctx, log)
 	reconcileStartTime := time.Now()
 
-	// Fetch the image repository instance
-	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
-	err := r.Client.Get(ctx, req.NamespacedName, imageRepository)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// The object is deleted, nothing to do
-			return ctrl.Result{}, nil
-		}
-		log.Error(err, "failed to get image repository", l.Action, l.ActionView)
-		return ctrl.Result{}, err
-	}
+	// remove after fully migrated to new group - start
+	// During migration: Determine which group to fetch based on which controller instance this is
+	// After migration: Remove entire if/else block and keep only the else branch content (lines 272-282)
+	imageRepository := &irv1alpha1.ImageRepository{}
 
-	repositoryIdForMetrics := fmt.Sprintf("%s=%s", imageRepository.Name, imageRepository.Namespace)
+	var err error
+	if r.IsOldGroup {
+		// This is the old group controller - fetch from appstudio.redhat.com
+		imageRepositoryOld := &imagerepositoryv1alpha1.ImageRepository{}
+		err = r.Client.Get(ctx, req.NamespacedName, imageRepositoryOld)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Object deleted, nothing to do
+				return ctrl.Result{}, nil
+			}
+			log.Error(err, "failed to get image repository", "group", "appstudio.redhat.com", l.Action, l.ActionView)
+			return ctrl.Result{}, err
+		}
+		// Convert appstudio.redhat.com to konflux-ci.dev for processing
+		imageRepository = convertAppstudioToKonflux(imageRepositoryOld)
+	} else {
+		// After migration: This becomes the only fetch logic
+		err = r.Client.Get(ctx, req.NamespacedName, imageRepository)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Object deleted, nothing to do
+				return ctrl.Result{}, nil
+			}
+			log.Error(err, "failed to get image repository", "group", "konflux-ci.dev", l.Action, l.ActionView)
+			return ctrl.Result{}, err
+		}
+	}
+	// remove after fully migrated to new group - end
+
+	repositoryIdForMetrics := fmt.Sprintf("%s=%s=%t", imageRepository.Name, imageRepository.Namespace, r.IsOldGroup)
 
 	if !imageRepository.DeletionTimestamp.IsZero() {
 		// remove component from metrics map
@@ -135,7 +288,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			if pushSecretName == "" {
 				// It should not happen unless status is edited not by the operator.
 				// However, it's possible to recover the secret name.
-				pushSecretName = getSecretName(imageRepository, false)
+				pushSecretName = getSecretName(imageRepository, false, r.IsOldGroup)
 			}
 
 			// unlink secret from component SA
@@ -145,28 +298,32 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				return ctrl.Result{}, err
 			}
 
-			// remove pull secret entry from application pull secret
-			pullSecretName := imageRepository.Status.Credentials.PullSecretName
-			if pullSecretName == "" {
-				// It should not happen unless status is edited not by the operator.
-				// However, it's possible to recover the secret name.
-				pullSecretName = getSecretName(imageRepository, true)
-			}
+			// remove pull secret entry from application pull secret (old group only)
+			// remove after fully migrated to new group - start
+			if r.IsOldGroup {
+				pullSecretName := imageRepository.Status.Credentials.PullSecretName
+				if pullSecretName == "" {
+					// It should not happen unless status is edited not by the operator.
+					// However, it's possible to recover the secret name.
+					pullSecretName = getSecretName(imageRepository, true, r.IsOldGroup)
+				}
 
-			applicationName := imageRepository.Labels[ApplicationNameLabelName]
-			if applicationName != "" {
-				err := r.removePullSecretFromApplicationPullSecret(ctx, imageRepository)
-				if err != nil {
-					log.Error(err, "failed to remove entry from application pull secret", "application", imageRepository.Labels[ApplicationNameLabelName], "secret", pullSecretName)
+				applicationName := imageRepository.Labels[ApplicationNameLabelName]
+				if applicationName != "" {
+					err := r.removePullSecretFromApplicationPullSecret(ctx, imageRepository)
+					if err != nil {
+						log.Error(err, "failed to remove entry from application pull secret", "application", imageRepository.Labels[ApplicationNameLabelName], "secret", pullSecretName)
+						return ctrl.Result{}, err
+					}
+				}
+
+				// unlink pull secret for nudging component from nudged components SA
+				if err := r.unlinkPullSecretFromNudgedComponentSAs(ctx, pullSecretName, imageRepository.Namespace); err != nil {
+					log.Error(err, "failed to unlink pull secret from nudging service accounts", "SecretName", pullSecretName, l.Action, l.ActionUpdate)
 					return ctrl.Result{}, err
 				}
 			}
-
-			// unlink pull secret for nudging component from nudged components SA
-			if err := r.unlinkPullSecretFromNudgedComponentSAs(ctx, pullSecretName, imageRepository.Namespace); err != nil {
-				log.Error(err, "failed to unlink pull secret from nudging service accounts", "SecretName", pullSecretName, l.Action, l.ActionUpdate)
-				return ctrl.Result{}, err
-			}
+			// remove after fully migrated to new group - end
 		}
 
 		if controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {
@@ -187,11 +344,14 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			}
 
 			// Remove permissions for repository from namespace robot account
-			if namespaceRobotName, err := r.getNamespaceRobotName(ctx, imageRepository.Namespace); err == nil {
-				namespaceRobot, err := r.QuayClient.GetRobotAccount(r.QuayOrganization, namespaceRobotName)
-				if err == nil && namespaceRobot != nil {
-					log.Info("Removing permissions from namespace robot account", "repoName", imageName, "robotName", namespaceRobot.Name)
-					_ = r.QuayClient.RemovePermissionsForRepositoryFromAccount(r.QuayOrganization, imageName, namespaceRobot.Name, true)
+			// Only remove if no other ImageRepository uses the same Quay repository
+			if !imageRepositoryFound {
+				if namespaceRobotName, err := r.getNamespaceRobotName(ctx, imageRepository.Namespace); err == nil {
+					namespaceRobot, err := r.QuayClient.GetRobotAccount(r.QuayOrganization, namespaceRobotName)
+					if err == nil && namespaceRobot != nil {
+						log.Info("Removing permissions from namespace robot account", "repoName", imageName, "robotName", namespaceRobot.Name)
+						_ = r.QuayClient.RemovePermissionsForRepositoryFromAccount(r.QuayOrganization, imageName, namespaceRobot.Name, true)
+					}
 				}
 			}
 
@@ -199,7 +359,9 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			r.CleanupImageRepository(ctx, imageRepository, !(imageRepositoryFound || skipDeletion))
 
 			controllerutil.RemoveFinalizer(imageRepository, ImageRepositoryFinalizer)
-			if err := r.Client.Update(ctx, imageRepository); err != nil {
+			// remove after fully migrated to new group (uncomment line below and remove helper call)
+			// if err := r.Client.Update(ctx, imageRepository); err != nil
+			if err := r.updateImageRepository(ctx, imageRepository); err != nil {
 				log.Error(err, "failed to remove image repository finalizer", l.Action, l.ActionUpdate)
 				return ctrl.Result{}, err
 			}
@@ -208,7 +370,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	if imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateFailed {
+	if imageRepository.Status.State == irv1alpha1.ImageRepositoryStateFailed {
 		provisionTime, timeRecorded := metrics.RepositoryTimesForMetrics[repositoryIdForMetrics]
 		if timeRecorded {
 			metrics.ImageRepositoryProvisionFailureTimeMetric.Observe(time.Since(provisionTime).Seconds())
@@ -220,8 +382,8 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
-	if imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateDamaged ||
-		imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateMissing {
+	if imageRepository.Status.State == irv1alpha1.ImageRepositoryStateDamaged ||
+		imageRepository.Status.State == irv1alpha1.ImageRepositoryStateMissing {
 		if controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer) {
 			// Do not perform any action on object which was damaged.
 			return ctrl.Result{}, nil
@@ -272,9 +434,11 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if s.State == "" || s.Image.URL == "" || s.Image.Visibility == "" ||
 		s.Credentials.PushRobotAccountName == "" || s.Credentials.PullRobotAccountName == "" ||
 		s.Credentials.PushSecretName == "" || s.Credentials.PullSecretName == "" {
-		imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateDamaged
+		imageRepository.Status.State = irv1alpha1.ImageRepositoryStateDamaged
 		imageRepository.Status.Message = fmt.Sprintf("Object status was damaged. Remove %s finalizer to try to recover.", ImageRepositoryFinalizer)
-		if err = r.Client.Status().Update(ctx, imageRepository); err != nil {
+		// remove after fully migrated to new group (uncomment line below and remove helper call)
+		// if err = r.Client.Status().Update(ctx, imageRepository); err != nil
+		if err = r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 			log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
 		} else {
 			log.Info("Marked image repository as damaged", l.Action, l.ActionUpdate)
@@ -289,9 +453,11 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 	if !repositoryExists {
-		imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateMissing
+		imageRepository.Status.State = irv1alpha1.ImageRepositoryStateMissing
 		imageRepository.Status.Message = fmt.Sprintf("Image repository is missing. Remove %s finalizer to try to recover.", ImageRepositoryFinalizer)
-		if err = r.Client.Status().Update(ctx, imageRepository); err != nil {
+		// remove after fully migrated to new group (uncomment line below and remove helper call)
+		// if err = r.Client.Status().Update(ctx, imageRepository); err != nil
+		if err = r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 			log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
 		} else {
 			log.Info("Marked image repository as missing", l.Action, l.ActionUpdate)
@@ -316,7 +482,9 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		imageRepository.Annotations[namespacePullSecretEnsuredAnnotation] = "true"
 
-		if err := r.Client.Update(ctx, imageRepository); err != nil {
+		// remove after fully migrated to new group (uncomment line below and remove helper call)
+		// if err := r.Client.Update(ctx, imageRepository); err != nil
+		if err := r.updateImageRepository(ctx, imageRepository); err != nil {
 			log.Error(err, "failed to update imageRepository after setting namespace pull secret annotation", l.Action, l.ActionUpdate)
 			return ctrl.Result{}, err
 		}
@@ -328,20 +496,22 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Update component's containerImage and link push secret to component SA, add pull secret to application secret
 	// link namespace pull secret to integration and component SA
 	if isComponentLinked(imageRepository) {
-		pullSecretName := getSecretName(imageRepository, true)
+		pullSecretName := getSecretName(imageRepository, true, r.IsOldGroup)
 		applicationName := imageRepository.Labels[ApplicationNameLabelName]
 
-		// update application pull secret
-		if applicationName != "" {
+		// update application pull secret (old group only)
+		// remove after fully migrated to new group - start
+		if r.IsOldGroup && applicationName != "" {
 			err := r.addPullSecretAuthToApplicationPullSecret(ctx, applicationName, imageRepository.Namespace, pullSecretName, imageUrl, false)
 			if err != nil {
 				log.Error(err, "failed to update application pull secret with individual pull secret", "applicationPullSecret", getApplicationPullSecretName(applicationName), "secret", pullSecretName)
 				return ctrl.Result{}, err
 			}
 		}
+		// remove after fully migrated to new group - end
 
 		// link push secret to component SA
-		pushSecretName := getSecretName(imageRepository, false)
+		pushSecretName := getSecretName(imageRepository, false, r.IsOldGroup)
 		componentSaName := getComponentSaName(imageRepository.Labels[ComponentNameLabelName])
 		if err := r.linkSecretToServiceAccount(ctx, componentSaName, pushSecretName, imageRepository.Namespace, false, false); err != nil {
 			log.Error(err, "failed to link push secret to component service account", "SaName", componentSaName, "SecretName", pushSecretName, l.Action, l.ActionUpdate)
@@ -384,7 +554,9 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			log.Info("Updated component's ContainerImage", "ComponentName", componentName)
 			delete(imageRepository.Annotations, updateComponentAnnotationName)
 
-			if err := r.Client.Update(ctx, imageRepository); err != nil {
+			// remove after fully migrated to new group (uncomment line below and remove helper call)
+			// if err := r.Client.Update(ctx, imageRepository); err != nil
+			if err := r.updateImageRepository(ctx, imageRepository); err != nil {
 				log.Error(err, "failed to update imageRepository annotation", l.Action, l.ActionUpdate)
 				return ctrl.Result{}, err
 			}
@@ -392,34 +564,41 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
-	if imageRepository.Status.State != imagerepositoryv1alpha1.ImageRepositoryStateReady {
+	if imageRepository.Status.State != irv1alpha1.ImageRepositoryStateReady {
 		return ctrl.Result{}, nil
 	}
 
+	// remove after fully migrated to new group
 	// Make sure, that image repository name is the same as on creation.
 	// If it isn't set message
-	if imageRepository.Spec.Image.Name != imageNameInOrg {
-		imageNameDiffersMessage := fmt.Sprintf("%s from '%s' to '%s'. %s", imageRepositoryNameChangedMessagePrefix, imageNameInOrg, imageRepository.Spec.Image.Name, imageRepositoryNameChangedMessageSuffix)
+	if r.IsOldGroup {
+		if imageRepository.Spec.Image.Name != imageNameInOrg {
+			imageNameDiffersMessage := fmt.Sprintf("%s from '%s' to '%s'. %s", imageRepositoryNameChangedMessagePrefix, imageNameInOrg, imageRepository.Spec.Image.Name, imageRepositoryNameChangedMessageSuffix)
 
-		if imageRepository.Status.Message != imageNameDiffersMessage {
-			imageRepository.Status.Message = imageNameDiffersMessage
-			if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
-				log.Error(err, "failed to update imageRepository status message with image name change", l.Action, l.ActionUpdate)
-				return ctrl.Result{}, err
+			if imageRepository.Status.Message != imageNameDiffersMessage {
+				imageRepository.Status.Message = imageNameDiffersMessage
+				// remove after fully migrated to new group (uncomment line below and remove helper call)
+				// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+				if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
+					log.Error(err, "failed to update imageRepository status message with image name change", l.Action, l.ActionUpdate)
+					return ctrl.Result{}, err
+				}
+				log.Info("added message about image change to imageRepository", "ImageRepository", imageRepository.ObjectMeta.Name)
+				return ctrl.Result{}, nil
 			}
-			log.Info("added message about image change to imageRepository", "ImageRepository", imageRepository.ObjectMeta.Name)
-			return ctrl.Result{}, nil
-		}
-	} else {
-		// Remove message about image changed, if it is the same
-		if strings.HasPrefix(imageRepository.Status.Message, imageRepositoryNameChangedMessagePrefix) {
-			imageRepository.Status.Message = ""
-			if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
-				log.Error(err, "failed to update imageRepository remove message with image name change", l.Action, l.ActionUpdate)
-				return ctrl.Result{}, err
+		} else {
+			// Remove message about image changed, if it is the same
+			if strings.HasPrefix(imageRepository.Status.Message, imageRepositoryNameChangedMessagePrefix) {
+				imageRepository.Status.Message = ""
+				// remove after fully migrated to new group (uncomment line below and remove helper call)
+				// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+				if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
+					log.Error(err, "failed to update imageRepository remove message with image name change", l.Action, l.ActionUpdate)
+					return ctrl.Result{}, err
+				}
+				log.Info("removed message about image change from imageRepository", "ImageRepository", imageRepository.ObjectMeta.Name)
+				return ctrl.Result{}, nil
 			}
-			log.Info("removed message about image change from imageRepository", "ImageRepository", imageRepository.ObjectMeta.Name)
-			return ctrl.Result{}, nil
 		}
 	}
 
@@ -464,7 +643,9 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+	// remove after fully migrated to new group (uncomment line below and remove helper call)
+	// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+	if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 		return ctrl.Result{}, err
 	}
@@ -484,7 +665,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 // CheckComponentExistence checks if component for ImageRepository exists
 // if not it will request requeue and wait for component to be created
 // returns componentExists bool, requeueAfterSeconds int, error
-func (r *ImageRepositoryReconciler) CheckComponentExistence(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) (bool, int, error) {
+func (r *ImageRepositoryReconciler) CheckComponentExistence(ctx context.Context, imageRepository *irv1alpha1.ImageRepository) (bool, int, error) {
 	log := ctrllog.FromContext(ctx).WithName("CheckComponentExistence")
 
 	componentName := imageRepository.Labels[ComponentNameLabelName]
@@ -497,7 +678,9 @@ func (r *ImageRepositoryReconciler) CheckComponentExistence(ctx context.Context,
 
 			if imageRepository.Status.Message != componentDoesNotExistMessage {
 				imageRepository.Status.Message = componentDoesNotExistMessage
-				if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+				// remove after fully migrated to new group (uncomment line below and remove helper call)
+				// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+				if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 					log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 					return false, -1, err
 				}
@@ -511,8 +694,10 @@ func (r *ImageRepositoryReconciler) CheckComponentExistence(ctx context.Context,
 			}
 			if timeAfterCreation < waitForRelatedComponentFallbackWindowDuration {
 				if imageRepository.Status.State == "" {
-					imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateWaiting
-					if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+					imageRepository.Status.State = irv1alpha1.ImageRepositoryStateWaiting
+					// remove after fully migrated to new group (uncomment line below and remove helper call)
+					// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+					if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 						log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 						return false, -1, err
 					}
@@ -532,7 +717,7 @@ func (r *ImageRepositoryReconciler) CheckComponentExistence(ctx context.Context,
 // ProvisionImageRepository creates image repository, robot account(s) and secret(s) to access the image repository.
 // If labels with Application and Component name are present, robot account with pull only access
 // will be created and pull token will be propagated Secret.
-func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
+func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context, imageRepository *irv1alpha1.ImageRepository) error {
 	log := ctrllog.FromContext(ctx).WithName("ImageRepositoryProvision")
 	ctx = ctrllog.IntoContext(ctx, log)
 
@@ -545,7 +730,9 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 			if errors.IsNotFound(err) {
 				log.Info("attempt to create image repository related to non existing component", "Component", componentName)
 				imageRepository.Status.Message = fmt.Sprintf("Component '%s' does not exist", componentName)
-				if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+				// remove after fully migrated to new group (uncomment line below and remove helper call)
+				// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+				if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 					log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 					return err
 				}
@@ -561,11 +748,13 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	}
 
 	imageRepositoryName, quayImageURL := r.getQuayImageNameAndURL(imageRepository)
-	imageRepository.Spec.Image.Name = imageRepositoryName
+	if imageRepository.Spec.Image.Name == "" {
+		imageRepository.Spec.Image.Name = imageRepositoryName
+	}
 	imageRepository.Status.Image.URL = quayImageURL
 
 	if imageRepository.Spec.Image.Visibility == "" {
-		imageRepository.Spec.Image.Visibility = imagerepositoryv1alpha1.ImageVisibilityPublic
+		imageRepository.Spec.Image.Visibility = irv1alpha1.ImageVisibilityPublic
 	}
 	visibility := string(imageRepository.Spec.Image.Visibility)
 
@@ -584,13 +773,15 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		// Image repository creation permanently failed.
 		// Update status and stop.
 		log.Error(err, "failed to create image repository", l.Action, l.ActionAdd, l.Audit, "true")
-		imageRepository.Status.State = imagerepositoryv1alpha1.ImageRepositoryStateFailed
+		imageRepository.Status.State = irv1alpha1.ImageRepositoryStateFailed
 		if err.Error() == "payment required" {
 			imageRepository.Status.Message = "Number of private repositories exceeds current quay plan limit"
 		} else {
 			imageRepository.Status.Message = err.Error()
 		}
-		if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+		// remove after fully migrated to new group (uncomment line below and remove helper call)
+		// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+		if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 			log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
 		}
 		return nil
@@ -616,13 +807,13 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		return err
 	}
 
-	var notificationStatus []imagerepositoryv1alpha1.NotificationStatus
+	var notificationStatus []irv1alpha1.NotificationStatus
 	if notificationStatus, err = r.SetNotifications(ctx, imageRepository); err != nil {
 		return err
 	}
 
-	status := imagerepositoryv1alpha1.ImageRepositoryStatus{}
-	status.State = imagerepositoryv1alpha1.ImageRepositoryStateReady
+	status := irv1alpha1.ImageRepositoryStatus{}
+	status.State = irv1alpha1.ImageRepositoryStateReady
 	status.Image.URL = quayImageURL
 	status.Image.Visibility = imageRepository.Spec.Image.Visibility
 	status.Credentials.GenerationTimestamp = &metav1.Time{Time: time.Now()}
@@ -645,14 +836,18 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 		}
 	}
 
-	if err := r.Client.Update(ctx, imageRepository); err != nil {
+	// remove after fully migrated to new group (uncomment line below and remove helper call)
+	// if err := r.Client.Update(ctx, imageRepository); err != nil
+	if err := r.updateImageRepository(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update imageRepository after provision", l.Action, l.ActionUpdate)
 		return err
 	}
 	log.Info("Finished provision of image repository and added finalizer")
 
 	imageRepository.Status = status
-	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+	// remove after fully migrated to new group (uncomment line below and remove helper call)
+	// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+	if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update imageRepository status after provision", l.Action, l.ActionUpdate)
 		return err
 	}
@@ -664,7 +859,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 // The function handles misconfigurations where possible.
 // It must be used to get image name instead of accessing spec.image.name which could have a wrong information.
 // Example return values: tenant/image, quay.io/org/tenant/image
-func (r *ImageRepositoryReconciler) getQuayImageNameAndURL(imageRepository *imagerepositoryv1alpha1.ImageRepository) (string, string) {
+func (r *ImageRepositoryReconciler) getQuayImageNameAndURL(imageRepository *irv1alpha1.ImageRepository) (string, string) {
 	if imageRepository.Status.Image.URL != "" {
 		// It's possible to read the data from the status
 		imageURL := imageRepository.Status.Image.URL
@@ -705,7 +900,7 @@ type imageRepositoryAccessData struct {
 
 // ProvisionImageRepositoryAccess makes existing quay image repository accessible
 // by creating robot account and storing its token in a Secret.
-func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, isPullOnly bool) (*imageRepositoryAccessData, error) {
+func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.Context, imageRepository *irv1alpha1.ImageRepository, isPullOnly bool) (*imageRepositoryAccessData, error) {
 	log := ctrllog.FromContext(ctx).WithName("ProvisionImageRepositoryAccess").WithValues("IsPullOnly", isPullOnly)
 	ctx = ctrllog.IntoContext(ctx, log)
 
@@ -737,7 +932,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 		return nil, err
 	}
 
-	secretName := getSecretName(imageRepository, isPullOnly)
+	secretName := getSecretName(imageRepository, isPullOnly, r.IsOldGroup)
 	if err := r.EnsureSecret(ctx, imageRepository, secretName, robotAccount, imageUrl, true); err != nil {
 		return nil, err
 	}
@@ -750,7 +945,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepositoryAccess(ctx context.C
 }
 
 // RegenerateImageRepositoryCredentials rotates robot account(s) token and updates corresponding secret(s)
-func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
+func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx context.Context, imageRepository *irv1alpha1.ImageRepository) error {
 	log := ctrllog.FromContext(ctx)
 
 	if err := r.RegenerateImageRepositoryAccessToken(ctx, imageRepository, false); err != nil {
@@ -761,13 +956,17 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx con
 	}
 
 	imageRepository.Spec.Credentials.RegenerateToken = nil
-	if err := r.Client.Update(ctx, imageRepository); err != nil {
+	// remove after fully migrated to new group (uncomment line below and remove helper call)
+	// if err := r.Client.Update(ctx, imageRepository); err != nil
+	if err := r.updateImageRepository(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update imageRepository", l.Action, l.ActionUpdate)
 		return err
 	}
 
 	imageRepository.Status.Credentials.GenerationTimestamp = &metav1.Time{Time: time.Now()}
-	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+	// remove after fully migrated to new group (uncomment line below and remove helper call)
+	// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+	if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 		return err
 	}
@@ -776,7 +975,7 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryCredentials(ctx con
 }
 
 // RegenerateNamespaceRobotCredentials rotates namespace robot token and updates corresponding secret
-func (r *ImageRepositoryReconciler) RegenerateNamespaceRobotCredentials(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
+func (r *ImageRepositoryReconciler) RegenerateNamespaceRobotCredentials(ctx context.Context, imageRepository *irv1alpha1.ImageRepository) error {
 	log := ctrllog.FromContext(ctx)
 
 	namespaceRobotName, err := r.getNamespaceRobotName(ctx, imageRepository.Namespace)
@@ -789,7 +988,9 @@ func (r *ImageRepositoryReconciler) RegenerateNamespaceRobotCredentials(ctx cont
 	}
 
 	imageRepository.Spec.Credentials.RegenerateNamespacePullToken = nil
-	if err := r.Client.Update(ctx, imageRepository); err != nil {
+	// remove after fully migrated to new group (uncomment line below and remove helper call)
+	// if err := r.Client.Update(ctx, imageRepository); err != nil
+	if err := r.updateImageRepository(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update imageRepository", l.Action, l.ActionUpdate)
 		return err
 	}
@@ -798,7 +999,7 @@ func (r *ImageRepositoryReconciler) RegenerateNamespaceRobotCredentials(ctx cont
 }
 
 // RegenerateImageRepositoryAccessToken rotates robot account token and updates new one to the corresponding Secret.
-func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, isPullOnly bool) error {
+func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx context.Context, imageRepository *irv1alpha1.ImageRepository, isPullOnly bool) error {
 	log := ctrllog.FromContext(ctx).WithName("RegenerateImageRepositoryAccessToken").WithValues("IsPullOnly", isPullOnly)
 	ctx = ctrllog.IntoContext(ctx, log)
 
@@ -824,8 +1025,9 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx con
 		return err
 	}
 
-	// update also secret in application secret
-	if isComponentLinked(imageRepository) && isPullOnly {
+	// update also secret in application secret (old group only)
+	// remove after fully migrated to new group - start
+	if r.IsOldGroup && isComponentLinked(imageRepository) && isPullOnly {
 		applicationName := imageRepository.Labels[ApplicationNameLabelName]
 		if applicationName != "" {
 			err := r.addPullSecretAuthToApplicationPullSecret(ctx, applicationName, imageRepository.Namespace, secretName, quayImageURL, true)
@@ -835,12 +1037,13 @@ func (r *ImageRepositoryReconciler) RegenerateImageRepositoryAccessToken(ctx con
 			}
 		}
 	}
+	// remove after fully migrated to new group - end
 
 	return nil
 }
 
 // RegenerateNamespaceRobotAccessToken rotates namespace robot account token and updates new one to the corresponding Secret.
-func (r *ImageRepositoryReconciler) RegenerateNamespaceRobotAccessToken(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, namespaceRobotName string) error {
+func (r *ImageRepositoryReconciler) RegenerateNamespaceRobotAccessToken(ctx context.Context, imageRepository *irv1alpha1.ImageRepository, namespaceRobotName string) error {
 	log := ctrllog.FromContext(ctx).WithName("RegenerateNamespaceRobotAccessToken")
 	ctx = ctrllog.IntoContext(ctx, log)
 
@@ -862,7 +1065,7 @@ func (r *ImageRepositoryReconciler) RegenerateNamespaceRobotAccessToken(ctx cont
 }
 
 // CleanupImageRepository deletes image repository and corresponding robot account(s).
-func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, removeRepository bool) {
+func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, imageRepository *irv1alpha1.ImageRepository, removeRepository bool) {
 	log := ctrllog.FromContext(ctx).WithName("RepositoryCleanup")
 
 	robotAccountName := imageRepository.Status.Credentials.PushRobotAccountName
@@ -903,7 +1106,7 @@ func (r *ImageRepositoryReconciler) CleanupImageRepository(ctx context.Context, 
 	}
 }
 
-func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
+func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.Context, imageRepository *irv1alpha1.ImageRepository) error {
 	if imageRepository.Status.Image.Visibility == imageRepository.Spec.Image.Visibility {
 		return nil
 	}
@@ -916,7 +1119,9 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 	if err == nil {
 		imageRepository.Status.Image.Visibility = imageRepository.Spec.Image.Visibility
 		imageRepository.Status.Message = ""
-		if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+		// remove after fully migrated to new group (uncomment line below and remove helper call)
+		// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+		if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 			log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 			return err
 		}
@@ -928,13 +1133,17 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 		log.Info("failed to make image repository private due to quay plan limit", l.Audit, "true")
 
 		imageRepository.Spec.Image.Visibility = imageRepository.Status.Image.Visibility
-		if err := r.Client.Update(ctx, imageRepository); err != nil {
+		// remove after fully migrated to new group (uncomment line below and remove helper call)
+		// if err := r.Client.Update(ctx, imageRepository); err != nil
+		if err := r.updateImageRepository(ctx, imageRepository); err != nil {
 			log.Error(err, "failed to update imageRepository", l.Action, l.ActionUpdate)
 			return err
 		}
 
 		imageRepository.Status.Message = "Quay organization plan private repositories limit exceeded"
-		if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+		// remove after fully migrated to new group (uncomment line below and remove helper call)
+		// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+		if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 			log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 			return err
 		}
@@ -947,7 +1156,7 @@ func (r *ImageRepositoryReconciler) ChangeImageRepositoryVisibility(ctx context.
 	return err
 }
 
-func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, secretName string, robotAccount *quay.RobotAccount, imageURL string, setOwnership bool) error {
+func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepository *irv1alpha1.ImageRepository, secretName string, robotAccount *quay.RobotAccount, imageURL string, setOwnership bool) error {
 	log := ctrllog.FromContext(ctx).WithValues("SecretName", secretName)
 
 	secret := &corev1.Secret{}
@@ -971,10 +1180,22 @@ func (r *ImageRepositoryReconciler) EnsureSecret(ctx context.Context, imageRepos
 		}
 
 		if setOwnership {
-			if err := controllerutil.SetOwnerReference(imageRepository, secret, r.Scheme); err != nil {
-				log.Error(err, "failed to set owner for image repository secret")
-				return err
-			}
+			if !r.IsOldGroup {
+				if err := controllerutil.SetOwnerReference(imageRepository, secret, r.Scheme); err != nil {
+					log.Error(err, "failed to set owner for image repository secret")
+					return err
+				}
+			} else { // remove after fully migrated to new group - start
+				imageRepositoryOld := &imagerepositoryv1alpha1.ImageRepository{}
+				if err := convertKonfluxToAppstudio(imageRepository, imageRepositoryOld); err != nil {
+					log.Error(err, "failed to convert imageRepository for owner reference")
+					return err
+				}
+				if err := controllerutil.SetOwnerReference(imageRepositoryOld, secret, r.Scheme); err != nil {
+					log.Error(err, "failed to set owner for image repository secret")
+					return err
+				}
+			} // remove after fully migrated to new group - end
 		}
 
 		if err := r.Client.Create(ctx, secret); err != nil {
@@ -1030,20 +1251,30 @@ func removeDuplicateUnderscores(s string) string {
 	return regexp.MustCompile("_+").ReplaceAllString(s, "_")
 }
 
-func getSecretName(imageRepository *imagerepositoryv1alpha1.ImageRepository, isPullOnly bool) string {
+func getSecretName(imageRepository *irv1alpha1.ImageRepository, isPullOnly bool, isOldGroup bool) string {
 	secretName := imageRepository.Name
 	if len(secretName) > 220 {
 		secretName = secretName[:220]
 	}
+	// remove after fully migrated to new group - start
+	if isOldGroup {
+		if isPullOnly {
+			secretName += "-image-pull"
+		} else {
+			secretName += "-image-push"
+		}
+		return secretName
+	}
+	// remove after fully migrated to new group - end
 	if isPullOnly {
-		secretName += "-image-pull"
+		secretName += "-img-pull"
 	} else {
-		secretName += "-image-push"
+		secretName += "-img-push"
 	}
 	return secretName
 }
 
-func isComponentLinked(imageRepository *imagerepositoryv1alpha1.ImageRepository) bool {
+func isComponentLinked(imageRepository *irv1alpha1.ImageRepository) bool {
 	return imageRepository.Labels[ComponentNameLabelName] != ""
 }
 
@@ -1055,10 +1286,12 @@ func getRandomString(length int) string {
 	return hex.EncodeToString(bytes)[0:length]
 }
 
-func (r *ImageRepositoryReconciler) UpdateImageRepositoryStatusMessage(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, statusMessage string) error {
+func (r *ImageRepositoryReconciler) UpdateImageRepositoryStatusMessage(ctx context.Context, imageRepository *irv1alpha1.ImageRepository, statusMessage string) error {
 	log := ctrllog.FromContext(ctx)
 	imageRepository.Status.Message = statusMessage
-	if err := r.Client.Status().Update(ctx, imageRepository); err != nil {
+	// remove after fully migrated to new group (uncomment line below and remove helper call)
+	// if err := r.Client.Status().Update(ctx, imageRepository); err != nil
+	if err := r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 		log.Error(err, "failed to update imageRepository status", l.Action, l.ActionUpdate)
 		return err
 	}
@@ -1074,25 +1307,51 @@ func generateDockerconfigSecretData(quayImageURL string, robotAccount *quay.Robo
 	return secretData
 }
 
-func (r *ImageRepositoryReconciler) ImageRepositoryForSameUrlExists(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, imageRepositoryUrl string) (bool, error) {
+func (r *ImageRepositoryReconciler) ImageRepositoryForSameUrlExists(ctx context.Context, imageRepository *irv1alpha1.ImageRepository, imageRepositoryUrl string) (bool, error) {
 	log := ctrllog.FromContext(ctx)
-	imageRepositoriesList := &imagerepositoryv1alpha1.ImageRepositoryList{}
+	imageRepositoryName := imageRepository.ObjectMeta.Name
+
+	// Check konflux-ci.dev group
+	imageRepositoriesList := &irv1alpha1.ImageRepositoryList{}
 	if err := r.Client.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: imageRepository.Namespace}); err != nil {
-		log.Error(err, "failed to list image repositories")
+		log.Error(err, "failed to list konflux image repositories")
 		return false, err
 	}
 
-	imageRepositoryName := imageRepository.ObjectMeta.Name
 	for _, imageRepo := range imageRepositoriesList.Items {
 		_, imageRepoUrl := r.getQuayImageNameAndURL(&imageRepo)
 		if imageRepositoryUrl == imageRepoUrl {
-			// skipping the original ImageRepository which is in the list as well
-			if imageRepositoryName == imageRepo.ObjectMeta.Name {
+			// Skipping the original ImageRepository which is in the list as well
+			// Skip only if same name AND we're processing from the new group
+			if imageRepositoryName == imageRepo.ObjectMeta.Name && !r.IsOldGroup {
 				continue
 			}
 			return true, nil
 		}
 	}
+
+	// Also check appstudio.redhat.com group (for migration compatibility)
+	// remove after fully migrated to new group - start
+	imageRepositoriesListOldGroup := &imagerepositoryv1alpha1.ImageRepositoryList{}
+	if err := r.Client.List(ctx, imageRepositoriesListOldGroup, &client.ListOptions{Namespace: imageRepository.Namespace}); err != nil {
+		log.Error(err, "failed to list appstudio image repositories")
+		return false, err
+	}
+
+	for _, imageRepo := range imageRepositoriesListOldGroup.Items {
+		imageRepoConverted := convertAppstudioToKonflux(&imageRepo)
+		if imageRepoConverted != nil {
+			_, imageRepoUrl := r.getQuayImageNameAndURL(imageRepoConverted)
+			if imageRepositoryUrl == imageRepoUrl {
+				// Skip only if same name AND we're processing from the old group
+				if imageRepositoryName == imageRepo.ObjectMeta.Name && r.IsOldGroup {
+					continue
+				}
+				return true, nil
+			}
+		}
+	}
+	// remove after fully migrated to new group - end
 
 	return false, nil
 }
@@ -1104,6 +1363,7 @@ func getComponentSaName(componentName string) string {
 
 // addPullSecretAuthToApplicationPullSecret updates the application pull secret when new image repository pull secret is created
 // or when an existing one is updated.
+// remove after fully migrated to new group - entire function
 func (r *ImageRepositoryReconciler) addPullSecretAuthToApplicationPullSecret(ctx context.Context, applicationName, namespace, pullSecretName, imageURL string, overwrite bool) error {
 	log := ctrllog.FromContext(ctx)
 
@@ -1199,7 +1459,8 @@ func (r *ImageRepositoryReconciler) addPullSecretAuthToApplicationPullSecret(ctx
 
 }
 
-func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
+// remove after fully migrated to new group - entire function
+func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ctx context.Context, imageRepository *irv1alpha1.ImageRepository) error {
 	log := ctrllog.FromContext(ctx)
 
 	applicationPullSecretName := getApplicationPullSecretName(imageRepository.Labels[ApplicationNameLabelName])
@@ -1218,7 +1479,7 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 	if pullSecretName == "" {
 		// It should not happen unless status is edited not by the operator.
 		// However, it's possible to recover the secret name.
-		pullSecretName = getSecretName(imageRepository, true)
+		pullSecretName = getSecretName(imageRepository, true, r.IsOldGroup)
 	}
 	pullSecret := &corev1.Secret{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: pullSecretName, Namespace: imageRepository.Namespace}, pullSecret); err != nil {
@@ -1256,9 +1517,10 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 		return nil
 	}
 
-	imageRepositoriesList := &imagerepositoryv1alpha1.ImageRepositoryList{}
-	if err := r.Client.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: imageRepository.Namespace}); err != nil {
-		log.Error(err, "failed to list image repositories")
+	// List only old group ImageRepositories (this method is only called for old group)
+	imageRepositoriesListOld := &imagerepositoryv1alpha1.ImageRepositoryList{}
+	if err := r.Client.List(ctx, imageRepositoriesListOld, &client.ListOptions{Namespace: imageRepository.Namespace}); err != nil {
+		log.Error(err, "failed to list old image repositories")
 		return err
 	}
 
@@ -1271,8 +1533,9 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 		// with pullsecret from this other IR.
 		foundImageRepositoryWithSameUrl := false
 
-		for _, otherIR := range imageRepositoriesList.Items {
-			// Skip the current IR that contains the secret we are removing
+		// Check only appstudio.redhat.com group (old group)
+		for _, otherIR := range imageRepositoriesListOld.Items {
+			// Skip the current IR (same name, same old group)
 			if otherIR.ObjectMeta.Name == imageRepository.ObjectMeta.Name {
 				continue
 			}
@@ -1283,7 +1546,11 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 			}
 
 			// Must match the same registry URL
-			_, otherIrImageUrl := r.getQuayImageNameAndURL(&otherIR)
+			otherIRConverted := convertAppstudioToKonflux(&otherIR)
+			if otherIRConverted == nil {
+				continue
+			}
+			_, otherIrImageUrl := r.getQuayImageNameAndURL(otherIRConverted)
 			if otherIrImageUrl != imageRepositoryUrl {
 				continue
 			}
@@ -1354,7 +1621,7 @@ func (r *ImageRepositoryReconciler) removePullSecretFromApplicationPullSecret(ct
 }
 
 // ensureNamespacePullSecret ensures that namespace pull secret exists and add permissions for the image repository
-func (r *ImageRepositoryReconciler) ensureNamespacePullSecret(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, namespaceRobot *quay.RobotAccount) error {
+func (r *ImageRepositoryReconciler) ensureNamespacePullSecret(ctx context.Context, imageRepository *irv1alpha1.ImageRepository, namespaceRobot *quay.RobotAccount) error {
 	quayImageURL := fmt.Sprintf("%s/%s/%s", r.QuayHost, r.QuayOrganization, imageRepository.Namespace)
 	if err := r.EnsureSecret(ctx, imageRepository, namespacePullSecretName, namespaceRobot, quayImageURL, false); err != nil {
 		return err

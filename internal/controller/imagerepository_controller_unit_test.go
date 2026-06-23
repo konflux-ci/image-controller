@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
+	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -149,43 +149,78 @@ func TestGetSecretName(t *testing.T) {
 		name                  string
 		imageRepositoryCrName string
 		IsPullOnly            bool
+		isOldGroup            bool
 		expectedSecretName    string
 	}{
 		{
 			name:                  "Should generate push secret name",
 			imageRepositoryCrName: "my-image-repo",
 			IsPullOnly:            false,
-			expectedSecretName:    "my-image-repo-image-push",
+			isOldGroup:            false,
+			expectedSecretName:    "my-image-repo-img-push",
 		},
 		{
 			name:                  "Should generate push secret name if component name is too long",
 			imageRepositoryCrName: longImageRepositoryCrName,
 			IsPullOnly:            false,
-			expectedSecretName:    expectedSecretLongPrefix + "-image-push",
+			isOldGroup:            false,
+			expectedSecretName:    expectedSecretLongPrefix + "-img-push",
 		},
 		{
 			name:                  "Should generate pull secret name",
 			imageRepositoryCrName: "my-image-repo",
 			IsPullOnly:            true,
-			expectedSecretName:    "my-image-repo-image-pull",
+			isOldGroup:            false,
+			expectedSecretName:    "my-image-repo-img-pull",
 		},
 		{
 			name:                  "Should generate pull secret name if component name is too long",
 			imageRepositoryCrName: longImageRepositoryCrName,
 			IsPullOnly:            true,
+			isOldGroup:            false,
+			expectedSecretName:    expectedSecretLongPrefix + "-img-pull",
+		},
+		// remove after fully migrated to new group - start
+		{
+			name:                  "Should generate old group push secret name",
+			imageRepositoryCrName: "my-image-repo",
+			IsPullOnly:            false,
+			isOldGroup:            true,
+			expectedSecretName:    "my-image-repo-image-push",
+		},
+		{
+			name:                  "Should generate old group push secret name if component name is too long",
+			imageRepositoryCrName: longImageRepositoryCrName,
+			IsPullOnly:            false,
+			isOldGroup:            true,
+			expectedSecretName:    expectedSecretLongPrefix + "-image-push",
+		},
+		{
+			name:                  "Should generate old group pull secret name",
+			imageRepositoryCrName: "my-image-repo",
+			IsPullOnly:            true,
+			isOldGroup:            true,
+			expectedSecretName:    "my-image-repo-image-pull",
+		},
+		{
+			name:                  "Should generate old group pull secret name if component name is too long",
+			imageRepositoryCrName: longImageRepositoryCrName,
+			IsPullOnly:            true,
+			isOldGroup:            true,
 			expectedSecretName:    expectedSecretLongPrefix + "-image-pull",
 		},
+		// remove after fully migrated to new group - end
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			imageRepository := &imagerepositoryv1alpha1.ImageRepository{
+			imageRepository := &irv1alpha1.ImageRepository{
 				ObjectMeta: v1.ObjectMeta{
 					Name: tc.imageRepositoryCrName,
 				},
 			}
 
-			secretName := getSecretName(imageRepository, tc.IsPullOnly)
+			secretName := getSecretName(imageRepository, tc.IsPullOnly, tc.isOldGroup)
 
 			if len(secretName) > 253 {
 				t.Error("secret name is longer than allowed")
@@ -200,12 +235,12 @@ func TestGetSecretName(t *testing.T) {
 func TestIsComponentLinked(t *testing.T) {
 	testCases := []struct {
 		name            string
-		imageRepository *imagerepositoryv1alpha1.ImageRepository
+		imageRepository *irv1alpha1.ImageRepository
 		expect          bool
 	}{
 		{
 			name: "Should recognize linked component",
-			imageRepository: &imagerepositoryv1alpha1.ImageRepository{
+			imageRepository: &irv1alpha1.ImageRepository{
 				ObjectMeta: v1.ObjectMeta{
 					Labels: map[string]string{
 						ApplicationNameLabelName: "application-name",
@@ -217,12 +252,12 @@ func TestIsComponentLinked(t *testing.T) {
 		},
 		{
 			name:            "Should not be linked to component if labels missing",
-			imageRepository: &imagerepositoryv1alpha1.ImageRepository{},
+			imageRepository: &irv1alpha1.ImageRepository{},
 			expect:          false,
 		},
 		{
 			name: "Should be linked to component even if application label missing",
-			imageRepository: &imagerepositoryv1alpha1.ImageRepository{
+			imageRepository: &irv1alpha1.ImageRepository{
 				ObjectMeta: v1.ObjectMeta{
 					Labels: map[string]string{
 						ComponentNameLabelName: "component-name",
@@ -233,7 +268,7 @@ func TestIsComponentLinked(t *testing.T) {
 		},
 		{
 			name: "Should not be linked to component if component label missing",
-			imageRepository: &imagerepositoryv1alpha1.ImageRepository{
+			imageRepository: &irv1alpha1.ImageRepository{
 				ObjectMeta: v1.ObjectMeta{
 					Labels: map[string]string{
 						ApplicationNameLabelName: "application-name",
@@ -264,19 +299,19 @@ func TestGetQuayImageNameAndURL(t *testing.T) {
 	const crName = "my-image"
 	const namespace = "my-namespace"
 	const componentName = "my-component"
-	getTestImageRepo := func(config imageRepositoryConfig) *imagerepositoryv1alpha1.ImageRepository {
-		imageRepo := &imagerepositoryv1alpha1.ImageRepository{
+	getTestImageRepo := func(config imageRepositoryConfig) *irv1alpha1.ImageRepository {
+		imageRepo := &irv1alpha1.ImageRepository{
 			ObjectMeta: v1.ObjectMeta{
 				Name:      crName,
 				Namespace: namespace,
 			},
-			Spec: imagerepositoryv1alpha1.ImageRepositorySpec{
-				Image: imagerepositoryv1alpha1.ImageParameters{
+			Spec: irv1alpha1.ImageRepositorySpec{
+				Image: irv1alpha1.ImageParameters{
 					Name: config.SpecName,
 				},
 			},
-			Status: imagerepositoryv1alpha1.ImageRepositoryStatus{
-				Image: imagerepositoryv1alpha1.ImageStatus{
+			Status: irv1alpha1.ImageRepositoryStatus{
+				Image: irv1alpha1.ImageStatus{
 					URL: config.StatusImageUrl,
 				},
 			},

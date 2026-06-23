@@ -64,6 +64,7 @@ rules:
   - watch
 - apiGroups:
   - appstudio.redhat.com
+  - konflux-ci.dev
   resources:
   - imagerepositories
   verbs:
@@ -76,9 +77,16 @@ rules:
   - watch
 - apiGroups:
   - appstudio.redhat.com
+  - konflux-ci.dev
   resources:
   - imagerepositories/status
   verbs:
   - get
   - patch
+  - update
+- apiGroups:
+  - konflux-ci.dev
+  resources:
+  - imagerepositories/finalizers
+  verbs:
   - update

@@ -14,6 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// remove after component v2 migration - entire file
+// This controller watches old Component CRD and automatically creates ImageRepository
+// based on annotations. With component v2, ImageRepository creation will be explicit/manual,
+// so this automatic creation controller won't be needed.
+
 package controllers
 
 import (
@@ -187,7 +192,7 @@ func (r *ComponentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		imageRepository := &imagerepositoryv1alpha1.ImageRepository{
 			TypeMeta: metav1.TypeMeta{
 				Kind:       "ImageRepository",
-				APIVersion: "pipelinesascode.tekton.dev/v1alpha1",
+				APIVersion: "appstudio.redhat.com/v1alpha1",
 			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      imageRepositoryName,

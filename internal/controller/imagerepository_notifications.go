@@ -4,15 +4,15 @@ import (
 	"context"
 	"strings"
 
-	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
+	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
 	"github.com/konflux-ci/image-controller/pkg/quay"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-func (r *ImageRepositoryReconciler) AddNotification(notification imagerepositoryv1alpha1.Notifications, imageRepository *imagerepositoryv1alpha1.ImageRepository) (imagerepositoryv1alpha1.NotificationStatus, error) {
+func (r *ImageRepositoryReconciler) AddNotification(notification irv1alpha1.Notifications, imageRepository *irv1alpha1.ImageRepository) (irv1alpha1.NotificationStatus, error) {
 	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository)
 
-	notificationStatus := imagerepositoryv1alpha1.NotificationStatus{}
+	notificationStatus := irv1alpha1.NotificationStatus{}
 	quayNotification, err := r.QuayClient.CreateNotification(
 		r.QuayOrganization,
 		imageRepositoryName,
@@ -29,13 +29,13 @@ func (r *ImageRepositoryReconciler) AddNotification(notification imagerepository
 	if err != nil {
 		return notificationStatus, err
 	}
-	return imagerepositoryv1alpha1.NotificationStatus{
+	return irv1alpha1.NotificationStatus{
 		UUID:  quayNotification.UUID,
 		Title: notification.Title,
 	}, nil
 }
 
-func (r *ImageRepositoryReconciler) checkNotificationChangesExists(imageRepository *imagerepositoryv1alpha1.ImageRepository, allNotifications []quay.Notification) bool {
+func (r *ImageRepositoryReconciler) checkNotificationChangesExists(imageRepository *irv1alpha1.ImageRepository, allNotifications []quay.Notification) bool {
 	if len(allNotifications) != len(imageRepository.Spec.Notifications) {
 		return true
 	}
@@ -55,7 +55,7 @@ func (r *ImageRepositoryReconciler) checkNotificationChangesExists(imageReposito
 	return false
 }
 
-func (r *ImageRepositoryReconciler) HandleNotifications(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) error {
+func (r *ImageRepositoryReconciler) HandleNotifications(ctx context.Context, imageRepository *irv1alpha1.ImageRepository) error {
 	log := ctrllog.FromContext(ctx).WithName("HandleNotifications")
 
 	if imageRepository.Status.Notifications == nil && imageRepository.Spec.Notifications == nil {
@@ -157,7 +157,7 @@ func (r *ImageRepositoryReconciler) HandleNotifications(ctx context.Context, ima
 }
 
 // SetNotifications adds all Spec.Notifications to Quay and overwrites all existing notifications in ImageRepository Status
-func (r *ImageRepositoryReconciler) SetNotifications(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository) ([]imagerepositoryv1alpha1.NotificationStatus, error) {
+func (r *ImageRepositoryReconciler) SetNotifications(ctx context.Context, imageRepository *irv1alpha1.ImageRepository) ([]irv1alpha1.NotificationStatus, error) {
 	log := ctrllog.FromContext(ctx).WithName("ConfigureNotifications")
 
 	if imageRepository.Spec.Notifications == nil {
@@ -166,7 +166,7 @@ func (r *ImageRepositoryReconciler) SetNotifications(ctx context.Context, imageR
 	}
 
 	log.Info("Adding notifications")
-	notificationStatus := []imagerepositoryv1alpha1.NotificationStatus{}
+	notificationStatus := []irv1alpha1.NotificationStatus{}
 
 	for _, notification := range imageRepository.Spec.Notifications {
 		log.Info("Creating notification in Quay", "Title", notification.Title, "Event", notification.Event, "Method", notification.Method)
@@ -186,7 +186,7 @@ func (r *ImageRepositoryReconciler) SetNotifications(ctx context.Context, imageR
 	return notificationStatus, nil
 }
 
-func (r *ImageRepositoryReconciler) notificationExistsInQuayByUUID(uuid string, imageRepository *imagerepositoryv1alpha1.ImageRepository) (quay.Notification, error) {
+func (r *ImageRepositoryReconciler) notificationExistsInQuayByUUID(uuid string, imageRepository *irv1alpha1.ImageRepository) (quay.Notification, error) {
 	notification := quay.Notification{}
 	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository)
 	allNotifications, err := r.QuayClient.GetNotifications(r.QuayOrganization, imageRepositoryName)
@@ -203,11 +203,11 @@ func (r *ImageRepositoryReconciler) notificationExistsInQuayByUUID(uuid string, 
 	return notification, nil
 }
 
-func isNotificationChanged(notification imagerepositoryv1alpha1.Notifications, quayNotification quay.Notification) bool {
+func isNotificationChanged(notification irv1alpha1.Notifications, quayNotification quay.Notification) bool {
 	return quayNotification.UUID != "" && (quayNotification.Title != notification.Title || quayNotification.Event != string(notification.Event) || quayNotification.Method != string(notification.Method) || quayNotification.Config.Url != notification.Config.Url)
 }
 
-func (r *ImageRepositoryReconciler) handleError(ctx context.Context, imageRepository *imagerepositoryv1alpha1.ImageRepository, err error, errorStatusMessage string) error {
+func (r *ImageRepositoryReconciler) handleError(ctx context.Context, imageRepository *irv1alpha1.ImageRepository, err error, errorStatusMessage string) error {
 	if strings.Contains(err.Error(), "400") || strings.Contains(err.Error(), "404") {
 		if err = r.UpdateImageRepositoryStatusMessage(ctx, imageRepository, errorStatusMessage); err != nil {
 			return err
