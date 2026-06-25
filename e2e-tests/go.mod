@@ -1,14 +1,12 @@
 module github.com/konflux-ci/image-controller/e2e-tests
 
-go 1.25.6
-
-toolchain go1.25.10
+go 1.26
 
 require (
 	github.com/devfile/library/v2 v2.2.1-0.20230418160146-e75481b7eebd
 	github.com/konflux-ci/application-api v0.0.0-20260529131129-a9594acdc104
 	github.com/konflux-ci/build-service v0.0.0-20240611083846-2dee6cfe6fe4
-	github.com/konflux-ci/e2e-tests v0.0.0-20260521070148-51052ba6ac77
+	github.com/konflux-ci/e2e-tests v0.0.0-20260707100404-eca3dcc01e3c
 	github.com/onsi/ginkgo/v2 v2.28.0
 	github.com/onsi/gomega v1.39.1
 	github.com/tektoncd/pipeline v1.9.2
@@ -102,7 +100,7 @@ require (
 	github.com/kevinburke/ssh_config v1.4.0 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
-	github.com/konflux-ci/image-controller v0.0.0-20240530145826-3296e4996f6f // indirect
+	github.com/konflux-ci/image-controller v0.0.0-20260623200458-d2ed99f6f8a6 // indirect
 	github.com/konflux-ci/integration-service v0.0.0-20260327093127-2b0e36d45a91 // indirect
 	github.com/konflux-ci/operator-toolkit v0.0.0-20251118152634-b4f41f073069 // indirect
 	github.com/konflux-ci/release-service v0.0.0-20260127184035-c36c56a3c440 // indirect
