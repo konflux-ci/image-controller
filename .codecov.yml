@@ -1,6 +1,11 @@
 codecov:
   require_ci_to_pass: false
 
+ignore:
+  - "**/zz_generated*.go"  # generated deepcopy code
+  - "config/**"            # CRD, RBAC, and kustomize manifests
+  - "vendor/**"            # vendored dependencies
+
 coverage:
   status:
     project:
@@ -13,4 +18,6 @@ coverage:
         target: 80%
         informational: true
 
-comment: false
+comment:
+  layout: "reach,diff,flags,files,footer"
+  require_changes: true
