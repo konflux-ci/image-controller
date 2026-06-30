@@ -7,12 +7,10 @@ toolchain go1.25.10
 require (
 	github.com/devfile/library/v2 v2.2.1-0.20230418160146-e75481b7eebd
 	github.com/konflux-ci/application-api v0.0.0-20260529131129-a9594acdc104
-	github.com/konflux-ci/build-service v0.0.0-20240611083846-2dee6cfe6fe4
 	github.com/konflux-ci/e2e-tests v0.0.0-20260521070148-51052ba6ac77
 	github.com/onsi/ginkgo/v2 v2.28.0
 	github.com/onsi/gomega v1.39.1
 	github.com/tektoncd/pipeline v1.9.2
-	k8s.io/apimachinery v0.35.2
 )
 
 require (
@@ -30,7 +28,6 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blendle/zapdriver v1.3.1 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.7.1 // indirect
-	github.com/bradleyfalzon/ghinstallation/v2 v2.17.0 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
@@ -76,7 +73,6 @@ require (
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/gofri/go-github-ratelimit v1.0.3-0.20230428184158-a500e14de53f // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
@@ -84,9 +80,7 @@ require (
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-containerregistry v0.21.0 // indirect
-	github.com/google/go-github/v45 v45.2.0 // indirect
 	github.com/google/go-github/v66 v66.0.0 // indirect
-	github.com/google/go-github/v75 v75.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/pprof v0.0.0-20260115054156-294ebfa9ad83 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -171,9 +165,10 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/api v0.35.2 // indirect
 	k8s.io/apiextensions-apiserver v0.35.2 // indirect
+	k8s.io/apimachinery v0.35.2 // indirect
 	k8s.io/client-go v11.0.0+incompatible // indirect
 	k8s.io/klog v1.0.0 // indirect
-	k8s.io/klog/v2 v2.130.1 // indirect
+	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260127142750-a19766b6e2d4 // indirect
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4 // indirect
 	knative.dev/pkg v0.0.0-20250424013628-d5e74d29daa3 // indirect
