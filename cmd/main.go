@@ -408,7 +408,8 @@ func buildQuayHttpClient() (*http.Client, error) {
 
 		// Configure TLS with the custom CA pool
 		transport.TLSClientConfig = &tls.Config{
-			RootCAs: caCertPool,
+			RootCAs:    caCertPool,
+			MinVersion: tls.VersionTLS12,
 		}
 
 		setupLog.Info("Additional CA certificate loaded successfully")
