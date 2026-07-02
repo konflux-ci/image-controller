@@ -6,7 +6,7 @@ toolchain go1.25.10
 
 require (
 	github.com/devfile/library/v2 v2.2.1-0.20230418160146-e75481b7eebd
-	github.com/konflux-ci/application-api v0.0.0-20260529131129-a9594acdc104
+	github.com/konflux-ci/application-api v0.0.0-20260603073049-dd8c9b1a64c2
 	github.com/konflux-ci/build-service v0.0.0-20240611083846-2dee6cfe6fe4
 	github.com/konflux-ci/e2e-tests v0.0.0-20260521070148-51052ba6ac77
 	github.com/onsi/ginkgo/v2 v2.28.0
@@ -34,9 +34,9 @@ require (
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
-	github.com/codeready-toolchain/api v0.0.0-20231217224957-34f7cb3fcbf7 // indirect
-	github.com/codeready-toolchain/toolchain-common v0.0.0-20220523142428-2558e76260fb // indirect
-	github.com/codeready-toolchain/toolchain-e2e v0.0.0-20220525131508-60876bfb99d3 // indirect
+	github.com/codeready-toolchain/api v0.0.0-20260623133516-6f421bfacf3d // indirect
+	github.com/codeready-toolchain/toolchain-common v0.0.0-20260622140402-2be93a7d7d76 // indirect
+	github.com/codeready-toolchain/toolchain-e2e v0.0.0-20260623093515-64272d4af2e5 // indirect
 	github.com/conforma/crds/api v0.1.7 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.18.2 // indirect
 	github.com/containerd/typeurl/v2 v2.2.2 // indirect
@@ -88,7 +88,7 @@ require (
 	github.com/google/go-github/v66 v66.0.0 // indirect
 	github.com/google/go-github/v75 v75.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
-	github.com/google/pprof v0.0.0-20260115054156-294ebfa9ad83 // indirect
+	github.com/google/pprof v0.0.0-20260604005048-7023385849c0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.6 // indirect
@@ -104,7 +104,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/konflux-ci/image-controller v0.0.0-20240530145826-3296e4996f6f // indirect
 	github.com/konflux-ci/integration-service v0.0.0-20260327093127-2b0e36d45a91 // indirect
-	github.com/konflux-ci/operator-toolkit v0.0.0-20251118152634-b4f41f073069 // indirect
+	github.com/konflux-ci/operator-toolkit v0.0.0-20260312101100-d4e398191a68 // indirect
 	github.com/konflux-ci/release-service v0.0.0-20260127184035-c36c56a3c440 // indirect
 	github.com/magefile/mage v1.14.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
@@ -130,7 +130,7 @@ require (
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.19.2 // indirect
 	github.com/prometheus/statsd_exporter v0.28.0 // indirect
-	github.com/redhat-appstudio/jvm-build-service v0.0.0-20240126122210-0e2ee7e2e5b0 // indirect
+	github.com/redhat-appstudio/jvm-build-service v0.0.0-20250301023318-b47170d413c5 // indirect
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
@@ -149,7 +149,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
-	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
+	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
@@ -174,9 +174,9 @@ require (
 	k8s.io/client-go v11.0.0+incompatible // indirect
 	k8s.io/klog v1.0.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
-	k8s.io/kube-openapi v0.0.0-20260127142750-a19766b6e2d4 // indirect
-	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4 // indirect
-	knative.dev/pkg v0.0.0-20250424013628-d5e74d29daa3 // indirect
+	k8s.io/kube-openapi v0.0.0-20260624041617-8f3fa4921821 // indirect
+	k8s.io/utils v0.0.0-20260626114624-be93311217bd // indirect
+	knative.dev/pkg v0.0.0-20260622140654-39ebae2ee2dc // indirect
 	oras.land/oras-go/v2 v2.5.0 // indirect
 	sigs.k8s.io/controller-runtime v0.22.4 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
