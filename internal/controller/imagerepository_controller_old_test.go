@@ -450,7 +450,7 @@ var _ = Describe("Image repository controller (old group)", func() {
 		})
 
 		AfterEach(func() {
-			deleteComponent(componentKey)
+			deleteComponent_old(componentKey)
 			deleteApplication(applicationKey)
 		})
 
@@ -613,7 +613,7 @@ var _ = Describe("Image repository controller (old group)", func() {
 
 			waitImageRepositoryFinalizerOnImageRepository_old(resourceKey)
 
-			component := getComponent(componentKey)
+			component := getComponent_old(componentKey)
 			imageRepository := getImageRepository_old(resourceKey)
 
 			if setNotification {
@@ -1686,7 +1686,7 @@ var _ = Describe("Image repository controller (old group)", func() {
 			createApplication_old(applicationConfig{ApplicationKey: applicationKey})
 			createComponent_old(componentConfig{ComponentKey: componentKey, ComponentApplication: defaultComponentApplication})
 			createServiceAccount(defaultNamespaceOld, componentSaName)
-			defer deleteComponent(componentKey)
+			defer deleteComponent_old(componentKey)
 			defer deleteApplication(applicationKey)
 			defer deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespaceOld})
 
@@ -1820,7 +1820,7 @@ var _ = Describe("Image repository controller (old group)", func() {
 			createApplication_old(applicationConfig{ApplicationKey: applicationKey})
 			createComponent_old(componentConfig{ComponentKey: componentKey, ComponentApplication: defaultComponentApplication})
 			createServiceAccount(defaultNamespaceOld, componentSaName)
-			defer deleteComponent(componentKey)
+			defer deleteComponent_old(componentKey)
 			defer deleteApplication(applicationKey)
 			defer deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespaceOld})
 
@@ -1976,7 +1976,7 @@ var _ = Describe("Image repository controller (old group)", func() {
 			Eventually(func() bool { return isAddPermissionsForRepositoryToAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isChangeRepositoryVisibilityInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool {
-				component := getComponent(componentKey)
+				component := getComponent_old(componentKey)
 				return component.Spec.ContainerImage == imageRepository.Status.Image.URL
 			}, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isGetNotificationsInvoked }, timeout, interval).Should(BeTrue())

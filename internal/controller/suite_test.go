@@ -37,6 +37,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
+	compv1alpha1 "github.com/konflux-ci/build-service/api/konflux/v1alpha1"
 	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1" // remove after fully migrated to new group
 	"github.com/konflux-ci/image-controller/pkg/quay"
@@ -70,11 +71,15 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 
 	applicationApiDepVersion := "v0.0.0-20260529131129-a9594acdc104"
+	// remove after using application-api for new group
+	buildServiceDepVersion := "v0.0.0-20260615072827-be64ea6f919f" // the rcerven/build-service replace version
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "config", "crd", "bases"),
 			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "konflux-ci", "application-api@"+applicationApiDepVersion, "config", "crd", "bases"),
+			// remove after using application-api for new group
+			filepath.Join(build.Default.GOPATH, "pkg", "mod", "github.com", "rcerven", "build-service@"+buildServiceDepVersion, "config", "crd", "bases"),
 		},
 		ErrorIfCRDPathMissing: true,
 	}
@@ -88,6 +93,9 @@ var _ = BeforeSuite(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	err = compapiv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = compv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = irv1alpha1.AddToScheme(scheme.Scheme)

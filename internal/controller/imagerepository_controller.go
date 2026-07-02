@@ -28,6 +28,7 @@ import (
 	"time"
 
 	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
+	compv1alpha1 "github.com/konflux-ci/build-service/api/konflux/v1alpha1"
 	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1" // remove after fully migrated to new group
 	l "github.com/konflux-ci/image-controller/pkg/logs"
@@ -226,7 +227,9 @@ func setMetricsTime(idForMetrics string, reconcileStartTime time.Time) {
 //+kubebuilder:rbac:groups=konflux-ci.dev,resources=imagerepositories,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=konflux-ci.dev,resources=imagerepositories/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=konflux-ci.dev,resources=imagerepositories/finalizers,verbs=update
-//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch
+// remove after fully migrated to new group
+//+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=konflux-ci.dev,resources=components,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;update;patch
@@ -533,24 +536,46 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		updateComponentAnnotation, updateComponentAnnotationExists := imageRepository.Annotations[updateComponentAnnotationName]
 		if updateComponentAnnotationExists && updateComponentAnnotation == "true" {
 			componentName := imageRepository.Labels[ComponentNameLabelName]
-			component := &compapiv1alpha1.Component{}
 			componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
-			if err := r.Client.Get(ctx, componentKey, component); err != nil {
-				if errors.IsNotFound(err) {
-					log.Info("attempt to update non existing component", "ComponentName", componentName)
-					return ctrl.Result{}, nil
+
+			if !r.IsOldGroup {
+				component := &compv1alpha1.Component{}
+				if err := r.Client.Get(ctx, componentKey, component); err != nil {
+					if errors.IsNotFound(err) {
+						log.Info("attempt to update non existing component", "ComponentName", componentName)
+						return ctrl.Result{}, nil
+					}
+
+					log.Error(err, "failed to get component", "ComponentName", componentName, l.Action, l.ActionView)
+					return ctrl.Result{}, err
 				}
 
-				log.Error(err, "failed to get component", "ComponentName", componentName, l.Action, l.ActionView)
-				return ctrl.Result{}, err
-			}
+				component.Spec.ContainerImage = imageUrl
 
-			component.Spec.ContainerImage = imageUrl
+				if err := r.Client.Update(ctx, component); err != nil {
+					log.Error(err, "failed to update Component after provision", "ComponentName", componentName, l.Action, l.ActionUpdate)
+					return ctrl.Result{}, err
+				}
+			} else { // remove after fully migrated to new group - start
+				component := &compapiv1alpha1.Component{}
+				if err := r.Client.Get(ctx, componentKey, component); err != nil {
+					if errors.IsNotFound(err) {
+						log.Info("attempt to update non existing component", "ComponentName", componentName)
+						return ctrl.Result{}, nil
+					}
 
-			if err := r.Client.Update(ctx, component); err != nil {
-				log.Error(err, "failed to update Component after provision", "ComponentName", componentName, l.Action, l.ActionUpdate)
-				return ctrl.Result{}, err
-			}
+					log.Error(err, "failed to get component", "ComponentName", componentName, l.Action, l.ActionView)
+					return ctrl.Result{}, err
+				}
+
+				component.Spec.ContainerImage = imageUrl
+
+				if err := r.Client.Update(ctx, component); err != nil {
+					log.Error(err, "failed to update Component after provision", "ComponentName", componentName, l.Action, l.ActionUpdate)
+					return ctrl.Result{}, err
+				}
+			} // remove after fully migrated to new group - end
+
 			log.Info("Updated component's ContainerImage", "ComponentName", componentName)
 			delete(imageRepository.Annotations, updateComponentAnnotationName)
 
@@ -669,8 +694,16 @@ func (r *ImageRepositoryReconciler) CheckComponentExistence(ctx context.Context,
 	log := ctrllog.FromContext(ctx).WithName("CheckComponentExistence")
 
 	componentName := imageRepository.Labels[ComponentNameLabelName]
-	component := &compapiv1alpha1.Component{}
 	componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
+
+	// remove following block after fully migrated to new group - replace with: component := &compv1alpha1.Component{}
+	var component client.Object
+	if !r.IsOldGroup {
+		component = &compv1alpha1.Component{}
+	} else {
+		component = &compapiv1alpha1.Component{}
+	}
+
 	if err := r.Client.Get(ctx, componentKey, component); err != nil {
 		if errors.IsNotFound(err) {
 			log.Info("component related to image repository doesn't exist, will wait for component", "Component", componentName)
@@ -721,11 +754,18 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	log := ctrllog.FromContext(ctx).WithName("ImageRepositoryProvision")
 	ctx = ctrllog.IntoContext(ctx, log)
 
-	var component *compapiv1alpha1.Component
+	var component client.Object // remove after fully migrated to new group - replace with: var component *compv1alpha1.Component
 	if isComponentLinked(imageRepository) {
 		componentName := imageRepository.Labels[ComponentNameLabelName]
-		component = &compapiv1alpha1.Component{}
 		componentKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: componentName}
+
+		// remove following block after fully migrated to new group
+		if !r.IsOldGroup {
+			component = &compv1alpha1.Component{}
+		} else {
+			component = &compapiv1alpha1.Component{}
+		}
+
 		if err := r.Client.Get(ctx, componentKey, component); err != nil {
 			if errors.IsNotFound(err) {
 				log.Info("attempt to create image repository related to non existing component", "Component", componentName)
@@ -831,7 +871,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	controllerutil.AddFinalizer(imageRepository, ImageRepositoryFinalizer)
 	if isComponentLinked(imageRepository) {
 		if err := controllerutil.SetOwnerReference(component, imageRepository, r.Scheme); err != nil {
-			log.Error(err, "failed to set component as owner", "ComponentName", component.Name)
+			log.Error(err, "failed to set component as owner", "ComponentName", component.GetName())
 			// Do not fail provision because of failed owner reference
 		}
 	}

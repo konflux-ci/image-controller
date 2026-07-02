@@ -32,7 +32,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
+	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1" // remove after fully migrated to new group
+	compv1alpha1 "github.com/konflux-ci/build-service/api/konflux/v1alpha1"
 	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1" // remove after fully migrated to new group
 )
@@ -307,12 +308,14 @@ func deleteApplication(applicationKey types.NamespacedName) {
 }
 
 type componentConfig struct {
-	ComponentKey         types.NamespacedName
+	ComponentKey types.NamespacedName
+	// remove after fully migrated to new group
 	ComponentApplication string
-	Annotations          map[string]string
+	// remove after fully migrated to new group
+	Annotations map[string]string
 }
 
-func getSampleComponentData(config componentConfig) *compapiv1alpha1.Component {
+func getSampleComponentData(config componentConfig) *compv1alpha1.Component {
 	name := config.ComponentKey.Name
 	if name == "" {
 		name = defaultComponentName
@@ -321,26 +324,17 @@ func getSampleComponentData(config componentConfig) *compapiv1alpha1.Component {
 	if namespace == "" {
 		namespace = defaultNamespace
 	}
-	application := config.ComponentApplication
-	annotations := make(map[string]string)
-	if config.Annotations != nil {
-		annotations = config.Annotations
-	}
 
-	return &compapiv1alpha1.Component{
+	return &compv1alpha1.Component{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "appstudio.redhat.com/v1alpha1",
+			APIVersion: "konflux-ci.dev/v1alpha1",
 			Kind:       "Component",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   namespace,
-			Annotations: annotations,
+			Name:      name,
+			Namespace: namespace,
 		},
-		Spec: compapiv1alpha1.ComponentSpec{
-			ComponentName: name,
-			Application:   application,
-		},
+		Spec: compv1alpha1.ComponentSpec{},
 	}
 }
 
@@ -378,7 +372,7 @@ func getSampleComponentData_old(config componentConfig) *compapiv1alpha1.Compone
 }
 
 // createComponent creates sample component resource and verifies it was properly created.
-func createComponent(config componentConfig) *compapiv1alpha1.Component {
+func createComponent(config componentConfig) *compv1alpha1.Component {
 	component := getSampleComponentData(config)
 
 	Expect(k8sClient.Create(ctx, component)).Should(Succeed())
@@ -394,10 +388,20 @@ func createComponent_old(config componentConfig) *compapiv1alpha1.Component {
 	Expect(k8sClient.Create(ctx, component)).Should(Succeed())
 
 	componentKey := types.NamespacedName{Namespace: component.Namespace, Name: component.Name}
-	return getComponent(componentKey)
+	return getComponent_old(componentKey)
 }
 
-func getComponent(componentKey types.NamespacedName) *compapiv1alpha1.Component {
+func getComponent(componentKey types.NamespacedName) *compv1alpha1.Component {
+	component := &compv1alpha1.Component{}
+	Eventually(func() bool {
+		Expect(k8sClient.Get(ctx, componentKey, component)).Should(Succeed())
+		return component.ResourceVersion != ""
+	}, timeout, interval).Should(BeTrue())
+	return component
+}
+
+// remove after fully migrated to new group
+func getComponent_old(componentKey types.NamespacedName) *compapiv1alpha1.Component {
 	component := &compapiv1alpha1.Component{}
 	Eventually(func() bool {
 		Expect(k8sClient.Get(ctx, componentKey, component)).Should(Succeed())
@@ -408,6 +412,25 @@ func getComponent(componentKey types.NamespacedName) *compapiv1alpha1.Component 
 
 // deleteComponent deletes the specified component resource and verifies it was properly deleted
 func deleteComponent(componentKey types.NamespacedName) {
+	component := &compv1alpha1.Component{}
+
+	// Check if the component exists
+	if err := k8sClient.Get(ctx, componentKey, component); k8sErrors.IsNotFound(err) {
+		return
+	}
+
+	// Delete
+	Expect(k8sClient.Delete(ctx, component)).To(Succeed())
+
+	// Wait for delete to finish
+	Eventually(func() bool {
+		return k8sErrors.IsNotFound(k8sClient.Get(ctx, componentKey, component))
+	}, timeout, interval).Should(BeTrue())
+}
+
+// deleteComponent deletes the specified component resource and verifies it was properly deleted
+// remove after fully migrated to new group
+func deleteComponent_old(componentKey types.NamespacedName) {
 	component := &compapiv1alpha1.Component{}
 
 	// Check if the component exists
@@ -425,7 +448,7 @@ func deleteComponent(componentKey types.NamespacedName) {
 }
 
 func setComponentAnnotationValue(componentKey types.NamespacedName, annotationName string, annotationValue string) {
-	component := getComponent(componentKey)
+	component := getComponent_old(componentKey)
 	if component.Annotations == nil {
 		component.Annotations = make(map[string]string)
 	}
@@ -435,7 +458,7 @@ func setComponentAnnotationValue(componentKey types.NamespacedName, annotationNa
 
 func waitComponentAnnotation(componentKey types.NamespacedName, annotationName string) {
 	Eventually(func() bool {
-		component := getComponent(componentKey)
+		component := getComponent_old(componentKey)
 		annotations := component.GetAnnotations()
 		if annotations == nil {
 			return false
@@ -447,7 +470,7 @@ func waitComponentAnnotation(componentKey types.NamespacedName, annotationName s
 
 func waitComponentAnnotationGone(componentKey types.NamespacedName, annotationName string) {
 	Eventually(func() bool {
-		component := getComponent(componentKey)
+		component := getComponent_old(componentKey)
 		annotations := component.GetAnnotations()
 		if annotations == nil {
 			return true
