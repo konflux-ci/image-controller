@@ -42,6 +42,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -166,8 +167,11 @@ func main() {
 	leaseDuration := 137 * time.Second
 	renewDeadline := 107 * time.Second
 	retryPeriod := 26 * time.Second
+	var syncPeriod time.Duration
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		// disable periodic all objects requeue by passing 0 time
+		Cache:                  cache.Options{SyncPeriod: &syncPeriod},
 		Client:                 clientOpts,
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
