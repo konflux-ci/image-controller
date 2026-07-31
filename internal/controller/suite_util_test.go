@@ -32,7 +32,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1"
+	compv1alpha1 "github.com/konflux-ci/application-api/api/konflux/v1alpha1"
+	compapiv1alpha1 "github.com/konflux-ci/application-api/api/v1alpha1" // remove after fully migrated to new group
 	irv1alpha1 "github.com/konflux-ci/image-controller/api/konflux/v1alpha1"
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1" // remove after fully migrated to new group
 )
@@ -58,6 +59,7 @@ const (
 
 	defaultComponentName        = "test-component"
 	defaultComponentApplication = "test-application"
+	defaultSampleRepoLink       = "https://github.com/test-component/test-repo"
 )
 
 type imageRepositoryConfig struct {
@@ -72,7 +74,7 @@ type imageRepositoryConfig struct {
 }
 
 // remove after fully migrated to new group - entire type
-type imageRepositoryConfig_old struct {
+type imageRepositoryConfigOldModel struct {
 	ResourceKey     *types.NamespacedName
 	ImageName       string
 	Visibility      string
@@ -125,7 +127,7 @@ func getImageRepositoryConfig(config imageRepositoryConfig) *irv1alpha1.ImageRep
 }
 
 // remove after fully migrated to new group
-func getImageRepositoryConfig_old(config imageRepositoryConfig_old) *imagerepositoryv1alpha1.ImageRepository {
+func getImageRepositoryConfigOldModel(config imageRepositoryConfigOldModel) *imagerepositoryv1alpha1.ImageRepository {
 	name := defaultImageRepositoryName
 	namespace := defaultNamespace
 	if config.ResourceKey != nil {
@@ -175,12 +177,12 @@ func createImageRepository(config imageRepositoryConfig) *irv1alpha1.ImageReposi
 }
 
 // remove after fully migrated to new group
-func createImageRepository_old(config imageRepositoryConfig_old) *imagerepositoryv1alpha1.ImageRepository {
-	imageRepository := getImageRepositoryConfig_old(config)
+func createImageRepositoryOldModel(config imageRepositoryConfigOldModel) *imagerepositoryv1alpha1.ImageRepository {
+	imageRepository := getImageRepositoryConfigOldModel(config)
 	Expect(k8sClient.Create(ctx, imageRepository)).To(Succeed())
 
 	imageRepositoryKey := types.NamespacedName{Namespace: imageRepository.Namespace, Name: imageRepository.Name}
-	return getImageRepository_old(imageRepositoryKey)
+	return getImageRepositoryOldModel(imageRepositoryKey)
 }
 
 func getImageRepository(imageRepositoryKey types.NamespacedName) *irv1alpha1.ImageRepository {
@@ -193,7 +195,7 @@ func getImageRepository(imageRepositoryKey types.NamespacedName) *irv1alpha1.Ima
 }
 
 // remove after fully migrated to new group
-func getImageRepository_old(imageRepositoryKey types.NamespacedName) *imagerepositoryv1alpha1.ImageRepository {
+func getImageRepositoryOldModel(imageRepositoryKey types.NamespacedName) *imagerepositoryv1alpha1.ImageRepository {
 	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
 	Eventually(func() bool {
 		Expect(k8sClient.Get(ctx, imageRepositoryKey, imageRepository)).Should(Succeed())
@@ -215,7 +217,7 @@ func deleteImageRepository(imageRepositoryKey types.NamespacedName) {
 }
 
 // remove after fully migrated to new group
-func deleteImageRepository_old(imageRepositoryKey types.NamespacedName) {
+func deleteImageRepositoryOldModel(imageRepositoryKey types.NamespacedName) {
 	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
 	if err := k8sClient.Get(ctx, imageRepositoryKey, imageRepository); err != nil {
 		if k8sErrors.IsNotFound(err) {
@@ -224,7 +226,7 @@ func deleteImageRepository_old(imageRepositoryKey types.NamespacedName) {
 		Fail("Failed to get image repository")
 	}
 	Expect(k8sClient.Delete(ctx, imageRepository)).To(Succeed())
-	waitImageRepositoryGone_old(imageRepositoryKey)
+	waitImageRepositoryGoneOldModel(imageRepositoryKey)
 }
 
 func waitImageRepositoryGone(resourceKey types.NamespacedName) {
@@ -235,7 +237,7 @@ func waitImageRepositoryGone(resourceKey types.NamespacedName) {
 }
 
 // remove after fully migrated to new group
-func waitImageRepositoryGone_old(resourceKey types.NamespacedName) {
+func waitImageRepositoryGoneOldModel(resourceKey types.NamespacedName) {
 	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
 	Eventually(func() bool {
 		return k8sErrors.IsNotFound(k8sClient.Get(ctx, resourceKey, imageRepository))
@@ -247,7 +249,7 @@ type applicationConfig struct {
 }
 
 // remove after fully migrated to new group
-func getSampleApplicationData_old(config applicationConfig) *compapiv1alpha1.Application {
+func getSampleApplicationDataOldModel(config applicationConfig) *compapiv1alpha1.Application {
 	name := config.ApplicationKey.Name
 	if name == "" {
 		name = defaultComponentApplication
@@ -270,8 +272,8 @@ func getSampleApplicationData_old(config applicationConfig) *compapiv1alpha1.App
 }
 
 // remove after fully migrated to new group
-func createApplication_old(config applicationConfig) *compapiv1alpha1.Application {
-	application := getSampleApplicationData_old(config)
+func createApplicationOldModel(config applicationConfig) *compapiv1alpha1.Application {
+	application := getSampleApplicationDataOldModel(config)
 
 	Expect(k8sClient.Create(ctx, application)).Should(Succeed())
 
@@ -307,12 +309,14 @@ func deleteApplication(applicationKey types.NamespacedName) {
 }
 
 type componentConfig struct {
-	ComponentKey         types.NamespacedName
+	ComponentKey types.NamespacedName
+	// remove after fully migrated to new group
 	ComponentApplication string
-	Annotations          map[string]string
+	// remove after fully migrated to new group
+	Annotations map[string]string
 }
 
-func getSampleComponentData(config componentConfig) *compapiv1alpha1.Component {
+func getSampleComponentData(config componentConfig) *compv1alpha1.Component {
 	name := config.ComponentKey.Name
 	if name == "" {
 		name = defaultComponentName
@@ -321,31 +325,26 @@ func getSampleComponentData(config componentConfig) *compapiv1alpha1.Component {
 	if namespace == "" {
 		namespace = defaultNamespace
 	}
-	application := config.ComponentApplication
-	annotations := make(map[string]string)
-	if config.Annotations != nil {
-		annotations = config.Annotations
-	}
 
-	return &compapiv1alpha1.Component{
+	return &compv1alpha1.Component{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "appstudio.redhat.com/v1alpha1",
+			APIVersion: "konflux-ci.dev/v1alpha1",
 			Kind:       "Component",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   namespace,
-			Annotations: annotations,
+			Name:      name,
+			Namespace: namespace,
 		},
-		Spec: compapiv1alpha1.ComponentSpec{
-			ComponentName: name,
-			Application:   application,
+		Spec: compv1alpha1.ComponentSpec{
+			Source: compv1alpha1.ComponentSource{
+				GitURL: defaultSampleRepoLink + "-" + name,
+			},
 		},
 	}
 }
 
 // remove after fully migrated to new group
-func getSampleComponentData_old(config componentConfig) *compapiv1alpha1.Component {
+func getSampleComponentDataOldModel(config componentConfig) *compapiv1alpha1.Component {
 	name := config.ComponentKey.Name
 	if name == "" {
 		name = defaultComponentName
@@ -378,7 +377,7 @@ func getSampleComponentData_old(config componentConfig) *compapiv1alpha1.Compone
 }
 
 // createComponent creates sample component resource and verifies it was properly created.
-func createComponent(config componentConfig) *compapiv1alpha1.Component {
+func createComponent(config componentConfig) *compv1alpha1.Component {
 	component := getSampleComponentData(config)
 
 	Expect(k8sClient.Create(ctx, component)).Should(Succeed())
@@ -388,16 +387,26 @@ func createComponent(config componentConfig) *compapiv1alpha1.Component {
 }
 
 // remove after fully migrated to new group
-func createComponent_old(config componentConfig) *compapiv1alpha1.Component {
-	component := getSampleComponentData_old(config)
+func createComponentOldModel(config componentConfig) *compapiv1alpha1.Component {
+	component := getSampleComponentDataOldModel(config)
 
 	Expect(k8sClient.Create(ctx, component)).Should(Succeed())
 
 	componentKey := types.NamespacedName{Namespace: component.Namespace, Name: component.Name}
-	return getComponent(componentKey)
+	return getComponentOldModel(componentKey)
 }
 
-func getComponent(componentKey types.NamespacedName) *compapiv1alpha1.Component {
+func getComponent(componentKey types.NamespacedName) *compv1alpha1.Component {
+	component := &compv1alpha1.Component{}
+	Eventually(func() bool {
+		Expect(k8sClient.Get(ctx, componentKey, component)).Should(Succeed())
+		return component.ResourceVersion != ""
+	}, timeout, interval).Should(BeTrue())
+	return component
+}
+
+// remove after fully migrated to new group
+func getComponentOldModel(componentKey types.NamespacedName) *compapiv1alpha1.Component {
 	component := &compapiv1alpha1.Component{}
 	Eventually(func() bool {
 		Expect(k8sClient.Get(ctx, componentKey, component)).Should(Succeed())
@@ -408,6 +417,25 @@ func getComponent(componentKey types.NamespacedName) *compapiv1alpha1.Component 
 
 // deleteComponent deletes the specified component resource and verifies it was properly deleted
 func deleteComponent(componentKey types.NamespacedName) {
+	component := &compv1alpha1.Component{}
+
+	// Check if the component exists
+	if err := k8sClient.Get(ctx, componentKey, component); k8sErrors.IsNotFound(err) {
+		return
+	}
+
+	// Delete
+	Expect(k8sClient.Delete(ctx, component)).To(Succeed())
+
+	// Wait for delete to finish
+	Eventually(func() bool {
+		return k8sErrors.IsNotFound(k8sClient.Get(ctx, componentKey, component))
+	}, timeout, interval).Should(BeTrue())
+}
+
+// deleteComponent deletes the specified component resource and verifies it was properly deleted
+// remove after fully migrated to new group
+func deleteComponentOldModel(componentKey types.NamespacedName) {
 	component := &compapiv1alpha1.Component{}
 
 	// Check if the component exists
@@ -425,7 +453,7 @@ func deleteComponent(componentKey types.NamespacedName) {
 }
 
 func setComponentAnnotationValue(componentKey types.NamespacedName, annotationName string, annotationValue string) {
-	component := getComponent(componentKey)
+	component := getComponentOldModel(componentKey)
 	if component.Annotations == nil {
 		component.Annotations = make(map[string]string)
 	}
@@ -435,7 +463,7 @@ func setComponentAnnotationValue(componentKey types.NamespacedName, annotationNa
 
 func waitComponentAnnotation(componentKey types.NamespacedName, annotationName string) {
 	Eventually(func() bool {
-		component := getComponent(componentKey)
+		component := getComponentOldModel(componentKey)
 		annotations := component.GetAnnotations()
 		if annotations == nil {
 			return false
@@ -447,7 +475,7 @@ func waitComponentAnnotation(componentKey types.NamespacedName, annotationName s
 
 func waitComponentAnnotationGone(componentKey types.NamespacedName, annotationName string) {
 	Eventually(func() bool {
-		component := getComponent(componentKey)
+		component := getComponentOldModel(componentKey)
 		annotations := component.GetAnnotations()
 		if annotations == nil {
 			return true
@@ -468,13 +496,13 @@ func waitImageRepositoryFinalizerOnImageRepository(imageRepositoryKey types.Name
 }
 
 // remove after fully migrated to new group
-func waitImageRepositoryFinalizerOnImageRepository_old(imageRepositoryKey types.NamespacedName) {
+func waitImageRepositoryFinalizerOnImageRepositoryOldModel(imageRepositoryKey types.NamespacedName) {
 	imageRepository := &imagerepositoryv1alpha1.ImageRepository{}
 	Eventually(func() bool {
 		if err := k8sClient.Get(ctx, imageRepositoryKey, imageRepository); err != nil {
 			return false
 		}
-		return controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizer)
+		return controllerutil.ContainsFinalizer(imageRepository, ImageRepositoryFinalizerOldModel)
 	}, timeout, interval).Should(BeTrue())
 }
 
@@ -500,9 +528,9 @@ func waitImageRepositoryCredentialSectionRequestGone(imageRepositoryKey types.Na
 }
 
 // remove after fully migrated to new group
-func waitImageRepositoryCredentialSectionRequestGone_old(imageRepositoryKey types.NamespacedName, operationName string) {
+func waitImageRepositoryCredentialSectionRequestGoneOldModel(imageRepositoryKey types.NamespacedName, operationName string) {
 	Eventually(func() bool {
-		imageRepository := getImageRepository_old(imageRepositoryKey)
+		imageRepository := getImageRepositoryOldModel(imageRepositoryKey)
 		switch operationName {
 		case "regenerate":
 			if imageRepository.Spec.Credentials.RegenerateToken == nil {
@@ -663,6 +691,19 @@ func verifySecretSpec(secret *corev1.Secret, ownerKind, ownerAPIVersion, ownerNa
 		Expect(secret.OwnerReferences[0].Name).To(Equal(ownerName))
 	}
 	Expect(secret.Labels[InternalSecretLabelName]).To(Equal("true"))
+	Expect(secret.Name).To(Equal(secretName))
+	Expect(secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
+}
+
+// remove after fully migrated to new group
+func verifySecretSpecOldModel(secret *corev1.Secret, ownerKind, ownerAPIVersion, ownerName, secretName string) {
+	if ownerKind != "" && ownerAPIVersion != "" && ownerName != "" {
+		Expect(secret.OwnerReferences).To(HaveLen(1))
+		Expect(secret.OwnerReferences[0].Kind).To(Equal(ownerKind))
+		Expect(secret.OwnerReferences[0].APIVersion).To(Equal(ownerAPIVersion))
+		Expect(secret.OwnerReferences[0].Name).To(Equal(ownerName))
+	}
+	Expect(secret.Labels[InternalSecretLabelNameOldModel]).To(Equal("true"))
 	Expect(secret.Name).To(Equal(secretName))
 	Expect(secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
 }

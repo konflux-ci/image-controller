@@ -60,12 +60,12 @@ var _ = Describe("Component image controller", func() {
 
 		BeforeEach(func() {
 			quay.ResetTestQuayClient()
-			createApplication_old(applicationConfig{ApplicationKey: applicationKey})
+			createApplicationOldModel(applicationConfig{ApplicationKey: applicationKey})
 		})
 
 		AfterEach(func() {
 			deleteApplication(applicationKey)
-			deleteComponent(resourceImageProvisionKey)
+			deleteComponentOldModel(resourceImageProvisionKey)
 		})
 
 		It("should prepare environment", func() {
@@ -84,7 +84,7 @@ var _ = Describe("Component image controller", func() {
 
 		It("should do image repository provision", func() {
 			expectedVisibility := imagerepositoryv1alpha1.ImageVisibility("private")
-			createComponent_old(componentConfig{
+			createComponentOldModel(componentConfig{
 				ComponentKey:         resourceImageProvisionKey,
 				ComponentApplication: defaultComponentApplication,
 				Annotations: map[string]string{
@@ -98,27 +98,27 @@ var _ = Describe("Component image controller", func() {
 			Expect(k8sClient.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: resourceImageProvisionKey.Namespace})).To(Succeed())
 			Expect(imageRepositoriesList.Items).To(HaveLen(1))
 
-			component := getComponent(resourceImageProvisionKey)
+			component := getComponentOldModel(resourceImageProvisionKey)
 			// wait for imagerepository_controller to finish
-			waitImageRepositoryFinalizerOnImageRepository_old(imageRepositoryName)
-			imageRepository := getImageRepository_old(imageRepositoryName)
+			waitImageRepositoryFinalizerOnImageRepositoryOldModel(imageRepositoryName)
+			imageRepository := getImageRepositoryOldModel(imageRepositoryName)
 
 			Expect(imageRepository.ObjectMeta.Labels[ApplicationNameLabelName]).To(Equal(component.Spec.Application))
-			Expect(imageRepository.ObjectMeta.Labels[ComponentNameLabelName]).To(Equal(component.Name))
+			Expect(imageRepository.ObjectMeta.Labels[ComponentNameLabelNameOldModel]).To(Equal(component.Name))
 			Expect(imageRepository.Spec.Image.Visibility).To(Equal(expectedVisibility))
 			Expect(imageRepository.ObjectMeta.OwnerReferences[0].UID).To(Equal(component.UID))
-			Expect(imageRepository.ObjectMeta.Annotations[updateComponentAnnotationName]).To(BeEmpty())
+			Expect(imageRepository.ObjectMeta.Annotations[updateComponentAnnotationNameOldModel]).To(BeEmpty())
 
-			component = getComponent(resourceImageProvisionKey)
+			component = getComponentOldModel(resourceImageProvisionKey)
 			Expect(component.Annotations[ImageAnnotationName]).To(BeEmpty())
 			Expect(component.Spec.ContainerImage).ToNot(BeEmpty())
 
-			deleteImageRepository_old(imageRepositoryName)
+			deleteImageRepositoryOldModel(imageRepositoryName)
 		})
 
 		It("should do image repository provision when component doesn't have application", func() {
 			expectedVisibility := imagerepositoryv1alpha1.ImageVisibility("private")
-			createComponent_old(componentConfig{
+			createComponentOldModel(componentConfig{
 				ComponentKey: resourceImageProvisionKey,
 				Annotations: map[string]string{
 					GenerateImageAnnotationName: "{\"visibility\": \"private\"}",
@@ -131,28 +131,28 @@ var _ = Describe("Component image controller", func() {
 			Expect(k8sClient.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: resourceImageProvisionKey.Namespace})).To(Succeed())
 			Expect(imageRepositoriesList.Items).To(HaveLen(1))
 
-			component := getComponent(resourceImageProvisionKey)
+			component := getComponentOldModel(resourceImageProvisionKey)
 			// wait for imagerepository_controller to finish
-			waitImageRepositoryFinalizerOnImageRepository_old(imageRepositoryWithoutApplicationName)
-			imageRepository := getImageRepository_old(imageRepositoryWithoutApplicationName)
+			waitImageRepositoryFinalizerOnImageRepositoryOldModel(imageRepositoryWithoutApplicationName)
+			imageRepository := getImageRepositoryOldModel(imageRepositoryWithoutApplicationName)
 
 			_, applicationLabelExists := imageRepository.ObjectMeta.Labels[ApplicationNameLabelName]
 			Expect(applicationLabelExists).To(BeFalse())
-			Expect(imageRepository.ObjectMeta.Labels[ComponentNameLabelName]).To(Equal(component.Name))
+			Expect(imageRepository.ObjectMeta.Labels[ComponentNameLabelNameOldModel]).To(Equal(component.Name))
 			Expect(imageRepository.Spec.Image.Visibility).To(Equal(expectedVisibility))
 			Expect(imageRepository.ObjectMeta.OwnerReferences[0].UID).To(Equal(component.UID))
-			Expect(imageRepository.ObjectMeta.Annotations[updateComponentAnnotationName]).To(BeEmpty())
+			Expect(imageRepository.ObjectMeta.Annotations[updateComponentAnnotationNameOldModel]).To(BeEmpty())
 
-			component = getComponent(resourceImageProvisionKey)
+			component = getComponentOldModel(resourceImageProvisionKey)
 			Expect(component.Annotations[ImageAnnotationName]).To(BeEmpty())
 			Expect(component.Spec.ContainerImage).ToNot(BeEmpty())
 
-			deleteImageRepository_old(imageRepositoryWithoutApplicationName)
+			deleteImageRepositoryOldModel(imageRepositoryWithoutApplicationName)
 		})
 
 		It("should accept deprecated true value for repository options", func() {
 			expectedVisibility := imagerepositoryv1alpha1.ImageVisibility("public")
-			createComponent_old(componentConfig{
+			createComponentOldModel(componentConfig{
 				ComponentKey:         resourceImageProvisionKey,
 				ComponentApplication: defaultComponentApplication,
 				Annotations: map[string]string{
@@ -167,22 +167,22 @@ var _ = Describe("Component image controller", func() {
 			Expect(k8sClient.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: resourceImageProvisionKey.Namespace})).To(Succeed())
 			Expect(imageRepositoriesList.Items).To(HaveLen(1))
 
-			component := getComponent(resourceImageProvisionKey)
+			component := getComponentOldModel(resourceImageProvisionKey)
 			// wait for imagerepository_controller to finish
-			waitImageRepositoryFinalizerOnImageRepository_old(imageRepositoryName)
-			imageRepository := getImageRepository_old(imageRepositoryName)
+			waitImageRepositoryFinalizerOnImageRepositoryOldModel(imageRepositoryName)
+			imageRepository := getImageRepositoryOldModel(imageRepositoryName)
 
 			Expect(imageRepository.ObjectMeta.Labels[ApplicationNameLabelName]).To(Equal(component.Spec.Application))
-			Expect(imageRepository.ObjectMeta.Labels[ComponentNameLabelName]).To(Equal(component.Name))
+			Expect(imageRepository.ObjectMeta.Labels[ComponentNameLabelNameOldModel]).To(Equal(component.Name))
 			Expect(imageRepository.Spec.Image.Visibility).To(Equal(expectedVisibility))
 			Expect(imageRepository.ObjectMeta.OwnerReferences[0].UID).To(Equal(component.UID))
-			Expect(imageRepository.ObjectMeta.Annotations[updateComponentAnnotationName]).To(BeEmpty())
+			Expect(imageRepository.ObjectMeta.Annotations[updateComponentAnnotationNameOldModel]).To(BeEmpty())
 
-			component = getComponent(resourceImageProvisionKey)
+			component = getComponentOldModel(resourceImageProvisionKey)
 			Expect(component.Annotations[ImageAnnotationName]).To(BeEmpty())
 			Expect(component.Spec.ContainerImage).ToNot(BeEmpty())
 
-			deleteImageRepository_old(imageRepositoryName)
+			deleteImageRepositoryOldModel(imageRepositoryName)
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: imageTestNamespace})
 		})
@@ -194,9 +194,9 @@ var _ = Describe("Component image controller", func() {
 		var componentSaName = getComponentSaName(resourceImageErrorKey.Name)
 
 		It("should prepare environment", func() {
-			deleteComponent(resourceImageErrorKey)
+			deleteComponentOldModel(resourceImageErrorKey)
 			quay.ResetTestQuayClient()
-			createApplication_old(applicationConfig{ApplicationKey: applicationKey})
+			createApplicationOldModel(applicationConfig{ApplicationKey: applicationKey})
 
 			createServiceAccount(imageTestNamespace, componentSaName)
 			createServiceAccount(imageTestNamespace, IntegrationServiceAccountName)
@@ -210,7 +210,7 @@ var _ = Describe("Component image controller", func() {
 		})
 
 		It("should do nothing if generate annotation is not set", func() {
-			createComponent_old(componentConfig{ComponentKey: resourceImageErrorKey, ComponentApplication: defaultComponentApplication})
+			createComponentOldModel(componentConfig{ComponentKey: resourceImageErrorKey, ComponentApplication: defaultComponentApplication})
 
 			time.Sleep(ensureTimeout)
 			waitComponentAnnotationGone(resourceImageErrorKey, GenerateImageAnnotationName)
@@ -222,18 +222,18 @@ var _ = Describe("Component image controller", func() {
 		})
 
 		It("should do nothing if imageRepository for the component already exists, with expected name", func() {
-			component := getComponent(resourceImageErrorKey)
+			component := getComponentOldModel(resourceImageErrorKey)
 			imageRepositoryName := fmt.Sprintf("imagerepository-for-%s-%s", component.Spec.Application, component.Name)
 			imageRepositoryKey := types.NamespacedName{Name: imageRepositoryName, Namespace: component.Namespace}
 
-			createImageRepository_old(imageRepositoryConfig_old{ResourceKey: &imageRepositoryKey})
+			createImageRepositoryOldModel(imageRepositoryConfigOldModel{ResourceKey: &imageRepositoryKey})
 			// wait for imagerepository_controller to finish
-			waitImageRepositoryFinalizerOnImageRepository_old(imageRepositoryKey)
+			waitImageRepositoryFinalizerOnImageRepositoryOldModel(imageRepositoryKey)
 			// add generate annotation and it will not create new ImageRepository
 			setComponentAnnotationValue(resourceImageErrorKey, GenerateImageAnnotationName, `{"visibility": "public"}`)
 			waitComponentAnnotationGone(resourceImageErrorKey, GenerateImageAnnotationName)
 
-			component = getComponent(resourceImageErrorKey)
+			component = getComponentOldModel(resourceImageErrorKey)
 			Expect(component.Annotations[ImageAnnotationName]).To(BeEmpty())
 			// just to double check that new ImageRepository wasn't created, which would add ContainerImage
 			Expect(component.Spec.ContainerImage).To(BeEmpty())
@@ -251,28 +251,28 @@ var _ = Describe("Component image controller", func() {
 				APIVersion: "appstudio.redhat.com/v1alpha1",
 			}))
 
-			deleteImageRepository_old(imageRepositoryKey)
+			deleteImageRepositoryOldModel(imageRepositoryKey)
 		})
 
 		It("should do nothing if imageRepository for the component already exists, with different name", func() {
-			component := getComponent(resourceImageErrorKey)
+			component := getComponentOldModel(resourceImageErrorKey)
 			imageRepositoryName := fmt.Sprintf("differently-named-%s-%s", component.Spec.Application, component.Name)
 			imageRepository := types.NamespacedName{Name: imageRepositoryName, Namespace: component.Namespace}
 			ownerReferences := []metav1.OwnerReference{
 				{Kind: "Component", Name: component.Name, UID: component.UID, APIVersion: "appstudio.redhat.com/v1alpha1"},
 			}
 
-			createImageRepository_old(imageRepositoryConfig_old{
+			createImageRepositoryOldModel(imageRepositoryConfigOldModel{
 				ResourceKey:     &imageRepository,
 				OwnerReferences: ownerReferences,
 			})
 			// wait for imagerepository_controller to finish
-			waitImageRepositoryFinalizerOnImageRepository_old(imageRepository)
+			waitImageRepositoryFinalizerOnImageRepositoryOldModel(imageRepository)
 			// add generate annotation and it will not create new ImageRepository
 			setComponentAnnotationValue(resourceImageErrorKey, GenerateImageAnnotationName, `{"visibility": "public"}`)
 			waitComponentAnnotationGone(resourceImageErrorKey, GenerateImageAnnotationName)
 
-			component = getComponent(resourceImageErrorKey)
+			component = getComponentOldModel(resourceImageErrorKey)
 			Expect(component.Annotations[ImageAnnotationName]).To(BeEmpty())
 			// just to double check that new ImageRepository wasn't created, which would add ContainerImage
 			Expect(component.Spec.ContainerImage).To(BeEmpty())
@@ -281,7 +281,7 @@ var _ = Describe("Component image controller", func() {
 			Expect(k8sClient.List(ctx, imageRepositoriesList, &client.ListOptions{Namespace: resourceImageErrorKey.Namespace})).To(Succeed())
 			Expect(imageRepositoriesList.Items).To(HaveLen(1))
 
-			deleteImageRepository_old(imageRepository)
+			deleteImageRepositoryOldModel(imageRepository)
 		})
 
 		It("should do nothing and set error if generate annotation is invalid JSON", func() {
@@ -291,7 +291,7 @@ var _ = Describe("Component image controller", func() {
 			waitComponentAnnotation(resourceImageErrorKey, ImageAnnotationName)
 
 			repoImageInfo := &ImageRepositoryStatus{}
-			component := getComponent(resourceImageErrorKey)
+			component := getComponentOldModel(resourceImageErrorKey)
 			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
 			Expect(repoImageInfo.Message).To(ContainSubstring("invalid JSON"))
 
@@ -307,7 +307,7 @@ var _ = Describe("Component image controller", func() {
 			waitComponentAnnotation(resourceImageErrorKey, ImageAnnotationName)
 
 			repoImageInfo := &ImageRepositoryStatus{}
-			component := getComponent(resourceImageErrorKey)
+			component := getComponentOldModel(resourceImageErrorKey)
 			Expect(json.Unmarshal([]byte(component.Annotations[ImageAnnotationName]), repoImageInfo)).To(Succeed())
 			Expect(repoImageInfo.Message).To(ContainSubstring("invalid value: none in visibility field"))
 
@@ -317,7 +317,7 @@ var _ = Describe("Component image controller", func() {
 		})
 
 		It("should clean environment", func() {
-			deleteComponent(resourceImageErrorKey)
+			deleteComponentOldModel(resourceImageErrorKey)
 			deleteApplication(applicationKey)
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
 			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: imageTestNamespace})

@@ -10,7 +10,7 @@ import (
 )
 
 func (r *ImageRepositoryReconciler) AddNotification(notification irv1alpha1.Notifications, imageRepository *irv1alpha1.ImageRepository) (irv1alpha1.NotificationStatus, error) {
-	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository)
+	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository, r.IsOldGroup)
 
 	notificationStatus := irv1alpha1.NotificationStatus{}
 	quayNotification, err := r.QuayClient.CreateNotification(
@@ -62,7 +62,7 @@ func (r *ImageRepositoryReconciler) HandleNotifications(ctx context.Context, ima
 		// No status notifications to check
 		return nil
 	}
-	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository)
+	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository, r.IsOldGroup)
 	allNotifications, err := r.QuayClient.GetNotifications(r.QuayOrganization, imageRepositoryName)
 	if err != nil {
 		return r.handleError(ctx, imageRepository, err, "Couldn't retrieve all Quay notifications")
@@ -188,7 +188,7 @@ func (r *ImageRepositoryReconciler) SetNotifications(ctx context.Context, imageR
 
 func (r *ImageRepositoryReconciler) notificationExistsInQuayByUUID(uuid string, imageRepository *irv1alpha1.ImageRepository) (quay.Notification, error) {
 	notification := quay.Notification{}
-	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository)
+	imageRepositoryName, _ := r.getQuayImageNameAndURL(imageRepository, r.IsOldGroup)
 	allNotifications, err := r.QuayClient.GetNotifications(r.QuayOrganization, imageRepositoryName)
 	if err != nil {
 		return notification, err

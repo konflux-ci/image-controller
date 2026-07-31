@@ -262,7 +262,7 @@ func (r *ApplicationPullSecretCreator) createApplicationPullSecret(ctx context.C
 			Name:      applicationPullSecretName,
 			Namespace: application.Namespace,
 			Labels: map[string]string{
-				InternalSecretLabelName: "true",
+				InternalSecretLabelNameOldModel: "true",
 			},
 		},
 		Type: corev1.SecretTypeDockerConfigJson,
