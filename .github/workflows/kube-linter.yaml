@@ -16,7 +16,7 @@ jobs:
     name: Kube linter
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Create ../kube-linter/ for deployment yaml files
         shell: bash
@@ -27,7 +27,7 @@ jobs:
         run: kustomize build config/default/ >  ../kube-linter/image-controller.yaml
 
       - name: Scan yaml files with kube-linter
-        uses: stackrox/kube-linter-action@v1
+        uses: stackrox/kube-linter-action@87802a2f4e01abebb3ee3c67a3002fea71f6eae5 # v1.0.7
         id: kube-linter-action-scan
         with:
           # Where to do scanning
@@ -43,7 +43,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload SARIF report files to GitHub
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4.37.6
         with:
           sarif_file: ../kube-linter/kube-linter.sarif
 
