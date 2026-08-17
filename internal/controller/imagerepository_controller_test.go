@@ -436,14 +436,13 @@ var _ = Describe("Image repository controller", func() {
 			expectedNamespaceRobotAccountName = sanitizeNameForQuay(expectedNamespaceRobotAccountName)
 
 			createServiceAccount(defaultNamespace, componentSaName)
-			createServiceAccount(defaultNamespace, IntegrationServiceAccountName)
 
-			// wait for SAs to be created
+			// wait for SA to be created
 			Eventually(func() bool {
 				saList := getServiceAccountList(defaultNamespace)
-				// there will be 2 service accounts
-				// component SA and integration SA
-				return len(saList) == 2
+				// there will be 1 service account
+				// component SA
+				return len(saList) == 1
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 		})
 
@@ -647,11 +646,6 @@ var _ = Describe("Image repository controller", func() {
 			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			integrationSa := getServiceAccount(defaultNamespace, IntegrationServiceAccountName)
-			Expect(integrationSa.Secrets).To(HaveLen(1))
-			Expect(integrationSa.ImagePullSecrets).To(HaveLen(1))
-			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		}
 
 		assertSecretsGoneFromServiceAccounts := func() {
@@ -659,11 +653,6 @@ var _ = Describe("Image repository controller", func() {
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
 			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
-			integrationSa := getServiceAccount(defaultNamespace, IntegrationServiceAccountName)
-			Expect(integrationSa.Secrets).To(HaveLen(1))
-			Expect(integrationSa.ImagePullSecrets).To(HaveLen(1))
-			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		}
 
 		It("should provision image repository for component, without update component annotation", func() {
@@ -1017,9 +1006,6 @@ var _ = Describe("Image repository controller", func() {
 
 			componentSa := getServiceAccount(defaultNamespace, componentSaName)
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			integrationSa := getServiceAccount(defaultNamespace, IntegrationServiceAccountName)
-			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		})
 
 		It("should cleanup component repository", func() {
@@ -1075,7 +1061,6 @@ var _ = Describe("Image repository controller", func() {
 			assertSecretsGoneFromServiceAccounts()
 
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespace})
-			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: defaultNamespace})
 		})
 	})
 

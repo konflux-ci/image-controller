@@ -48,9 +48,6 @@ const (
 	interval      = time.Millisecond * 250
 )
 
-// remove after fully migrated to new group
-var applicationGroupVersion = compapiv1alpha1.GroupVersion.String()
-
 const (
 	defaultNamespace    = "test-namespace"
 	defaultNamespaceOld = "test-namespace-old" // remove after fully migrated to new group
@@ -677,12 +674,6 @@ func verifySecretAuth(secretDockerconfigJson, expectedImage, robotAccountName, t
 	Expect(string(secretAuthString)).To(Equal(fmt.Sprintf("%s:%s", robotAccountName, token)))
 }
 
-func verifySecretAuthEmpty(secretDockerconfigJson string) {
-	var authDataJson dockerConfigJson
-	Expect(json.Unmarshal([]byte(secretDockerconfigJson), &authDataJson)).To(Succeed())
-	Expect(authDataJson.Auths).To(BeEmpty())
-}
-
 func verifySecretSpec(secret *corev1.Secret, ownerKind, ownerAPIVersion, ownerName, secretName string) {
 	if ownerKind != "" && ownerAPIVersion != "" && ownerName != "" {
 		Expect(secret.OwnerReferences).To(HaveLen(1))
@@ -706,49 +697,4 @@ func verifySecretSpecOldModel(secret *corev1.Secret, ownerKind, ownerAPIVersion,
 	Expect(secret.Labels[InternalSecretLabelNameOldModel]).To(Equal("true"))
 	Expect(secret.Name).To(Equal(secretName))
 	Expect(secret.Type).To(Equal(corev1.SecretTypeDockerConfigJson))
-}
-
-// createDockerConfigSecret creates secret, either SecretTypeDockerConfigJson or SecretTypeBasicAuth
-func createDockerConfigSecret(secretKey types.NamespacedName, dockerConfigData string, dockerCofingJsonSecret bool) {
-	var secret *corev1.Secret
-	if dockerCofingJsonSecret {
-		secret = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretKey.Name,
-				Namespace: secretKey.Namespace,
-			},
-			Type: corev1.SecretTypeDockerConfigJson,
-			Data: map[string][]byte{
-				corev1.DockerConfigJsonKey: []byte(dockerConfigData),
-			},
-		}
-	} else {
-		secret = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretKey.Name,
-				Namespace: secretKey.Namespace,
-			},
-			Type: corev1.SecretTypeBasicAuth,
-			Data: map[string][]byte{
-				corev1.BasicAuthUsernameKey: []byte("user"),
-				corev1.BasicAuthPasswordKey: []byte("password"),
-			},
-		}
-
-	}
-	Expect(k8sClient.Create(ctx, secret)).To(Succeed())
-}
-
-// generateDockerConfigJson creates the raw JSON string for .dockerconfigjson
-func generateDockerConfigJson(registry, username, password string) string {
-	authString := fmt.Sprintf("%s:%s", username, password)
-	encodedAuth := base64.StdEncoding.EncodeToString([]byte(authString))
-
-	auths := map[string]dockerConfigAuth{}
-	auths[registry] = dockerConfigAuth{encodedAuth}
-
-	dcj := dockerConfigJson{Auths: auths}
-	marshaled, err := json.Marshal(dcj)
-	Expect(err).To(Succeed())
-	return string(marshaled)
 }

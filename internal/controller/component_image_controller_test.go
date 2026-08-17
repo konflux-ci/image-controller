@@ -70,16 +70,6 @@ var _ = Describe("Component image controller", func() {
 
 		It("should prepare environment", func() {
 			createServiceAccount(imageTestNamespace, componentSaName)
-			createServiceAccount(imageTestNamespace, IntegrationServiceAccountName)
-
-			// wait for application SA to be created
-			Eventually(func() bool {
-				saList := getServiceAccountList(imageTestNamespace)
-				// there will be 2 service accounts
-				// component's SA and application's SA
-				return len(saList) == 2
-			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
-
 		})
 
 		It("should do image repository provision", func() {
@@ -184,7 +174,6 @@ var _ = Describe("Component image controller", func() {
 
 			deleteImageRepositoryOldModel(imageRepositoryName)
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
-			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: imageTestNamespace})
 		})
 	})
 
@@ -199,14 +188,6 @@ var _ = Describe("Component image controller", func() {
 			createApplicationOldModel(applicationConfig{ApplicationKey: applicationKey})
 
 			createServiceAccount(imageTestNamespace, componentSaName)
-			createServiceAccount(imageTestNamespace, IntegrationServiceAccountName)
-
-			// wait for application SA to be created
-			Eventually(func() bool {
-				saList := getServiceAccountList(imageTestNamespace)
-				return len(saList) == 2
-			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
-
 		})
 
 		It("should do nothing if generate annotation is not set", func() {
@@ -320,7 +301,6 @@ var _ = Describe("Component image controller", func() {
 			deleteComponentOldModel(resourceImageErrorKey)
 			deleteApplication(applicationKey)
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: imageTestNamespace})
-			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: imageTestNamespace})
 		})
 	})
 })

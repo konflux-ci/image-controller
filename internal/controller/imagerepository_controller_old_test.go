@@ -15,9 +15,9 @@ limitations under the License.
 */
 
 // remove after fully migrated to new group - entire file
-// This file contains tests for OLD group (appstudio.redhat.com/v1alpha1) including
-// application pull secret functionality. Keep this file during migration to ensure
-// old group continues to work. Delete after migration is complete.
+// This file contains tests for OLD group (appstudio.redhat.com/v1alpha1)
+// Keep this file during migration to ensure old group continues to work.
+// Delete after migration is complete.
 
 package controllers
 
@@ -436,7 +436,6 @@ var _ = Describe("Image repository controller (old group)", func() {
 		var componentKey = types.NamespacedName{Name: defaultComponentName, Namespace: defaultNamespaceOld}
 		var applicationKey = types.NamespacedName{Name: defaultComponentApplication, Namespace: defaultNamespaceOld}
 		var componentSaName = getComponentSaName(defaultComponentName)
-		var applicationSecretName = getApplicationPullSecretName(applicationKey.Name)
 
 		BeforeEach(func() {
 			// Create test-namespace-old for old group tests
@@ -465,14 +464,13 @@ var _ = Describe("Image repository controller (old group)", func() {
 			expectedNamespaceRobotAccountName = sanitizeNameForQuay(expectedNamespaceRobotAccountName)
 
 			createServiceAccount(defaultNamespaceOld, componentSaName)
-			createServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
 
-			// wait for SAs to be created
+			// wait for SA to be created
 			Eventually(func() bool {
 				saList := getServiceAccountList(defaultNamespaceOld)
-				// there will be 2 service accounts
-				// component SA and integration SA
-				return len(saList) == 2
+				// there will be 1 service account
+				// component SA
+				return len(saList) == 1
 			}, timeout, interval).WithTimeout(ensureTimeout).Should(BeTrue())
 		})
 
@@ -660,11 +658,6 @@ var _ = Describe("Image repository controller (old group)", func() {
 			defer deleteSecret(pullSecretKey)
 			verifySecretSpecOldModel(pullSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
 
-			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: imageRepository.Namespace}
-			applicationSecret := waitSecretExist(applicationSecretKey)
-			defer deleteSecret(applicationSecretKey)
-			verifySecretSpecOldModel(applicationSecret, "Application", applicationGroupVersion, applicationKey.Name, applicationSecretName)
-
 			namespaceSecretKey := types.NamespacedName{Name: namespacePullSecretName, Namespace: imageRepository.Namespace}
 			namespaceSecret := waitSecretExist(namespaceSecretKey)
 			defer deleteSecret(namespaceSecretKey)
@@ -674,8 +667,6 @@ var _ = Describe("Image repository controller (old group)", func() {
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, pushToken)
 			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
-			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
-			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, pullToken)
 			namespaceSecretDockerconfigJson := string(namespaceSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(namespaceSecretDockerconfigJson, expectedNamespaceImage, expectedNamespaceRobotAccountName, namespaceRobotToken)
 
@@ -684,13 +675,6 @@ var _ = Describe("Image repository controller (old group)", func() {
 			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecret.Name}))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			integrationSa := getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
-			Expect(integrationSa.Secrets).To(HaveLen(2))
-			Expect(integrationSa.ImagePullSecrets).To(HaveLen(2))
-			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
-			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: applicationSecretName}))
-			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		}
 
 		assertSecretsGoneFromServiceAccounts := func() {
@@ -698,13 +682,6 @@ var _ = Describe("Image repository controller (old group)", func() {
 			Expect(componentSa.Secrets).To(HaveLen(1))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
 			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
-			integrationSa := getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
-			Expect(integrationSa.Secrets).To(HaveLen(2))
-			Expect(integrationSa.ImagePullSecrets).To(HaveLen(2))
-			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
-			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: applicationSecretName}))
-			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		}
 
 		It("should provision image repository for component, without update component annotation", func() {
@@ -833,18 +810,11 @@ var _ = Describe("Image repository controller (old group)", func() {
 			pullSecret := waitSecretExist(pullSecretKey)
 			verifySecretSpecOldModel(pullSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
 
-			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: imageRepository.Namespace}
-			applicationSecret := waitSecretExist(applicationSecretKey)
-			verifySecretSpecOldModel(applicationSecret, "Application", applicationGroupVersion, imageRepository.Labels[ApplicationNameLabelName], applicationSecretName)
-
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, newPushToken)
 
 			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
-
-			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
-			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
 		})
 
 		It("should regenerate pull & push tokens and update pull && push secrets when they exist", func() {
@@ -894,18 +864,11 @@ var _ = Describe("Image repository controller (old group)", func() {
 			pullSecret := waitSecretExist(pullSecretKey)
 			verifySecretSpecOldModel(pullSecret, "ImageRepository", imagerepositoryv1alpha1.GroupVersion.String(), imageRepository.GetName(), pullSecret.Name)
 
-			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: imageRepository.Namespace}
-			applicationSecret := waitSecretExist(applicationSecretKey)
-			verifySecretSpecOldModel(applicationSecret, "Application", applicationGroupVersion, imageRepository.Labels[ApplicationNameLabelName], applicationSecretName)
-
 			pushSecretDockerconfigJson := string(pushSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pushSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PushRobotAccountName, newPushToken)
 
 			pullSecretDockerconfigJson := string(pullSecret.Data[corev1.DockerConfigJsonKey])
 			verifySecretAuth(pullSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
-
-			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
-			verifySecretAuth(applicationSecretDockerconfigJson, expectedImage, imageRepository.Status.Credentials.PullRobotAccountName, newPullToken)
 		})
 
 		It("should regenerate namespace pull token and create namespace pull secret when it doesn't exists", func() {
@@ -971,11 +934,6 @@ var _ = Describe("Image repository controller (old group)", func() {
 		It("verify and fix, secret is missing from SAs", func() {
 			quay.ResetTestQuayClient()
 
-			integrationSa := getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
-			integrationSa.Secrets = []corev1.ObjectReference{}
-			integrationSa.ImagePullSecrets = []corev1.LocalObjectReference{}
-			Expect(k8sClient.Update(ctx, &integrationSa)).To(Succeed())
-
 			// will add it to SA, but not to ImagePullSecrets
 			componentSa := getServiceAccount(defaultNamespaceOld, componentSaName)
 			componentSa.Secrets = []corev1.ObjectReference{}
@@ -989,28 +947,16 @@ var _ = Describe("Image repository controller (old group)", func() {
 			waitImageRepositoryCredentialSectionRequestGoneOldModel(resourceKey, "verify")
 
 			pushSecretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
-			integrationSa = getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespaceOld, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(2))
 			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			Expect(integrationSa.Secrets).To(HaveLen(2))
-			Expect(integrationSa.ImagePullSecrets).To(HaveLen(2))
-			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
-			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: applicationSecretName}))
-			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		})
 
 		It("verify and fix, secret is duplicated in SA, also is in ImagePullSecrets", func() {
 			quay.ResetTestQuayClient()
 			pushSecretName := fmt.Sprintf("%s-image-push", resourceKey.Name)
-
-			applicationSa := getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
-			applicationSa.Secrets = []corev1.ObjectReference{{Name: applicationSecretName}, {Name: applicationSecretName}}
-			applicationSa.ImagePullSecrets = []corev1.LocalObjectReference{{Name: applicationSecretName}, {Name: applicationSecretName}}
-			Expect(k8sClient.Update(ctx, &applicationSa)).To(Succeed())
 
 			// will remove duplicate, and remove it from ImagePullSecrets
 			componentSa := getServiceAccount(defaultNamespaceOld, componentSaName)
@@ -1025,18 +971,11 @@ var _ = Describe("Image repository controller (old group)", func() {
 
 			waitImageRepositoryCredentialSectionRequestGoneOldModel(resourceKey, "verify")
 
-			applicationSa = getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
 			componentSa = getServiceAccount(defaultNamespaceOld, componentSaName)
 			Expect(componentSa.Secrets).To(HaveLen(2))
 			Expect(componentSa.ImagePullSecrets).To(BeEmpty())
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: pushSecretName}))
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			Expect(applicationSa.Secrets).To(HaveLen(2))
-			Expect(applicationSa.ImagePullSecrets).To(HaveLen(2))
-			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: applicationSecretName}))
-			Expect(applicationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			Expect(applicationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: applicationSecretName}))
-			Expect(applicationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		})
 
 		// TODO: remove after all IRs are processed and all have new namespace pull ensured annotation
@@ -1096,9 +1035,6 @@ var _ = Describe("Image repository controller (old group)", func() {
 
 			componentSa := getServiceAccount(defaultNamespaceOld, componentSaName)
 			Expect(componentSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			integrationSa := getServiceAccount(defaultNamespaceOld, IntegrationServiceAccountName)
-			Expect(integrationSa.Secrets).To(ContainElement(corev1.ObjectReference{Name: namespacePullSecretName}))
-			Expect(integrationSa.ImagePullSecrets).To(ContainElement(corev1.LocalObjectReference{Name: namespacePullSecretName}))
 		})
 
 		It("should cleanup component repository", func() {
@@ -1145,11 +1081,6 @@ var _ = Describe("Image repository controller (old group)", func() {
 			Eventually(func() bool { return isGetRobotAccountInvoked }, timeout, interval).Should(BeTrue())
 			Eventually(func() bool { return isRemovePermissionsToRepositoryForAccountInvoked }, timeout, interval).Should(BeTrue())
 
-			applicationSecretKey := types.NamespacedName{Name: applicationSecretName, Namespace: defaultNamespaceOld}
-			applicationSecret := waitSecretExist(applicationSecretKey)
-			applicationSecretDockerconfigJson := string(applicationSecret.Data[corev1.DockerConfigJsonKey])
-			verifySecretAuthEmpty(applicationSecretDockerconfigJson)
-
 			namespaceSecretKey := types.NamespacedName{Name: namespacePullSecretName, Namespace: resourceKey.Namespace}
 			namespaceSecret := waitSecretExist(namespaceSecretKey)
 			verifySecretSpecOldModel(namespaceSecret, "", "", "", namespacePullSecretName)
@@ -1159,7 +1090,6 @@ var _ = Describe("Image repository controller (old group)", func() {
 			assertSecretsGoneFromServiceAccounts()
 
 			deleteServiceAccount(types.NamespacedName{Name: componentSaName, Namespace: defaultNamespaceOld})
-			deleteServiceAccount(types.NamespacedName{Name: IntegrationServiceAccountName, Namespace: defaultNamespaceOld})
 		})
 	})
 
