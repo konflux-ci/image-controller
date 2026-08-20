@@ -13,12 +13,7 @@ spec:
           - name: notification-resetter
             image: registry.redhat.io/rhel9/python-312:9.5-1739797362
             env:
-              - name: QUAY_TOKEN
-                valueFrom:
-                  secretKeyRef:
-                    name: quaytoken
-                    key: quaytoken
-              - name: QUAY_NAMESPACE
+              - name: QUAY_ORG
                 valueFrom:
                   secretKeyRef:
                     name: quaytoken
@@ -27,10 +22,13 @@ spec:
             command:
               - /bin/bash
               - '-c'
-              - python /notification-resetter/reset_notifications.py --namespace $(QUAY_NAMESPACE)
+              - python /notification-resetter/reset_notifications.py --namespace $(QUAY_ORG)
             volumeMounts:
               - name: notification-resetter-volume
                 mountPath: /notification-resetter
+              - name: quaytoken
+                mountPath: /secrets/quaytoken
+                readOnly: true
             resources:
               limits:
                 cpu: 500m
@@ -39,10 +37,16 @@ spec:
                 cpu: 150m
                 memory: 128Mi
             securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                  - "ALL"
               readOnlyRootFilesystem: true
           restartPolicy: OnFailure
           securityContext:
             runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
           volumes:
             - name: notification-resetter-volume
               configMap:

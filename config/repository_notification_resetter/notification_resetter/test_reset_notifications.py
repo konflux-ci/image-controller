@@ -1,11 +1,10 @@
 import io
 import json
-import os
 import re
 import unittest
 from email.message import Message
 from typing import Final
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, mock_open
 from urllib.parse import parse_qsl, urlparse
 from urllib.request import Request
 from urllib.error import HTTPError
@@ -31,10 +30,10 @@ class TestResetter(unittest.TestCase):
     def assert_quay_token_included(self, request: Request) -> None:
         self.assertEqual(f"Bearer {QUAY_TOKEN}", request.get_header("Authorization"))
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("builtins.open", new_callable=mock_open, read_data=QUAY_TOKEN)
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])
     @patch("reset_notifications.urlopen")
-    def test_crash_when_http_error(self, urlopen):
+    def test_crash_when_http_error(self, urlopen, mock_file):
         error_response = io.BytesIO(b'{"detail": "Not found"}')
         mock_error = HTTPError(
             url="http://example.com",
@@ -59,10 +58,10 @@ class TestResetter(unittest.TestCase):
             # retry mechanism work for repo fetching
             self.assertEqual(6, urlopen.call_count)
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("builtins.open", new_callable=mock_open, read_data=QUAY_TOKEN)
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])
     @patch("reset_notifications.urlopen")
-    def test_pass_when_notification_not_exist(self, urlopen):
+    def test_pass_when_notification_not_exist(self, urlopen, mock_file):
         fetch_repos = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -118,10 +117,10 @@ class TestResetter(unittest.TestCase):
             ]
             self.assertEqual(1, len(run_log))
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("builtins.open", new_callable=mock_open, read_data=QUAY_TOKEN)
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])
     @patch("reset_notifications.urlopen")
-    def test_when_notification_reset_fail(self, urlopen):
+    def test_when_notification_reset_fail(self, urlopen, mock_file):
         fetch_repos = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -176,15 +175,16 @@ class TestResetter(unittest.TestCase):
             self.assertEqual(1, len(run_log))
 
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])
-    def test_missing_quay_token_in_env(self):
-        with self.assertRaisesRegex(ValueError, r"^The token .+ is missing!$"):
+    @patch("builtins.open", side_effect=FileNotFoundError())
+    def test_missing_quay_token_in_env(self, mock_file):
+        with self.assertRaisesRegex(ValueError, r"^Token file .+ not found!$"):
             main()
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("builtins.open", new_callable=mock_open, read_data=QUAY_TOKEN)
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])
     @patch("reset_notifications.urlopen")
     @patch("reset_notifications.get_quay_notifications")
-    def test_no_image_repo_is_fetched(self, get_quay_notifications, urlopen):
+    def test_no_image_repo_is_fetched(self, get_quay_notifications, urlopen, mock_file):
         response = MagicMock()
         response.status = 200
         response.read.return_value = b"{}"
@@ -194,11 +194,11 @@ class TestResetter(unittest.TestCase):
 
         get_quay_notifications.assert_not_called()
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("builtins.open", new_callable=mock_open, read_data=QUAY_TOKEN)
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample", "--dry-run"])
     @patch("reset_notifications.urlopen")
     @patch("reset_notifications.reset_notification")
-    def test_reset_notification_dry_run(self, reset_notification, urlopen):
+    def test_reset_notification_dry_run(self, reset_notification, urlopen, mock_file):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -270,10 +270,10 @@ class TestResetter(unittest.TestCase):
         self.assert_make_get_request(request)
         self.assert_quay_token_included(request)
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("builtins.open", new_callable=mock_open, read_data=QUAY_TOKEN)
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])
     @patch("reset_notifications.urlopen")
-    def test_reset_notification(self, urlopen):
+    def test_reset_notification(self, urlopen, mock_file):
         fetch_repos = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -361,10 +361,10 @@ class TestResetter(unittest.TestCase):
         self.assert_make_post_request(request)
         self.assert_quay_token_included(request)
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("builtins.open", new_callable=mock_open, read_data=QUAY_TOKEN)
     @patch("sys.argv", ["reset_notifications", "--namespace", "sample"])
     @patch("reset_notifications.urlopen")
-    def test_get_notifications_http_error_returns_empty(self, urlopen):
+    def test_get_notifications_http_error_returns_empty(self, urlopen, mock_file):
         """When fetching notifications returns 504 (or any HTTPError), job continues with empty list."""
         fetch_repos = MagicMock()
         response = MagicMock()

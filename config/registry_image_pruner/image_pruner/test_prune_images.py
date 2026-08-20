@@ -4,7 +4,7 @@ import re
 import unittest
 from email.message import Message
 from typing import Final
-from unittest.mock import call, patch, MagicMock
+from unittest.mock import call, patch, MagicMock, mock_open
 from urllib.parse import parse_qsl, urlparse
 from urllib.request import Request
 from urllib.error import HTTPError
@@ -22,11 +22,11 @@ class TestPruner(unittest.TestCase):
     def assert_quay_token_included(self, request: Request) -> None:
         self.assertEqual(f"Bearer {QUAY_TOKEN}", request.get_header("Authorization"))
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("builtins.open", new_callable=mock_open, read_data=QUAY_TOKEN)
     @patch("sys.argv", ["prune_images", "--namespace", "sample"])
     @patch("prune_images.urlopen")
     @patch("prune_images.get_quay_tags")
-    def test_no_image_repo_is_fetched(self, get_quay_repo, urlopen):
+    def test_no_image_repo_is_fetched(self, get_quay_repo, urlopen, mock_file):
         response = MagicMock()
         response.status = 200
         response.read.return_value = b"{}"
@@ -36,11 +36,11 @@ class TestPruner(unittest.TestCase):
 
         get_quay_repo.assert_not_called()
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("builtins.open", new_callable=mock_open, read_data=QUAY_TOKEN)
     @patch("sys.argv", ["prune_images", "--namespace", "sample"])
     @patch("prune_images.urlopen")
     @patch("prune_images.delete_image_tag")
-    def test_no_image_with_expected_suffixes_is_found(self, delete_image_tag, urlopen):
+    def test_no_image_with_expected_suffixes_is_found(self, delete_image_tag, urlopen, mock_file):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -95,11 +95,11 @@ class TestPruner(unittest.TestCase):
         self.assert_make_get_request(request)
         self.assert_quay_token_included(request)
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("builtins.open", new_callable=mock_open, read_data=QUAY_TOKEN)
     @patch("sys.argv", ["prune_images", "--namespace", "sample"])
     @patch("prune_images.urlopen")
     @patch("prune_images.manifest_exists")
-    def test_remove_orphan_tags_with_expected_suffixes(self, manifest_exists, urlopen):
+    def test_remove_orphan_tags_with_expected_suffixes(self, manifest_exists, urlopen, mock_file):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -218,11 +218,11 @@ class TestPruner(unittest.TestCase):
         for tag, call in test_pairs:
             _assert_deletion_request(call.args[0], tag)
 
-    @patch.dict(os.environ, {"QUAY_TOKEN": QUAY_TOKEN})
+    @patch("builtins.open", new_callable=mock_open, read_data=QUAY_TOKEN)
     @patch("sys.argv", ["prune_images", "--namespace", "sample", "--dry-run"])
     @patch("prune_images.urlopen")
     @patch("prune_images.manifest_exists")
-    def test_remove_tag_dry_run(self, manifest_exists, urlopen):
+    def test_remove_tag_dry_run(self, manifest_exists, urlopen, mock_file):
         fetch_repos_rv = MagicMock()
         response = MagicMock()
         response.status = 200
@@ -266,8 +266,9 @@ class TestPruner(unittest.TestCase):
         self.assertEqual(2, urlopen.call_count)
 
     @patch("sys.argv", ["prune_images", "--namespace", "sample"])
-    def test_missing_quay_token_in_env(self):
-        with self.assertRaisesRegex(ValueError, r"The token .+ is missing"):
+    @patch("builtins.open", side_effect=FileNotFoundError())
+    def test_missing_quay_token_in_env(self, mock_file):
+        with self.assertRaisesRegex(ValueError, r"Token file .+ not found"):
             main()
 
     @patch("prune_images.urlopen")
