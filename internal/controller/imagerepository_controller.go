@@ -242,7 +242,7 @@ func setMetricsTime(idForMetrics string, reconcileStartTime time.Time) {
 //+kubebuilder:rbac:groups=appstudio.redhat.com,resources=components,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups=konflux-ci.dev,resources=components,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
 
