@@ -2,7 +2,6 @@ import argparse
 import itertools
 import json
 import logging
-import os
 import re
 import time
 
@@ -289,7 +288,13 @@ def fetch_image_repos(access_token: str, namespace: str) -> Iterator[List[ImageR
 
 
 def main():
-    token = os.getenv("QUAY_TOKEN")
+    token_file = "/secrets/image-pruner/quaytoken"
+    try:
+        with open(token_file, "r") as f:
+            token = f.read().strip()
+    except FileNotFoundError:
+        raise ValueError(f"Token file {token_file} not found!")
+
     if not token:
         raise ValueError("The token required for access to Quay API is missing!")
 
