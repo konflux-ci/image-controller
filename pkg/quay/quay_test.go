@@ -49,6 +49,44 @@ var responseUnauthorized = map[string]string{
 	"status":        "403",
 }
 
+func TestGetJson(t *testing.T) {
+	t.Run("Should get response json", func(t *testing.T) {
+		type someStruct struct {
+			Field1 int    `json:"field1,omitempty"`
+			Field2 string `json:"field2,omitempty"`
+		}
+		s := &someStruct{}
+		qr := QuayResponse{
+			body: []byte(`{"field1": 5, "field5": 4.5, "field2": "text"}`),
+		}
+		err := qr.GetJson(s)
+		assert.NilError(t, err)
+		assert.Equal(t, 5, s.Field1)
+		assert.Equal(t, "text", s.Field2)
+	})
+
+	t.Run("Should handle unmarshal error", func(t *testing.T) {
+		qr := QuayResponse{
+			body: []byte(`{"namespace": "test"`),
+		}
+		s := &RepositoryRequest{}
+		err := qr.GetJson(s)
+		assert.ErrorContains(t, err, "failed to unmarshal response body")
+	})
+
+	t.Run("Should handle unmarshal error and trim response data", func(t *testing.T) {
+		qr := QuayResponse{
+			body: []byte(strings.Repeat(`<html><body><h1>503</h1></body></html>`, 1000)),
+		}
+		s := &RepositoryRequest{}
+		err := qr.GetJson(s)
+		assert.ErrorContains(t, err, "failed to unmarshal response body")
+		if !(len(err.Error()) < jsonBodyErrMaxLength+100) {
+			t.Fail()
+		}
+	})
+}
+
 func TestQuayClient_CreateRepository(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{}}
 	gock.InterceptClient(client)
