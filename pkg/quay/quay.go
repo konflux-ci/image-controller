@@ -79,9 +79,15 @@ type QuayResponse struct {
 	status     string
 }
 
+const jsonBodyErrMaxLength = 1024 * 4
+
 func (r *QuayResponse) GetJson(obj any) error {
 	if err := json.Unmarshal(r.body, obj); err != nil {
-		return fmt.Errorf("failed to unmarshal response body: %s, got body: %s", err, string(r.body))
+		bodyString := string(r.body)
+		if len(bodyString) > jsonBodyErrMaxLength {
+			bodyString = bodyString[:jsonBodyErrMaxLength]
+		}
+		return fmt.Errorf("failed to unmarshal response body: %s, got body: %s", err, bodyString)
 	}
 	return nil
 }
@@ -144,36 +150,36 @@ func (c *QuayClient) CreateRepository(repositoryRequest RepositoryRequest) (*Rep
 	statusCode := resp.GetStatusCode()
 
 	data := &Repository{}
-	unmarshallErr := resp.GetJson(data)
-	if unmarshallErr != nil {
+	unmarshalErr := resp.GetJson(data)
+	if unmarshalErr != nil {
 		data = nil
 	}
 
 	switch statusCode {
 	case 200, 201:
-		return data, unmarshallErr
+		return data, unmarshalErr
 	case 400:
-		if unmarshallErr == nil {
+		if unmarshalErr == nil {
 			if data.ErrorMessage == "Repository already exists" {
 				data.Name = repositoryRequest.Repository
 				return data, nil
 			}
 			return nil, fmt.Errorf("400 Bad Request: %s", data.ErrorMessage)
 		}
-		return nil, fmt.Errorf("400 Bad Request. %w", unmarshallErr)
+		return nil, fmt.Errorf("400 Bad Request. %w", unmarshalErr)
 	case 402:
 		// Current quay plan doesn't allow private image repositories
 		return nil, errors.New("payment required")
 	case 502:
-		if unmarshallErr == nil {
+		if unmarshalErr == nil {
 			return nil, fmt.Errorf("502 Bad Gateway: %s", data.ErrorMessage)
 		}
-		return nil, fmt.Errorf("502 Bad Gateway. %w", unmarshallErr)
+		return nil, fmt.Errorf("502 Bad Gateway. %w", unmarshalErr)
 	default:
-		if unmarshallErr == nil {
+		if unmarshalErr == nil {
 			return data, fmt.Errorf("%d status code: %s", statusCode, data.ErrorMessage)
 		}
-		return nil, fmt.Errorf("%d status code. %w", statusCode, unmarshallErr)
+		return nil, fmt.Errorf("%d status code. %w", statusCode, unmarshalErr)
 	}
 }
 
@@ -833,7 +839,11 @@ func (c *QuayClient) GetAllRepositories(organization string) ([]Repository, erro
 			return nil, fmt.Errorf("failed to close response body: %s", err)
 		}
 		if err := json.Unmarshal(resBody, &response); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response body: %s, got body: %s", err, string(resBody))
+			bodyString := string(resBody)
+			if len(bodyString) > jsonBodyErrMaxLength {
+				bodyString = bodyString[:jsonBodyErrMaxLength]
+			}
+			return nil, fmt.Errorf("failed to unmarshal response body: %s, got body: %s", err, bodyString)
 		}
 
 		repositories = append(repositories, response.Repositories...)
