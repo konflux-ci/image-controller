@@ -104,6 +104,8 @@ type NotificationConfig struct {
 	Email string `json:"email,omitempty"`
 	// Webhook is the URL to send notifications to.
 	// +optional
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern="^https://.*$"
 	Url string `json:"url,omitempty"`
 }
 

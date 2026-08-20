@@ -104,6 +104,8 @@ spec:
                           type: string
                         url:
                           description: Webhook is the URL to send notifications to.
+                          maxLength: 2048
+                          pattern: ^https://.*$
                           type: string
                       type: object
                     event:
