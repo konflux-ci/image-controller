@@ -69,10 +69,10 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 #v7.0.0
       with:
-        python-version: '3.9'
+        python-version: '3.14'
     - run: |
         cd config/registry_image_pruner/image_pruner/
-        python3.9 test_prune_images.py
+        python3.14 test_prune_images.py
 
   detect_changes_for_tests:
     name: Check if notification resetter code changed
@@ -101,7 +101,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 #v7.0.0
       with:
-        python-version: '3.12'
+        python-version: '3.14'
     - run: |
         cd config/repository_notification_resetter/notification_resetter/
-        python3.12 test_reset_notifications.py
+        python3.14 test_reset_notifications.py

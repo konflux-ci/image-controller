@@ -11,7 +11,8 @@ spec:
         spec:
           containers:
           - name: image-pruner
-            image: registry.redhat.io/rhel8/python-39:1-120.1684740828
+            # https://catalog.redhat.com/en/software/containers/ubi9/python-314/690b0a9fcfc8d02bfb0d341e
+            image: registry.access.redhat.com/ubi9/python-314:9.8-1787079087@sha256:194df4e35e0e5467e1b57266f4d61f821e1b1f567135f074d23066d3604ae653
             env:
               - name: QUAY_ORG
                 valueFrom:
