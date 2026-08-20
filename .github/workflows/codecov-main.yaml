@@ -2,6 +2,10 @@ name: Codecov report on push to the "main" branch
 on:
   push:
     branches: [ main ]
+
+permissions:
+  contents: read
+
 jobs:
   coverage:
     name: Upload code coverage report

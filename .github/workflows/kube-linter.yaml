@@ -11,6 +11,10 @@ on:
       - 'config/registry_image_pruner/**.ya?ml'
       - 'config/repository_notification_resetter/**.ya?ml'
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   kube-linter:
     name: Kube linter

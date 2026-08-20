@@ -6,6 +6,9 @@ on:
       - 'AGENTS.md'
       - '.github/workflows/check-agents-md.yaml'
 
+permissions:
+  contents: read
+
 jobs:
   check-line-count:
     runs-on: ubuntu-latest
