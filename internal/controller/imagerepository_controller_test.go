@@ -525,7 +525,7 @@ var _ = Describe("Image repository controller", func() {
 							Event:  string(irv1alpha1.NotificationEventRepoPush),
 							Method: string(irv1alpha1.NotificationMethodWebhook),
 							Config: quay.NotificationConfig{
-								Url: "http://test-url",
+								Url: "https://test-url",
 							},
 						},
 					}, nil
@@ -556,7 +556,7 @@ var _ = Describe("Image repository controller", func() {
 						Event:  irv1alpha1.NotificationEventRepoPush,
 						Method: irv1alpha1.NotificationMethodWebhook,
 						Config: irv1alpha1.NotificationConfig{
-							Url: "http://test-url",
+							Url: "https://test-url",
 						},
 					},
 				}
@@ -1143,7 +1143,7 @@ var _ = Describe("Image repository controller", func() {
 				Event:  irv1alpha1.NotificationEventRepoPush,
 				Method: irv1alpha1.NotificationMethodWebhook,
 				Config: irv1alpha1.NotificationConfig{
-					Url: "http://test-url",
+					Url: "https://test-url",
 				},
 			}
 			imageRepository := getImageRepository(resourceKey)
@@ -1159,7 +1159,7 @@ var _ = Describe("Image repository controller", func() {
 		})
 
 		It("should update notification", func() {
-			updatedUrl := "http://test-url_new"
+			updatedUrl := "https://test-url_new"
 			isUpdateNotificationInvoked := false
 			quay.UpdateNotificationFunc = func(organization, repository string, notificationUuid string, notification quay.Notification) (*quay.Notification, error) {
 				isUpdateNotificationInvoked = true
@@ -1185,7 +1185,7 @@ var _ = Describe("Image repository controller", func() {
 						Event:  string(irv1alpha1.NotificationEventRepoPush),
 						Method: string(irv1alpha1.NotificationMethodWebhook),
 						Config: quay.NotificationConfig{
-							Url: "http://test-url",
+							Url: "https://test-url",
 						},
 					},
 				}
@@ -1211,7 +1211,7 @@ var _ = Describe("Image repository controller", func() {
 					Event:  string(irv1alpha1.NotificationEventRepoPush),
 					Method: string(irv1alpha1.NotificationMethodWebhook),
 					Config: quay.NotificationConfig{
-						Url: "http://test-url_new",
+						Url: "https://test-url_new",
 					},
 				},
 			}
@@ -1258,7 +1258,7 @@ var _ = Describe("Image repository controller", func() {
 						Event:  irv1alpha1.NotificationEventRepoPush,
 						Method: irv1alpha1.NotificationMethodWebhook,
 						Config: irv1alpha1.NotificationConfig{
-							Url: "http://test-url",
+							Url: "https://test-url",
 						},
 					},
 					{
@@ -1266,7 +1266,7 @@ var _ = Describe("Image repository controller", func() {
 						Event:  irv1alpha1.NotificationEventRepoPush,
 						Method: irv1alpha1.NotificationMethodWebhook,
 						Config: irv1alpha1.NotificationConfig{
-							Url: "http://test-url-2",
+							Url: "https://test-url-2",
 						},
 					},
 				},
@@ -1490,13 +1490,13 @@ var _ = Describe("Image repository controller", func() {
 						Title:  "notification-to-update",
 						Event:  irv1alpha1.NotificationEventRepoPush,
 						Method: irv1alpha1.NotificationMethodWebhook,
-						Config: irv1alpha1.NotificationConfig{Url: "http://test-url"},
+						Config: irv1alpha1.NotificationConfig{Url: "https://test-url"},
 					},
 					{
 						Title:  "notification-to-delete",
 						Event:  irv1alpha1.NotificationEventRepoPush,
 						Method: irv1alpha1.NotificationMethodWebhook,
-						Config: irv1alpha1.NotificationConfig{Url: "http://test-url"},
+						Config: irv1alpha1.NotificationConfig{Url: "https://test-url"},
 					},
 				},
 			})
@@ -1542,14 +1542,14 @@ var _ = Describe("Image repository controller", func() {
 						Title:  "notification-to-update",
 						Event:  string(irv1alpha1.NotificationEventRepoPush),
 						Method: string(irv1alpha1.NotificationMethodWebhook),
-						Config: quay.NotificationConfig{Url: "http://test-url"},
+						Config: quay.NotificationConfig{Url: "https://test-url"},
 					},
 					{
 						UUID:   "uuid-delete",
 						Title:  "notification-to-delete",
 						Event:  string(irv1alpha1.NotificationEventRepoPush),
 						Method: string(irv1alpha1.NotificationMethodWebhook),
-						Config: quay.NotificationConfig{Url: "http://test-url"},
+						Config: quay.NotificationConfig{Url: "https://test-url"},
 					},
 				}, nil
 			}
@@ -1588,13 +1588,13 @@ var _ = Describe("Image repository controller", func() {
 					Title:  "notification-to-update",
 					Event:  irv1alpha1.NotificationEventRepoPush,
 					Method: irv1alpha1.NotificationMethodWebhook,
-					Config: irv1alpha1.NotificationConfig{Url: "http://test-url-updated"},
+					Config: irv1alpha1.NotificationConfig{Url: "https://test-url-updated"},
 				},
 				{
 					Title:  "notification-to-create",
 					Event:  irv1alpha1.NotificationEventRepoPush,
 					Method: irv1alpha1.NotificationMethodWebhook,
-					Config: irv1alpha1.NotificationConfig{Url: "http://test-url"},
+					Config: irv1alpha1.NotificationConfig{Url: "https://test-url"},
 				},
 			}
 
