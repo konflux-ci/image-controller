@@ -196,7 +196,7 @@ func Test_readQuayConfig(t *testing.T) {
 		t.Setenv("QUAY_ORG", "test-org")
 		t.Setenv("QUAY_TOKEN", "test-token")
 
-		apiUrl, org, buildQuayClientFunc, err := readQuayConfig()
+		apiUrl, org, buildQuayClientFunc, _, err := readQuayConfig()
 		g.Expect(err).ToNot(g.HaveOccurred())
 		g.Expect(apiUrl).To(g.Equal("https://test-quay.io/api/v1"))
 		g.Expect(org).To(g.Equal("test-org"))
@@ -235,7 +235,7 @@ func Test_readQuayConfig(t *testing.T) {
 		err = os.WriteFile(tokenFile, []byte("file-token"), 0644)
 		g.Expect(err).ToNot(g.HaveOccurred())
 
-		apiUrl, org, buildQuayClientFunc, err := readQuayConfig()
+		apiUrl, org, buildQuayClientFunc, _, err := readQuayConfig()
 		g.Expect(err).ToNot(g.HaveOccurred())
 		g.Expect(apiUrl).To(g.Equal("https://file-quay.io/api/v1"))
 		g.Expect(org).To(g.Equal("file-org"))
@@ -250,7 +250,7 @@ func Test_readQuayConfig(t *testing.T) {
 		t.Setenv("QUAY_ORG", "test-org")
 		t.Setenv("QUAY_TOKEN", "test-token")
 
-		apiUrl, org, buildQuayClientFunc, err := readQuayConfig()
+		apiUrl, org, buildQuayClientFunc, _, err := readQuayConfig()
 		g.Expect(err).ToNot(g.HaveOccurred())
 		g.Expect(apiUrl).To(g.Equal("https://quay.io/api/v1"), "should use default API URL")
 		g.Expect(org).To(g.Equal("test-org"))
@@ -265,7 +265,7 @@ func Test_readQuayConfig(t *testing.T) {
 		t.Setenv("QUAY_ORG", "")
 		t.Setenv("QUAY_TOKEN", "test-token")
 
-		_, _, _, err := readQuayConfig()
+		_, _, _, _, err := readQuayConfig()
 		g.Expect(err).To(g.HaveOccurred())
 		g.Expect(err.Error()).To(g.ContainSubstring("Quay Org is not set"))
 	})
@@ -278,7 +278,7 @@ func Test_readQuayConfig(t *testing.T) {
 		t.Setenv("QUAY_ORG", "test-org")
 		t.Setenv("QUAY_TOKEN", "")
 
-		_, _, _, err := readQuayConfig()
+		_, _, _, _, err := readQuayConfig()
 		g.Expect(err).To(g.HaveOccurred())
 		g.Expect(err.Error()).To(g.ContainSubstring("Quay token is not provided"))
 	})
@@ -292,7 +292,7 @@ func Test_readQuayConfig(t *testing.T) {
 		t.Setenv("QUAY_ORG", "test-org")
 		t.Setenv("QUAY_TOKEN", "test-token")
 
-		_, _, _, err := readQuayConfig()
+		_, _, _, _, err := readQuayConfig()
 		g.Expect(err).To(g.HaveOccurred())
 		g.Expect(err.Error()).To(g.ContainSubstring("unable to build Quay http client"))
 	})
@@ -305,7 +305,7 @@ func Test_readQuayConfig(t *testing.T) {
 		t.Setenv("QUAY_ORG", "test-org")
 		t.Setenv("QUAY_TOKEN", "initial-token")
 
-		_, _, buildQuayClientFunc, err := readQuayConfig()
+		_, _, buildQuayClientFunc, _, err := readQuayConfig()
 		g.Expect(err).ToNot(g.HaveOccurred())
 
 		// Get first client with initial token
@@ -350,7 +350,7 @@ func Test_readQuayConfig(t *testing.T) {
 		err = os.WriteFile(tokenFile, []byte("initial-token"), 0644)
 		g.Expect(err).ToNot(g.HaveOccurred())
 
-		_, _, buildQuayClientFunc, err := readQuayConfig()
+		_, _, buildQuayClientFunc, _, err := readQuayConfig()
 		g.Expect(err).ToNot(g.HaveOccurred())
 
 		// Get first client with initial token
@@ -370,6 +370,70 @@ func Test_readQuayConfig(t *testing.T) {
 		g.Expect(client2).ToNot(g.BeNil())
 		c2 := client2.(*quay.QuayClient)
 		g.Expect(c2.AuthToken).To(g.Equal("rotated-token"))
+	})
+
+	t.Run("ImageVisibilityPublic", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		t.Setenv("QUAY_ORG", "test-org")
+		t.Setenv("QUAY_TOKEN", "test-token")
+		t.Setenv("QUAY_IMAGE_DEFAULT_VISIBILITY", "public")
+
+		_, _, _, result, err := readQuayConfig()
+
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal("public"))
+	})
+
+	t.Run("ImageVisibilityPrivate", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		t.Setenv("QUAY_ORG", "test-org")
+		t.Setenv("QUAY_TOKEN", "test-token")
+		t.Setenv("QUAY_IMAGE_DEFAULT_VISIBILITY", "private")
+
+		_, _, _, result, err := readQuayConfig()
+
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal("private"))
+	})
+
+	t.Run("ImageVisibilityDefaultsToPublic", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		t.Setenv("QUAY_ORG", "test-org")
+		t.Setenv("QUAY_TOKEN", "test-token")
+
+		_, _, _, result, err := readQuayConfig()
+
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal("public"))
+	})
+
+	t.Run("ImageVisibilityInvalidDefaultsToPublic", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		t.Setenv("QUAY_ORG", "test-org")
+		t.Setenv("QUAY_TOKEN", "test-token")
+		t.Setenv("QUAY_IMAGE_DEFAULT_VISIBILITY", "invalid-text")
+
+		_, _, _, result, err := readQuayConfig()
+
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal("public"))
+	})
+
+	t.Run("ImageVisibilityMixedCase", func(t *testing.T) {
+		g.RegisterTestingT(t)
+
+		t.Setenv("QUAY_ORG", "test-org")
+		t.Setenv("QUAY_TOKEN", "test-token")
+		t.Setenv("QUAY_IMAGE_DEFAULT_VISIBILITY", "Private")
+
+		_, _, _, result, err := readQuayConfig()
+
+		g.Expect(err).ToNot(g.HaveOccurred())
+		g.Expect(result).To(g.Equal("private"))
 	})
 }
 

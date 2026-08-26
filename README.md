@@ -35,6 +35,14 @@ For example: `quayapiurl: https://quay.local:8443/api/v1`
 If a self-signed TLS certifiacte is used in self-hosted Quay instance,
 mount CA cert into the operator pod and set `QUAY_ADDITIONAL_CA` environament variable to point to the CA cert file.
 
+### Default image repository visibility
+
+Control the default visibility for new repositories with the `QUAY_IMAGE_DEFAULT_VISIBILITY` environment variable.
+Allowed values are `public` (default) and `private`.
+If unset or invalid, falls back to `public`.
+
+This only applies when `spec.image.visibility` is not set on the `ImageRepository` CR.
+
 ## Image repository API groups
 - New API group : `konflux-ci.dev/v1alpha1`
 - Old API group : `appstudio.redhat.com/v1alpha1`
