@@ -62,11 +62,12 @@ import (
 )
 
 const (
-	QuaySecretMountPointEnvVarName = "QUAY_SECRET_MOUNT_POINT" // #nosec G101
-	QuayApiUrlEnvVarName           = "QUAY_API_URL"
-	QuayOrgEnvVarName              = "QUAY_ORG"
-	QuayTokenEnvVarName            = "QUAY_TOKEN"
-	QuayAdditionalCAEnvVarName     = "QUAY_ADDITIONAL_CA"
+	QuaySecretMountPointEnvVarName       = "QUAY_SECRET_MOUNT_POINT" // #nosec G101
+	QuayApiUrlEnvVarName                 = "QUAY_API_URL"
+	QuayOrgEnvVarName                    = "QUAY_ORG"
+	QuayTokenEnvVarName                  = "QUAY_TOKEN"
+	QuayAdditionalCAEnvVarName           = "QUAY_ADDITIONAL_CA"
+	QuayImageDefaultVisibilityEnvVarName = "QUAY_IMAGE_DEFAULT_VISIBILITY"
 
 	// Default mount point of k8s secret with Quay configuration for the operator.
 	// Could be changed by setting QUAY_SECRET_MOUNT_POINT environment variable.
@@ -201,7 +202,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	quayApiUrl, quayOrganization, buildQuayClientFunc, err := readQuayConfig()
+	quayApiUrl, quayOrganization, buildQuayClientFunc, quayImageDefaultVisibility, err := readQuayConfig()
 	if err != nil {
 		setupLog.Error(err, "failed to read Quay config")
 		os.Exit(2)
@@ -214,6 +215,7 @@ func main() {
 	setupLog.Info(fmt.Sprintf("Quay host: %s", quayHost))
 	setupLog.Info(fmt.Sprintf("Quay API URL: %s", quayApiUrl))
 	setupLog.Info(fmt.Sprintf("Quay Org: %s", quayOrganization))
+	setupLog.Info(fmt.Sprintf("Quay Image Default Visibility: %s", quayImageDefaultVisibility))
 
 	if err = (&controllers.ComponentReconciler{
 		Client: mgr.GetClient(),
@@ -224,11 +226,12 @@ func main() {
 	}
 
 	if err = (&controllers.ImageRepositoryReconciler{
-		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		BuildQuayClient:  buildQuayClientFunc,
-		QuayHost:         quayHost,
-		QuayOrganization: quayOrganization,
+		Client:                     mgr.GetClient(),
+		Scheme:                     mgr.GetScheme(),
+		BuildQuayClient:            buildQuayClientFunc,
+		QuayHost:                   quayHost,
+		QuayOrganization:           quayOrganization,
+		QuayImageDefaultVisibility: quayImageDefaultVisibility,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ImageRepository")
 		os.Exit(1)
@@ -322,7 +325,7 @@ func readConfig(envVarName string, path string) (string, error) {
 
 // readQuayConfig reads operator Quay configuration.
 // Returns error if failed to read a config value or required config is not set.
-func readQuayConfig() (apiUrl, org string, buildQuayClientFunc func() (quay.QuayService, error), err error) {
+func readQuayConfig() (apiUrl, org string, buildQuayClientFunc func() (quay.QuayService, error), imageDefaultVisibility string, err error) {
 	mountPoint := os.Getenv(QuaySecretMountPointEnvVarName)
 	if mountPoint == "" {
 		mountPoint = DefaultQuaySecretMountPoint
@@ -377,6 +380,11 @@ func readQuayConfig() (apiUrl, org string, buildQuayClientFunc func() (quay.Quay
 		}
 		quayClient := quay.NewQuayClient(quayHttpClient, token, apiUrl)
 		return quayClient, nil
+	}
+	// reads the default image visibility defaults to public if not set or invalid
+	imageDefaultVisibility = strings.ToLower(os.Getenv(QuayImageDefaultVisibilityEnvVarName))
+	if imageDefaultVisibility != "private" {
+		imageDefaultVisibility = "public"
 	}
 	return
 }

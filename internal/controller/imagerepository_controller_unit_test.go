@@ -384,9 +384,10 @@ func TestGetQuayImageNameAndURL(t *testing.T) {
 	}
 
 	r := ImageRepositoryReconciler{
-		QuayHost:         "registry.org",
-		QuayOrganization: "my-org",
-		IsOldGroup:       false,
+		QuayHost:                   "registry.org",
+		QuayOrganization:           "my-org",
+		IsOldGroup:                 false,
+		QuayImageDefaultVisibility: "public",
 	}
 
 	testCases := []struct {
@@ -515,9 +516,10 @@ func TestGetQuayImageNameAndURLOldModel(t *testing.T) {
 	}
 
 	r := ImageRepositoryReconciler{
-		QuayHost:         "registry.org",
-		QuayOrganization: "my-org",
-		IsOldGroup:       true,
+		QuayHost:                   "registry.org",
+		QuayOrganization:           "my-org",
+		IsOldGroup:                 true,
+		QuayImageDefaultVisibility: "public",
 	}
 
 	testCases := []struct {
@@ -605,6 +607,52 @@ func TestGetQuayImageNameAndURLOldModel(t *testing.T) {
 			expectedImageUrl := fmt.Sprintf("%s/%s/%s", r.QuayHost, r.QuayOrganization, imageName)
 			if imageUrl != expectedImageUrl {
 				t.Errorf("getQuayImageNameAndURL() got %s image url, but expected %s", imageUrl, expectedImageUrl)
+			}
+		})
+	}
+}
+
+func TestApplyDefaultImageVisibility(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		configuredVisibility string
+		specVisibility       irv1alpha1.ImageVisibility
+		expectedVisibility   irv1alpha1.ImageVisibility
+	}{
+		{
+			name:                 "Should apply public when configured with public",
+			configuredVisibility: "public",
+			expectedVisibility:   irv1alpha1.ImageVisibilityPublic,
+		},
+		{
+			name:                 "Should apply private when configured with private",
+			configuredVisibility: "private",
+			expectedVisibility:   irv1alpha1.ImageVisibilityPrivate,
+		},
+		{
+			name:               "should apply public when visibility is not set",
+			expectedVisibility: irv1alpha1.ImageVisibilityPublic,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			reconciler := ImageRepositoryReconciler{
+				QuayImageDefaultVisibility: tc.configuredVisibility,
+			}
+
+			imageRepo := &irv1alpha1.ImageRepository{
+				Spec: irv1alpha1.ImageRepositorySpec{
+					Image: irv1alpha1.ImageParameters{
+						Visibility: tc.specVisibility,
+					},
+				},
+			}
+
+			reconciler.applyDefaultImageVisibility(imageRepo)
+
+			if imageRepo.Spec.Image.Visibility != tc.expectedVisibility {
+				t.Errorf("Expected visibility %s, but got %s", tc.expectedVisibility, imageRepo.Spec.Image.Visibility)
 			}
 		})
 	}

@@ -85,10 +85,11 @@ type ImageRepositoryReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	QuayClient       quay.QuayService
-	BuildQuayClient  func() (quay.QuayService, error)
-	QuayHost         string
-	QuayOrganization string
+	QuayClient                 quay.QuayService
+	BuildQuayClient            func() (quay.QuayService, error)
+	QuayHost                   string
+	QuayOrganization           string
+	QuayImageDefaultVisibility string
 
 	// IsOldGroup indicates if this reconciler instance is for the old API group
 	// remove after fully migrated to new group
@@ -104,13 +105,14 @@ func (r *ImageRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	// Controller for new group (konflux-ci.dev)
 	newGroupReconciler := &ImageRepositoryReconciler{
-		Client:           r.Client,
-		Scheme:           r.Scheme,
-		QuayClient:       r.QuayClient,
-		BuildQuayClient:  r.BuildQuayClient,
-		QuayHost:         r.QuayHost,
-		QuayOrganization: r.QuayOrganization,
-		IsOldGroup:       false,
+		Client:                     r.Client,
+		Scheme:                     r.Scheme,
+		QuayClient:                 r.QuayClient,
+		BuildQuayClient:            r.BuildQuayClient,
+		QuayHost:                   r.QuayHost,
+		QuayOrganization:           r.QuayOrganization,
+		QuayImageDefaultVisibility: r.QuayImageDefaultVisibility,
+		IsOldGroup:                 false,
 	}
 	if err := ctrl.NewControllerManagedBy(mgr).
 		Named("imagerepository-konflux").
@@ -121,13 +123,14 @@ func (r *ImageRepositoryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	// Controller for old group (appstudio.redhat.com)
 	oldGroupReconciler := &ImageRepositoryReconciler{
-		Client:           r.Client,
-		Scheme:           r.Scheme,
-		QuayClient:       r.QuayClient,
-		BuildQuayClient:  r.BuildQuayClient,
-		QuayHost:         r.QuayHost,
-		QuayOrganization: r.QuayOrganization,
-		IsOldGroup:       true,
+		Client:                     r.Client,
+		Scheme:                     r.Scheme,
+		QuayClient:                 r.QuayClient,
+		BuildQuayClient:            r.BuildQuayClient,
+		QuayHost:                   r.QuayHost,
+		QuayOrganization:           r.QuayOrganization,
+		QuayImageDefaultVisibility: r.QuayImageDefaultVisibility,
+		IsOldGroup:                 true,
 	}
 	if err := ctrl.NewControllerManagedBy(mgr).
 		Named("imagerepository-appstudio").
@@ -792,6 +795,15 @@ func (r *ImageRepositoryReconciler) CheckComponentExistence(ctx context.Context,
 	return true, -1, nil
 }
 
+// applyDefaultImageVisibility sets the image visibility from reconciler config.
+func (r *ImageRepositoryReconciler) applyDefaultImageVisibility(imageRepository *irv1alpha1.ImageRepository) {
+	visibility := r.QuayImageDefaultVisibility
+	if visibility == "" {
+		visibility = string(irv1alpha1.ImageVisibilityPublic)
+	}
+	imageRepository.Spec.Image.Visibility = irv1alpha1.ImageVisibility(visibility)
+}
+
 // ProvisionImageRepository creates image repository, robot account(s) and secret(s) to access the image repository.
 // If labels with Application and Component name are present, robot account with pull only access
 // will be created and pull token will be propagated Secret.
@@ -843,7 +855,7 @@ func (r *ImageRepositoryReconciler) ProvisionImageRepository(ctx context.Context
 	imageRepository.Status.Image.URL = quayImageURL
 
 	if imageRepository.Spec.Image.Visibility == "" {
-		imageRepository.Spec.Image.Visibility = irv1alpha1.ImageVisibilityPublic
+		r.applyDefaultImageVisibility(imageRepository)
 	}
 	visibility := string(imageRepository.Spec.Image.Visibility)
 
