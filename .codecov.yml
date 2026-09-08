@@ -5,6 +5,13 @@ ignore:
   - "**/zz_generated*.go"  # generated deepcopy code
   - "config/**"            # CRD, RBAC, and kustomize manifests
   - "vendor/**"            # vendored dependencies
+  - ".agents/**"
+  - ".claude/**"
+  - ".cursor/**"
+  - "skills/**"
+  - "docs/**"
+  - "*.md"
+  - "*.toml"
 
 coverage:
   status:
