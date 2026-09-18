@@ -25,7 +25,7 @@ To generate organization-wide token:
 1. Create your own organization on the desired Quay instance (e.g. [Quay.io](https://quay.io))
 2. Go to the organization and select applications, then create a new one.
 3. Select the application and choose generate token.
-4. Select `Administer organizations`, `Adminster repositories`, `Create Repositories` permissions.
+4. Select `Administer organizations`, `Administer repositories`, `Administer User`, `Create Repositories` permissions.
 
 ### Connect to self-hosted Quay with self-signed TLS certificate
 
