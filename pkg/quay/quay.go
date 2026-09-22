@@ -33,6 +33,7 @@ type QuayService interface {
 	RepositoryExists(organization, imageRepository string) (bool, error)
 	ChangeRepositoryVisibility(organization, imageRepository, visibility string) error
 	GetRobotAccount(organization string, robotName string) (*RobotAccount, error)
+	RobotAccountExists(organization string, robotName string) (bool, error)
 	CreateRobotAccount(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccount(organization string, robotName string) (bool, error)
 	AddPermissionsForRepositoryToAccount(organization, imageRepository, accountName string, isRobot, isWrite bool) error
@@ -335,6 +336,35 @@ func (c *QuayClient) GetRobotAccount(organization string, robotName string) (*Ro
 	}
 
 	return data, nil
+}
+
+// RobotAccountExists checks if the specified robot account exists in quay.
+func (c *QuayClient) RobotAccountExists(organization, robotName string) (bool, error) {
+	robotName, err := handleRobotName(robotName)
+	if err != nil {
+		return false, err
+	}
+	url := fmt.Sprintf("%s/organization/%s/robots/%s", c.url, organization, robotName)
+
+	resp, err := c.doRequest(url, http.MethodGet, nil)
+	if err != nil {
+		return false, err
+	}
+	statusCode := resp.GetStatusCode()
+
+	if statusCode == http.StatusOK {
+		return true, nil
+	}
+
+	data := &RobotAccount{}
+	if err := resp.GetJson(data); err != nil {
+		return false, err
+	}
+	if statusCode == 400 && strings.Contains(data.Message, "Could not find robot with specified username") {
+		return false, nil
+	} else {
+		return false, fmt.Errorf("failed while checking robot account %s exists, status code %d: %s", robotName, statusCode, data.Message)
+	}
 }
 
 // CreateRobotAccount creates a new robot account in the organization.

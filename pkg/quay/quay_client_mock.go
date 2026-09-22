@@ -36,6 +36,7 @@ var (
 	RepositoryExistsFunc                          func(organization, imageRepository string) (bool, error)
 	ChangeRepositoryVisibilityFunc                func(organization, imageRepository string, visibility string) error
 	GetRobotAccountFunc                           func(organization string, robotName string) (*RobotAccount, error)
+	RobotAccountExistsFunc                        func(organization string, robotName string) (bool, error)
 	CreateRobotAccountFunc                        func(organization string, robotName string) (*RobotAccount, error)
 	DeleteRobotAccountFunc                        func(organization string, robotName string) (bool, error)
 	AddPermissionsForRepositoryToAccountFunc      func(organization, imageRepository, accountName string, isRobot, isWrite bool) error
@@ -218,6 +219,9 @@ func (c TestQuayClient) GetRobotAccount(organization string, robotName string) (
 }
 func (c TestQuayClient) CreateRobotAccount(organization string, robotName string) (*RobotAccount, error) {
 	return CreateRobotAccountFunc(organization, robotName)
+}
+func (c TestQuayClient) RobotAccountExists(organization string, robotName string) (bool, error) {
+	return RobotAccountExistsFunc(organization, robotName)
 }
 func (c TestQuayClient) DeleteRobotAccount(organization string, robotName string) (bool, error) {
 	return DeleteRobotAccountFunc(organization, robotName)
