@@ -6,6 +6,7 @@ import (
 
 	"github.com/devfile/library/v2/pkg/util"
 	applicationApi "github.com/konflux-ci/application-api/api/konflux/v1alpha1"
+	"github.com/konflux-ci/build-service/e2e-tests/pkg/clients/git"
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/constants"
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/framework"
 	"github.com/konflux-ci/e2e-tests/pkg/utils"
@@ -26,9 +27,12 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		var targetRepoName, testRepoUrl string
 		var component *applicationApi.Component
 		var plr *pipeline.PipelineRun
+		var gitClient git.Client
 
 		BeforeAll(func() {
-			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamesapcePrefix))
+			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
+			Expect(err).NotTo(HaveOccurred())
+			gitClient, err = f.AsKubeAdmin.CommonController.GitClients.Get(git.GitHubProvider)
 			Expect(err).NotTo(HaveOccurred())
 			testNamespace = f.TestNamespace
 			imageRepositoryName = "image-repository-" + util.GenerateRandomString(4)
@@ -39,13 +43,13 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			if !CurrentSpecReport().Failed() {
 				Expect(f.AsKubeAdmin.CommonController.DeleteComponent(componentName, testNamespace)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete component %s", componentName))
 				Expect(f.AsKubeAdmin.CommonController.DeleteImageRepositoryCR(imageRepositoryName, testNamespace)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete imagerepository %s", imageRepositoryName))
-				Expect(f.AsKubeAdmin.CommonController.Github.DeleteRepositoryIfExists(targetRepoName)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete repository: %s", targetRepoName))
+				Expect(gitClient.DeleteRepositoryIfExists(targetRepoName)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete repository: %s", targetRepoName))
 			}
 		})
 		It("component is created successfully", func() {
 			// Fork the github repository before creating component
 			targetRepoName = fmt.Sprintf("%s-%s", constants.SampleTestRepoName, util.GenerateRandomString(4))
-			_, err = f.AsKubeAdmin.CommonController.Github.ForkRepository(constants.SampleTestRepoName, targetRepoName)
+			err = gitClient.ForkRepository(constants.SampleTestRepoName, targetRepoName)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to fork repository: %s", targetRepoName))
 			testRepoUrl = fmt.Sprintf("https://github.com/%s/%s", githubOrg, targetRepoName)
 

@@ -6,18 +6,18 @@ import (
 
 	"github.com/devfile/library/v2/pkg/util"
 	applicationApi "github.com/konflux-ci/application-api/api/konflux/v1alpha1"
+	"github.com/konflux-ci/build-service/e2e-tests/pkg/clients/git"
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/constants"
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/framework"
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/utils"
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/utils/build"
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
 	. "github.com/onsi/gomega"    //nolint:staticcheck
-	pipeline "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Label("image-controller-e2e"), func() {
+var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Label("image-controller-e2e-v2"), func() {
 
 	var f *framework.Framework
 	var err error
@@ -29,7 +29,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		var pushSecret *corev1.Secret
 
 		BeforeAll(func() {
-			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamesapcePrefix))
+			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
 			Expect(err).NotTo(HaveOccurred())
 			testNamespace = f.TestNamespace
 			imageRepositoryCRName = "sample-image-repo-" + util.GenerateRandomString(4)
@@ -128,7 +128,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		var pushSecret *corev1.Secret
 
 		BeforeAll(func() {
-			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamesapcePrefix))
+			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
 			Expect(err).NotTo(HaveOccurred())
 			testNamespace = f.TestNamespace
 			imageRepositoryName = "image-repository-" + util.GenerateRandomString(4)
@@ -197,7 +197,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		var pushSecret, pullSecret, namespacePullSecret *corev1.Secret
 
 		BeforeAll(func() {
-			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamesapcePrefix))
+			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
 			Expect(err).NotTo(HaveOccurred())
 			testNamespace = f.TestNamespace
 			imageRepositoryName = "image-repository-" + util.GenerateRandomString(4)
@@ -273,7 +273,15 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		It("change the visibility to public", func() {
 			err = f.AsKubeAdmin.CommonController.UpdateVisibility(imageRepositoryName, testNamespace, "public")
 			Expect(err).ShouldNot(HaveOccurred(), "failed while updating visibility to public: %+v", err)
-			time.Sleep(2 * time.Second) // Wait for 2 seconds for change to take effect
+
+			Eventually(func() bool {
+				isPublic, err := build.IsImageRepoPublic(imageRepoName)
+				if err != nil {
+					GinkgoWriter.Printf("failed while trying to check if quay repo is public: %v\n", err)
+					return false
+				}
+				return isPublic
+			}, time.Minute, time.Second*5).To(BeTrue(), fmt.Sprintf("timed out when checking if the quay repo %s is public", imageRepoName))
 		})
 		It("try to pull image anonymously, it should work", func() {
 			isPullable, err := build.IsImagePullableAnonymously(imageRepoURL)
@@ -283,7 +291,15 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		It("change the visibility to private again", func() {
 			err = f.AsKubeAdmin.CommonController.UpdateVisibility(imageRepositoryName, testNamespace, "private")
 			Expect(err).ShouldNot(HaveOccurred(), "failed while updating visibility to private: %+v", err)
-			time.Sleep(2 * time.Second) // Wait for 2 seconds for change to take effect
+
+			Eventually(func() bool {
+				isPublic, err := build.IsImageRepoPublic(imageRepoName)
+				if err != nil {
+					GinkgoWriter.Printf("failed while trying to check if quay repo is private: %v\n", err)
+					return true
+				}
+				return isPublic
+			}, time.Minute, time.Second*5).To(BeFalse(), fmt.Sprintf("timed out when checking if the quay repo %s is private", imageRepoName))
 		})
 		It("try to pull image anonymously again, it should fail", func() {
 			isPullable, err := build.IsImagePullableAnonymously(imageRepoURL)
@@ -305,10 +321,12 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		var newPushSecret, newPullSecret, newNamespacePullSecret *corev1.Secret
 		var newPushSecretContent, newPullSecretContent, newNamespacePullSecretContent []byte
 		var firstGenerateTimestamp string
-		var plr *pipeline.PipelineRun
+		var gitClient git.Client
 
 		BeforeAll(func() {
-			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamesapcePrefix))
+			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
+			Expect(err).NotTo(HaveOccurred())
+			gitClient, err = f.AsKubeAdmin.CommonController.GitClients.Get(git.GitHubProvider)
 			Expect(err).NotTo(HaveOccurred())
 			testNamespace = f.TestNamespace
 			imageRepositoryName = "image-repository-" + util.GenerateRandomString(4)
@@ -321,13 +339,13 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			if !CurrentSpecReport().Failed() {
 				Expect(f.AsKubeAdmin.CommonController.DeleteComponent(componentName, testNamespace)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete component %s", componentName))
 				Expect(f.AsKubeAdmin.CommonController.DeleteImageRepositoryCR(imageRepositoryName, testNamespace)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete imagerepository %s", imageRepositoryName))
-				Expect(f.AsKubeAdmin.CommonController.Github.DeleteRepositoryIfExists(targetRepoName)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete repository: %s", targetRepoName))
+				Expect(gitClient.DeleteRepositoryIfExists(targetRepoName)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete repository: %s", targetRepoName))
 			}
 		})
 		It("component is created successfully", func() {
 			// Fork the github repository before creating component
 			targetRepoName = fmt.Sprintf("%s-%s", constants.SampleTestRepoName, util.GenerateRandomString(4))
-			_, err = f.AsKubeAdmin.CommonController.Github.ForkRepository(constants.SampleTestRepoName, targetRepoName)
+			err = gitClient.ForkRepository(constants.SampleTestRepoName, targetRepoName)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to fork repository: %s", targetRepoName))
 			testRepoUrl = fmt.Sprintf("https://github.com/%s/%s", githubOrg, targetRepoName)
 
@@ -381,19 +399,6 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			// Wait for component test version status to succeed
 			err = f.AsKubeAdmin.CommonController.WaitForComponentVersionOnboardingToSucceed(componentName, testNamespace, testVersionName)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while checking component %q version status to succeeded", componentName))
-		})
-		It("triggers a PipelineRun", func() {
-			Eventually(func() error {
-				plr, err = f.AsKubeAdmin.CommonController.GetComponentPipelineRun(componentName, testNamespace, "build", "pull_request", "")
-				if err != nil {
-					GinkgoWriter.Printf("PipelineRun has not been created yet for the component %s/%s\n", testNamespace, componentName)
-					return err
-				}
-				if !plr.HasStarted() {
-					return fmt.Errorf("pipelinerun %s/%s hasn't started yet", plr.GetNamespace(), plr.GetName())
-				}
-				return nil
-			}, time.Minute*10, constants.PipelineRunPollingInterval).Should(Succeed(), fmt.Sprintf("timed out when waiting for the PipelineRun to start for the component %s/%s", testNamespace, componentName))
 		})
 		It("in cluster secrets are created successfully", func() {
 			pullSecretName, pushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, imageRepositoryName)
@@ -543,7 +548,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		var pushSecret, pullSecret *corev1.Secret
 
 		BeforeAll(func() {
-			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamesapcePrefix))
+			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
 			Expect(err).NotTo(HaveOccurred())
 			testNamespace = f.TestNamespace
 			firstImageRepositoryName = "image-repository-one-" + util.GenerateRandomString(4)
@@ -654,7 +659,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		var firstPushSecret, firstPullSecret, secondPushSecret, secondPullSecret *corev1.Secret
 
 		BeforeAll(func() {
-			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamesapcePrefix))
+			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
 			Expect(err).NotTo(HaveOccurred())
 			testNamespace = f.TestNamespace
 			firstImageRepositoryName = "image-repository-one-" + util.GenerateRandomString(4)
@@ -782,7 +787,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		var firstPushSecret, secondPushSecret, namespacePullSecret *corev1.Secret
 
 		BeforeAll(func() {
-			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamesapcePrefix))
+			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
 			Expect(err).NotTo(HaveOccurred())
 			testNamespace = f.TestNamespace
 			firstImageRepositoryName = "image-repository-one-" + util.GenerateRandomString(4)
@@ -853,9 +858,12 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		var testNamespace, imageRepositoryName, componentName, imageRepoName, imageRepoURL, pushSecretName string
 		var testVersionName, targetRepoName, testRepoUrl string
 		var pushSecret *corev1.Secret
+		var gitClient git.Client
 
 		BeforeAll(func() {
-			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamesapcePrefix))
+			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
+			Expect(err).NotTo(HaveOccurred())
+			gitClient, err = f.AsKubeAdmin.CommonController.GitClients.Get(git.GitHubProvider)
 			Expect(err).NotTo(HaveOccurred())
 			testNamespace = f.TestNamespace
 			imageRepositoryName = "image-repository-" + util.GenerateRandomString(4)
@@ -866,7 +874,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			if !CurrentSpecReport().Failed() {
 				Expect(f.AsKubeAdmin.CommonController.DeleteComponent(componentName, testNamespace)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete component %s", componentName))
 				Expect(f.AsKubeAdmin.CommonController.DeleteImageRepositoryCR(imageRepositoryName, testNamespace)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete imagerepository %s", imageRepositoryName))
-				Expect(f.AsKubeAdmin.CommonController.Github.DeleteRepositoryIfExists(targetRepoName)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete repository: %s", targetRepoName))
+				Expect(gitClient.DeleteRepositoryIfExists(targetRepoName)).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete repository: %s", targetRepoName))
 			}
 		})
 		It("create an image repository and check state is waiting", func() {
@@ -891,7 +899,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		It("component is created successfully", func() {
 			// Fork the github repository before creating component
 			targetRepoName = fmt.Sprintf("%s-%s", constants.SampleTestRepoName, util.GenerateRandomString(4))
-			_, err = f.AsKubeAdmin.CommonController.Github.ForkRepository(constants.SampleTestRepoName, targetRepoName)
+			err = gitClient.ForkRepository(constants.SampleTestRepoName, targetRepoName)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to fork repository: %s", targetRepoName))
 			testRepoUrl = fmt.Sprintf("https://github.com/%s/%s", githubOrg, targetRepoName)
 
@@ -1011,7 +1019,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		var testNamespace, imageRepositoryName, imageRepoName, firstNotificationTitle, secondNotificationTitle string
 
 		BeforeAll(func() {
-			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamesapcePrefix))
+			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
 			Expect(err).NotTo(HaveOccurred())
 			testNamespace = f.TestNamespace
 			imageRepositoryName = "image-repository-" + util.GenerateRandomString(4)
@@ -1036,7 +1044,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		It("add a notification and check configured correctly", func() {
 			firstNotificationTitle = "First Notification"
 			firstWebhookUrl := "https://webhook1.com"
-			err = f.AsKubeAdmin.CommonController.AddNotifictionToIR(imageRepositoryName, testNamespace, firstNotificationTitle, firstWebhookUrl)
+			err = f.AsKubeAdmin.CommonController.AddNotificationToIR(imageRepositoryName, testNamespace, firstNotificationTitle, firstWebhookUrl)
 			Expect(err).ShouldNot(HaveOccurred(), "failed to add first notification to the image repository")
 
 			Eventually(func() bool {
@@ -1056,7 +1064,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		It("add a second notification and check it also configured correctly", func() {
 			secondNotificationTitle = "Second Notification"
 			secondWebhookUrl := "https://webhook2.com"
-			err = f.AsKubeAdmin.CommonController.AddNotifictionToIR(imageRepositoryName, testNamespace, secondNotificationTitle, secondWebhookUrl)
+			err = f.AsKubeAdmin.CommonController.AddNotificationToIR(imageRepositoryName, testNamespace, secondNotificationTitle, secondWebhookUrl)
 			Expect(err).ShouldNot(HaveOccurred(), "failed to add second notification to the image repository")
 
 			Eventually(func() bool {
@@ -1069,7 +1077,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}, 2*time.Minute, time.Second*10).Should(BeTrue(), "notification title does not match in image repository")
 
 			// Check its created on quay side
-			isExists, err := build.DoesNotificationExists(imageRepoName, firstNotificationTitle)
+			isExists, err := build.DoesNotificationExists(imageRepoName, secondNotificationTitle)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if notification exists in quay repository")
 			Expect(isExists).To(BeTrue(), "notification does not exists in quay side")
 		})
@@ -1127,7 +1135,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if notification exists in quay repository")
 			Expect(isExists).To(BeFalse(), "notification still exists in quay side, unexpected")
 
-			// reconcile
+			// trigger reconcile
 			err = f.AsKubeAdmin.CommonController.RemoveFinalizerFromIR(imageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while removing the finalizer from image repository: %+v", err)
 
