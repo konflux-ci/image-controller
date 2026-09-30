@@ -17,7 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Label("image-controller-e2e-v2"), func() {
+var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Label("image-controller-e2e"), func() {
 
 	var f *framework.Framework
 	var err error
@@ -91,7 +91,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Eventually(func() bool {
 				imageExist, err := build.DoesImageRepoExistInQuay(imageRepoName)
 				if err != nil {
-					fmt.Printf("failed while checking if image repo exists in quay: %v", err)
+					GinkgoWriter.Printf("failed while checking if image repo exists in quay: %v", err)
 					return true
 				}
 				return imageExist
@@ -100,7 +100,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Eventually(func() bool {
 				robotExist, err := build.DoesRobotAccountExistInQuay(pullRobotAccountName)
 				if err != nil {
-					fmt.Printf("failed while checking if pull robot account exists in quay: %v", err)
+					GinkgoWriter.Printf("failed while checking if pull robot account exists in quay: %v", err)
 					return true
 				}
 				return robotExist
@@ -109,7 +109,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Eventually(func() bool {
 				robotExist, err := build.DoesRobotAccountExistInQuay(pushRobotAccountName)
 				if err != nil {
-					fmt.Printf("failed while checking if push robot account exists in quay: %v", err)
+					GinkgoWriter.Printf("failed while checking if push robot account exists in quay: %v", err)
 					return true
 				}
 				return robotExist
@@ -186,7 +186,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			err = build.BuildMockImageAndPush(pushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
-		It("when tring to update image name, it should fail", func() {
+		It("when trying to update image name, it should fail", func() {
 			err = f.AsKubeAdmin.CommonController.UpdateImageName(imageRepositoryName, testNamespace, "dummy-name")
 			Expect(err).To(MatchError(ContainSubstring("Image repository name cannot be changed")))
 		})
@@ -392,7 +392,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while waiting for image repository %q to be ready", imageRepositoryName))
 			// Read the generate timestamp to compare later
 			firstGenerateTimestamp, err = f.AsKubeAdmin.CommonController.GetGenerateTimestamp(imageRepositoryName, testNamespace)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting generate timestamp from image reposiotry: %+v", err)
+			Expect(err).ShouldNot(HaveOccurred(), "failed while getting generate timestamp from image repository: %+v", err)
 			Expect(firstGenerateTimestamp).ShouldNot(BeEmpty(), "generate timestamp is empty, which is unexpected")
 		})
 		It("check component version onboarding status", func() {
@@ -431,20 +431,17 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using namespace pull secret: %+v", err)
 			Expect(isPullableWithNamespacePullSecret).To(BeTrue(), "image is not pullable with namespace pull secret, which is unexpected")
 		})
-		It("check credential rotaion is successful", func() {
+		It("check credential rotation is successful", func() {
 			err = f.AsKubeAdmin.CommonController.RegenerateToken(imageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while regenerating pull and push robot tokens: %+v", err)
-			Eventually(func() error {
+			Eventually(func() bool {
 				currentGenerateTimestamp, err := f.AsKubeAdmin.CommonController.GetGenerateTimestamp(imageRepositoryName, testNamespace)
 				if err != nil {
 					GinkgoWriter.Printf("failed to get generate timestamp after rotation with error %v\n", err)
-					return err
+					return false
 				}
-				if currentGenerateTimestamp == firstGenerateTimestamp {
-					return fmt.Errorf("Current generate timestamp %q is not equal to earlier generate timestamp %q\n", currentGenerateTimestamp, firstGenerateTimestamp)
-				}
-				return nil
-			}, 2*time.Minute, 5*time.Second).Should(Succeed(), fmt.Sprintf("timed out when checking generate timestamp is updated for %s/%s", testNamespace, imageRepositoryName))
+				return currentGenerateTimestamp != firstGenerateTimestamp
+			}, 2*time.Minute, 5*time.Second).To(BeTrue(), fmt.Sprintf("timed out when checking generate timestamp is updated for %s/%s", testNamespace, imageRepositoryName))
 
 			// check regenerate-token is removed from the IR spec
 			ir, err := f.AsKubeAdmin.CommonController.GetImageRepository(imageRepositoryName, testNamespace)
@@ -481,14 +478,14 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			err = build.BuildMockImageAndPush(newPushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
-		It("namespace pull token rotaion is successful", func() {
+		It("namespace pull token rotation is successful", func() {
 			err = f.AsKubeAdmin.CommonController.RegenerateNamespacePullToken(imageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while regenerating namespace pull token: %+v", err)
 
 			Eventually(func() bool {
 				ir, err := f.AsKubeAdmin.CommonController.GetImageRepository(imageRepositoryName, testNamespace)
 				if err != nil {
-					fmt.Printf("failed to get image repository %s with error: %v", imageRepositoryName, err)
+					GinkgoWriter.Printf("failed to get image repository %s with error: %v", imageRepositoryName, err)
 					return false
 				}
 				return ir.Spec.Credentials.RegenerateNamespacePullToken == nil
@@ -563,7 +560,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		})
 
 		It("image repository is created successfully", func() {
-			// create a image repository with skip repository deleltion annotation set to true
+			// create a image repository with skip repository deletion annotation set to true
 			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(firstImageRepositoryName, testNamespace, "public", "", "", false, true)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to create image repository cr: %q", firstImageRepositoryName))
 
@@ -610,10 +607,10 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 					GinkgoWriter.Printf("While trying to check if quay repo exists got err: %v\n", err)
 				}
 				return imageExist
-			}, time.Minute, time.Second*10).Should(BeTrue(), fmt.Sprintf("the quay reposiotry %s does to exists, unexpected", imageRepoName))
+			}, time.Minute, time.Second*10).Should(BeTrue(), fmt.Sprintf("the quay repository %s does not exists, unexpected", imageRepoName))
 		})
-		It("create another image reposiotry, poiting to the same quay repo", func() {
-			// create IR pointing to the same imageRepoName and skip repository deleltion annotation should be set to false
+		It("create another image repository, pointing to the same quay repo", func() {
+			// create IR pointing to the same imageRepoName and skip repository deletion annotation should be set to false
 			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(secondImageRepositoryName, testNamespace, "public", imageRepoName, "", false, false)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to create image repository cr: %q", secondImageRepositoryName))
 
@@ -650,7 +647,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 					return true
 				}
 				return imageExist
-			}, time.Minute, time.Second*10).Should(BeFalse(), fmt.Sprintf("the quay reposiotry %s still exists, unexpected", imageRepoName))
+			}, time.Minute, time.Second*10).Should(BeFalse(), fmt.Sprintf("the quay repository %s still exists, unexpected", imageRepoName))
 		})
 	})
 	Describe("two image repository pointing to the same quay repo", Label("single-quay-repo"), Ordered, func() {
@@ -673,7 +670,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}
 		})
 		It("first image repository is created successfully", func() {
-			// create a image repository with skip repository deleltion annotation set to true
+			// create a image repository with skip repository deletion annotation set to true
 			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(firstImageRepositoryName, testNamespace, "private", "", "", false, true)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to create image repository cr: %q", firstImageRepositoryName))
 
@@ -690,8 +687,8 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image repo exists in quay with error: %+v", err)
 			Expect(imageExist).To(BeTrue(), "quay image does not exists")
 		})
-		It("create second image reposiotry, poiting to the same quay repo", func() {
-			// create IR pointing to the same imageRepoName and skip repository deleltion annotation should be set to false
+		It("create second image repository, pointing to the same quay repo", func() {
+			// create IR pointing to the same imageRepoName and skip repository deletion annotation should be set to false
 			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(secondImageRepositoryName, testNamespace, "private", imageRepoName, "", false, false)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to create image repository cr: %q", secondImageRepositoryName))
 
@@ -746,7 +743,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 					GinkgoWriter.Printf("While trying to check if quay repo exists got err: %v\n", err)
 				}
 				return imageExist
-			}, time.Minute, time.Second*10).Should(BeTrue(), fmt.Sprintf("the quay reposiotry %s does to exists, unexpected", imageRepoName))
+			}, time.Minute, time.Second*10).Should(BeTrue(), fmt.Sprintf("the quay repository %s does not exists, unexpected", imageRepoName))
 		})
 		It("try to pull the image using first pull secret, it should fail", func() {
 			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(firstPullSecret, imageRepoURL)
@@ -778,7 +775,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 					return true
 				}
 				return imageExist
-			}, time.Minute, time.Second*10).Should(BeFalse(), fmt.Sprintf("the quay reposiotry %s still exists, unexpected", imageRepoName))
+			}, time.Minute, time.Second*10).Should(BeFalse(), fmt.Sprintf("the quay repository %s still exists, unexpected", imageRepoName))
 		})
 	})
 	Describe("namespace wide pull secrets", Label("namespace-pull"), Ordered, func() {
@@ -808,7 +805,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			err = f.AsKubeAdmin.CommonController.WaitForImageRepositoryToBeReady(firstImageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while waiting for image repository %q to be ready", firstImageRepositoryName))
 		})
-		It("second image reposiotry is created successfully", func() {
+		It("second image repository is created successfully", func() {
 			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(secondImageRepositoryName, testNamespace, "private", "", "", false, false)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to create image repository cr: %q", secondImageRepositoryName))
 
@@ -894,7 +891,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 					return false
 				}
 				return ir.Status.State == "waiting"
-			}, time.Minute, time.Second*10).Should(BeTrue(), "image reposiotry current state is not waiting")
+			}, time.Minute, time.Second*10).Should(BeTrue(), "image repository current state is not waiting")
 		})
 		It("component is created successfully", func() {
 			// Fork the github repository before creating component
@@ -958,7 +955,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 					return false
 				}
 				return ir.Status.State == "damaged"
-			}, 1*time.Minute, time.Second*10).Should(BeTrue(), "image reposiotry current state is not damaged")
+			}, 1*time.Minute, time.Second*10).Should(BeTrue(), "image repository current state is not damaged")
 		})
 		It("remove finalizer from IR, so that the IR is back to ready again", func() {
 			err = f.AsKubeAdmin.CommonController.RemoveFinalizerFromIR(imageRepositoryName, testNamespace)
@@ -995,7 +992,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 					return false
 				}
 				return ir.Status.State == "missing"
-			}, 2*time.Minute, time.Second*10).Should(BeTrue(), "image reposiotry current state is not missing")
+			}, 2*time.Minute, time.Second*10).Should(BeTrue(), "image repository current state is not missing")
 		})
 		It("remove finalizer from IR, check the IR is back to ready again", func() {
 			err = f.AsKubeAdmin.CommonController.RemoveFinalizerFromIR(imageRepositoryName, testNamespace)
@@ -1100,7 +1097,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Eventually(func() bool {
 				hasCorrectWebhook, err := build.DoesNotificationHasCorrectWebhookUrl(imageRepoName, firstNotificationTitle, newWebhookUrl)
 				if err != nil {
-					GinkgoWriter.Printf("fwhile checking if notification has correct webhook url, got error: %v", err)
+					GinkgoWriter.Printf("while checking if notification has correct webhook url, got error: %v", err)
 					return false
 				}
 				return hasCorrectWebhook

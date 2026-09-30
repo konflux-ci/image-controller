@@ -9,7 +9,7 @@ import (
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/clients/git"
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/constants"
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/framework"
-	"github.com/konflux-ci/e2e-tests/pkg/utils"
+	"github.com/konflux-ci/build-service/e2e-tests/pkg/utils"
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
 	. "github.com/onsi/gomega"    //nolint:staticcheck
 	pipeline "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
