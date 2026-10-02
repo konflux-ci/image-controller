@@ -78,6 +78,10 @@ const (
 	namespacePullSecretEnsuredAnnotation = "build.konflux-ci.dev/namespace-pull-secret-ensured" // #nosec G101
 	// remove after fully migrated to new group
 	namespacePullSecretEnsuredAnnotationOldModel = "image-controller.appstudio.redhat.com/namespace-pull-secret-ensured"
+
+	imageControllerNamespaceName         = "image-controller"
+	disabledOldModelMessage              = "old component model resources processing is disabled in favor of new component model"
+	disableOldModelConfigMapResourceName = "disable-old-model"
 )
 
 // ImageRepositoryReconciler reconciles a ImageRepository object
@@ -390,6 +394,35 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				return ctrl.Result{}, err
 			}
 			log.Info("Image repository finalizer removed", l.Action, l.ActionDelete)
+		}
+		return ctrl.Result{}, nil
+	}
+
+	disableOldModel := false
+	if r.IsOldGroup {
+		disableOldModel = true
+		disableOldModelConfigMap := &corev1.ConfigMap{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Name: disableOldModelConfigMapResourceName, Namespace: imageControllerNamespaceName}, disableOldModelConfigMap); err != nil {
+			if !errors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+			disableOldModel = false
+		}
+	}
+
+	if disableOldModel {
+		log.Info("Old component model processing is disabled")
+
+		if imageRepository.Status.Message == disabledOldModelMessage {
+			return ctrl.Result{}, nil
+		}
+
+		imageRepository.Status.Message = disabledOldModelMessage
+
+		if err = r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
+			log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
+		} else {
+			log.Info("Set image repository message because old component model is disabled", l.Action, l.ActionUpdate)
 		}
 		return ctrl.Result{}, nil
 	}

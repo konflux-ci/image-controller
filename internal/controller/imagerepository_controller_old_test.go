@@ -32,6 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	corev1 "k8s.io/api/core/v1"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	imagerepositoryv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
@@ -2320,6 +2322,112 @@ var _ = Describe("Image repository controller (old group)", func() {
 				ImageName: "wrong&name",
 			})
 			Expect(k8sClient.Create(ctx, imageRepository)).ToNot(Succeed())
+		})
+	})
+
+	Context("Test disable old model processing", func() {
+		var (
+			resourceKey  = types.NamespacedName{Name: defaultImageRepositoryName + "-disable-old-model", Namespace: defaultNamespaceOld}
+			configMapKey = types.NamespacedName{Name: disableOldModelConfigMapResourceName, Namespace: imageControllerNamespaceName}
+		)
+
+		BeforeEach(func() {
+			createNamespace(imageControllerNamespaceName)
+			// Any Quay API call made here would mean the disabled old model path wasn't short-circuited.
+			quay.ResetTestQuayClientToFails()
+		})
+
+		AfterEach(func() {
+			deleteImageRepositoryOldModel(resourceKey)
+
+			configMap := &corev1.ConfigMap{}
+			if err := k8sClient.Get(ctx, configMapKey, configMap); err == nil {
+				Expect(k8sClient.Delete(ctx, configMap)).To(Succeed())
+			} else if !k8sErrors.IsNotFound(err) {
+				Fail(err.Error())
+			}
+		})
+
+		It("should set disabled message while disable-old-model ConfigMap exists and resume provisioning once it is removed", func() {
+			disableOldModelConfigMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: configMapKey.Name, Namespace: configMapKey.Namespace},
+			}
+			Expect(k8sClient.Create(ctx, disableOldModelConfigMap)).To(Succeed())
+
+			createImageRepositoryOldModel(imageRepositoryConfigOldModel{ResourceKey: &resourceKey})
+
+			Eventually(func() bool {
+				imageRepository := getImageRepositoryOldModel(resourceKey)
+				return imageRepository.Status.State == "" &&
+					imageRepository.Status.Message == disabledOldModelMessage
+			}, timeout, interval).Should(BeTrue())
+
+			imageRepository := getImageRepositoryOldModel(resourceKey)
+			Expect(imageRepository.Status.Credentials.PushSecretName).To(BeEmpty())
+
+			Expect(k8sClient.Delete(ctx, disableOldModelConfigMap)).To(Succeed())
+
+			// Removing the ConfigMap doesn't trigger a reconcile by itself since it isn't watched,
+			// so force one by updating the image repository, same as a user retrying would.
+			quay.ResetTestQuayClient()
+			imageRepository = getImageRepositoryOldModel(resourceKey)
+			if imageRepository.Annotations == nil {
+				imageRepository.Annotations = map[string]string{}
+			}
+			imageRepository.Annotations["test.appstudio.redhat.com/trigger-reconcile"] = "true"
+			Expect(k8sClient.Update(ctx, imageRepository)).To(Succeed())
+
+			Eventually(func() bool {
+				imageRepository := getImageRepositoryOldModel(resourceKey)
+				return imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateReady &&
+					imageRepository.Status.Message == "" &&
+					imageRepository.Status.Credentials.PushSecretName != ""
+			}, timeout, interval).Should(BeTrue())
+
+			waitImageRepositoryFinalizerOnImageRepositoryOldModel(resourceKey)
+			imageRepository = getImageRepositoryOldModel(resourceKey)
+
+			pushSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PushSecretName, Namespace: imageRepository.Namespace}
+			waitSecretExist(pushSecretKey)
+			defer deleteSecret(pushSecretKey)
+
+			pullSecretKey := types.NamespacedName{Name: imageRepository.Status.Credentials.PullSecretName, Namespace: imageRepository.Namespace}
+			waitSecretExist(pullSecretKey)
+			defer deleteSecret(pullSecretKey)
+
+			namespaceSecretKey := types.NamespacedName{Name: namespacePullSecretName, Namespace: imageRepository.Namespace}
+			waitSecretExist(namespaceSecretKey)
+			defer deleteSecret(namespaceSecretKey)
+		})
+
+		It("should still delete an already provisioned image repository while disable-old-model ConfigMap exists", func() {
+			quay.ResetTestQuayClient()
+
+			createImageRepositoryOldModel(imageRepositoryConfigOldModel{ResourceKey: &resourceKey})
+
+			Eventually(func() bool {
+				imageRepository := getImageRepositoryOldModel(resourceKey)
+				return imageRepository.Status.State == imagerepositoryv1alpha1.ImageRepositoryStateReady
+			}, timeout, interval).Should(BeTrue())
+
+			waitImageRepositoryFinalizerOnImageRepositoryOldModel(resourceKey)
+
+			disableOldModelConfigMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: configMapKey.Name, Namespace: configMapKey.Namespace},
+			}
+			Expect(k8sClient.Create(ctx, disableOldModelConfigMap)).To(Succeed())
+
+			isDeleteRepositoryInvoked := false
+			quay.DeleteRepositoryFunc = func(organization, imageRepository string) (bool, error) {
+				isDeleteRepositoryInvoked = true
+				return true, nil
+			}
+
+			// Deletion must proceed (finalizer cleanup, Quay repository removal) even though
+			// the disable-old-model ConfigMap is present, since it's checked before that gate.
+			deleteImageRepositoryOldModel(resourceKey)
+
+			Expect(isDeleteRepositoryInvoked).To(BeTrue())
 		})
 	})
 })
