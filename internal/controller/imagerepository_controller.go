@@ -421,6 +421,7 @@ func (r *ImageRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 		if err = r.updateImageRepositoryStatus(ctx, imageRepository); err != nil {
 			log.Error(err, "failed to update status", l.Action, l.ActionUpdate)
+			return ctrl.Result{}, err
 		} else {
 			log.Info("Set image repository message because old component model is disabled", l.Action, l.ActionUpdate)
 		}
