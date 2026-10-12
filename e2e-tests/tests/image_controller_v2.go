@@ -1,7 +1,9 @@
 package e2e
 
 import (
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/devfile/library/v2/pkg/util"
@@ -10,12 +12,14 @@ import (
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/constants"
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/framework"
 	"github.com/konflux-ci/build-service/e2e-tests/pkg/utils"
-	"github.com/konflux-ci/build-service/e2e-tests/pkg/utils/build"
+	"github.com/konflux-ci/build-service/e2e-tests/pkg/utils/buildutils"
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
 	. "github.com/onsi/gomega"    //nolint:staticcheck
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+var quayOrg = utils.GetEnv("DEFAULT_QUAY_ORG", "redhat-appstudio-qe")
 
 var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Label("image-controller-e2e"), func() {
 
@@ -24,9 +28,9 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 	defer GinkgoRecover()
 
 	Describe("create an image repository without spec", Label("no-spec"), Ordered, func() {
-		var testNamespace, imageRepositoryCRName, imageRepoName string
-		var pullRobotAccountName, pushRobotAccountName, pullSecretName, pushSecretName string
-		var pushSecret *corev1.Secret
+		var testNamespace, imageRepositoryCRName, imageRepoName, imageRepoURL string
+		var pullRobotAccountName, pushRobotAccountName string
+		var pullSecret, pushSecret *corev1.Secret
 
 		BeforeAll(func() {
 			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
@@ -52,35 +56,18 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		It("registry side image repo and robot accounts created successfully", func() {
 			imageRepoName, err = f.AsKubeAdmin.CommonController.GetImageNameFromImageRepositoryCR(testNamespace, imageRepositoryCRName)
 			Expect(err).ShouldNot(HaveOccurred(), "failed to read image repo from image repository CR: %s", imageRepositoryCRName)
-			Expect(imageRepoName).ShouldNot(BeEmpty(), "image repo name is empty")
+			Expect(imageRepoName).To(Equal(testNamespace+"/"+imageRepositoryCRName), "image repo name format is  incorrect")
 
-			imageExist, err := build.DoesImageRepoExistInQuay(imageRepoName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image repo exists in quay with error: %+v", err)
-			Expect(imageExist).To(BeTrue(), "quay image does not exists")
-
-			pullRobotAccountName, pushRobotAccountName, err = f.AsKubeAdmin.CommonController.GetRobotAccountsFromImageRepositoryCR(testNamespace, imageRepositoryCRName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get robot account names")
-			pullRobotAccountExist, err := build.DoesRobotAccountExistInQuay(pullRobotAccountName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if pull robot account exists in quay with error: %+v", err)
-			Expect(pullRobotAccountExist).To(BeTrue(), "pull robot account does not exists in quay")
-			pushRobotAccountExist, err := build.DoesRobotAccountExistInQuay(pushRobotAccountName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if push robot account exists in quay with error: %+v", err)
-			Expect(pushRobotAccountExist).To(BeTrue(), "push robot account does not exists in quay")
+			pullRobotAccountName, pushRobotAccountName = ValidateRegistrySideResources(f, testNamespace, imageRepositoryCRName, imageRepoName)
 		})
 		It("in cluster secrets are created successfully", func() {
-			pullSecretName, pushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, imageRepositoryCRName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get secrets from image repository")
-			_, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting pull secret: %+v", err)
-			pushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pushSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
-			_, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, constants.ComponentNamespacePullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting namespace pull secret: %+v", err)
+			pullSecret, pushSecret, _ = ValidateInClusterResources(f, testNamespace, imageRepositoryCRName)
 		})
 		It("pushing image to the registry is successful", func() {
-			imageRepoURL, err := f.AsKubeAdmin.CommonController.GetImageURLFromIR(imageRepositoryCRName, testNamespace)
+			imageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(imageRepositoryCRName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
-			err = build.BuildMockImageAndPush(pushSecret, imageRepoURL+":latest")
+			Expect(imageRepoURL).To(Equal("quay.io/"+quayOrg+"/"+testNamespace+"/"+imageRepositoryCRName), "image repo url format is incorrect")
+			err = buildutils.BuildMockImageAndPush(pushSecret, imageRepoURL+":latest")
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 		It("image repository CR is deleted successfully", func() {
@@ -89,7 +76,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		})
 		It("registry side resources cleaned successfully", func() {
 			Eventually(func() bool {
-				imageExist, err := build.DoesImageRepoExistInQuay(imageRepoName)
+				imageExist, err := buildutils.DoesImageRepoExistInQuay(imageRepoName)
 				if err != nil {
 					GinkgoWriter.Printf("failed while checking if image repo exists in quay: %v", err)
 					return true
@@ -98,7 +85,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}, 2*time.Minute, 10*time.Second).Should(BeFalse(), "quay image still exists which is unexpected")
 
 			Eventually(func() bool {
-				robotExist, err := build.DoesRobotAccountExistInQuay(pullRobotAccountName)
+				robotExist, err := buildutils.DoesRobotAccountExistInQuay(pullRobotAccountName)
 				if err != nil {
 					GinkgoWriter.Printf("failed while checking if pull robot account exists in quay: %v", err)
 					return true
@@ -107,7 +94,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}, 2*time.Minute, 10*time.Second).Should(BeFalse(), "quay pull robot account still exists, which is unexpected")
 
 			Eventually(func() bool {
-				robotExist, err := build.DoesRobotAccountExistInQuay(pushRobotAccountName)
+				robotExist, err := buildutils.DoesRobotAccountExistInQuay(pushRobotAccountName)
 				if err != nil {
 					GinkgoWriter.Printf("failed while checking if push robot account exists in quay: %v", err)
 					return true
@@ -116,15 +103,15 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}, 2*time.Minute, 10*time.Second).Should(BeFalse(), "quay push robot account still exists, which is unexpected")
 		})
 		It("in cluster resources cleaned successfully", func() {
-			_, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pullSecretName)
+			_, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pullSecret.Name)
 			Expect(err).To(MatchError(ContainSubstring("not found")))
-			_, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pushSecretName)
+			_, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pushSecret.Name)
 			Expect(err).To(MatchError(ContainSubstring("not found")))
 		})
 	})
 	Describe("creates an image repository with custom name", Label("custom-image"), Ordered, func() {
 		var testNamespace, imageRepositoryName, customImageName string
-		var imageRepoName, pullRobotAccountName, pushRobotAccountName, pullSecretName, pushSecretName, imageRepoURL string
+		var imageRepoName, imageRepoURL string
 		var pushSecret *corev1.Secret
 
 		BeforeAll(func() {
@@ -149,41 +136,28 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			err = f.AsKubeAdmin.CommonController.WaitForImageRepositoryToBeReady(imageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while waiting for image repository %q to be ready", imageRepositoryName))
 		})
-		It("validate image repo URL has tenant namespace", func() {
+		It("validate image repo URL has correct format and visibility is public", func() {
 			imageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(imageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
-			Expect(imageRepoURL).To(ContainSubstring(testNamespace))
+			Expect(imageRepoURL).To(Equal("quay.io/"+quayOrg+"/"+testNamespace+"/"+customImageName), "image repo url format is incorrect")
+
+			// check image visibility is public
+			visibility, err := f.AsKubeAdmin.CommonController.GetImageVisibilityFromIR(imageRepositoryName, testNamespace)
+			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image visibility from IR: %+v", err)
+			Expect(visibility).To(Equal("public"), "image visibility is not public")
 		})
 		It("registry side image repo and robot accounts created successfully", func() {
 			imageRepoName, err = f.AsKubeAdmin.CommonController.GetImageNameFromImageRepositoryCR(testNamespace, imageRepositoryName)
 			Expect(err).ShouldNot(HaveOccurred(), "failed to read image repo from image repository CR: %s", imageRepositoryName)
 			Expect(imageRepoName).ShouldNot(BeEmpty(), "image repo name is empty")
 
-			imageExist, err := build.DoesImageRepoExistInQuay(testNamespace + "/" + imageRepoName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image repo exists in quay with error: %+v", err)
-			Expect(imageExist).To(BeTrue(), "quay image does not exists")
-
-			pullRobotAccountName, pushRobotAccountName, err = f.AsKubeAdmin.CommonController.GetRobotAccountsFromImageRepositoryCR(testNamespace, imageRepositoryName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get robot account names")
-			pullRobotAccountExist, err := build.DoesRobotAccountExistInQuay(pullRobotAccountName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if pull robot account exists in quay with error: %+v", err)
-			Expect(pullRobotAccountExist).To(BeTrue(), "pull robot account does not exists in quay")
-			pushRobotAccountExist, err := build.DoesRobotAccountExistInQuay(pushRobotAccountName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if push robot account exists in quay with error: %+v", err)
-			Expect(pushRobotAccountExist).To(BeTrue(), "push robot account does not exists in quay")
+			ValidateRegistrySideResources(f, testNamespace, imageRepositoryName, testNamespace+"/"+imageRepoName)
 		})
 		It("in cluster secrets are created successfully", func() {
-			pullSecretName, pushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, imageRepositoryName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get secrets from image repository")
-			_, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting pull secret: %+v", err)
-			pushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pushSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
-			_, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, constants.ComponentNamespacePullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting namespace pull secret: %+v", err)
+			_, pushSecret, _ = ValidateInClusterResources(f, testNamespace, imageRepositoryName)
 		})
 		It("pushing image to the registry is successful", func() {
-			err = build.BuildMockImageAndPush(pushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(pushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 		It("when trying to update image name, it should fail", func() {
@@ -193,7 +167,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 	})
 	Describe("creates an image repository with visibility private", Label("private"), Ordered, func() {
 		var testNamespace, imageRepositoryName string
-		var imageRepoName, pullRobotAccountName, pushRobotAccountName, pullSecretName, pushSecretName, imageRepoURL string
+		var imageRepoName, imageRepoURL string
 		var pushSecret, pullSecret, namespacePullSecret *corev1.Secret
 
 		BeforeAll(func() {
@@ -220,53 +194,35 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		It("registry side image repo and robot accounts created successfully", func() {
 			imageRepoName, err = f.AsKubeAdmin.CommonController.GetImageNameFromImageRepositoryCR(testNamespace, imageRepositoryName)
 			Expect(err).ShouldNot(HaveOccurred(), "failed to read image repo from image repository CR: %s", imageRepositoryName)
-			Expect(imageRepoName).ShouldNot(BeEmpty(), "image repo name is empty")
+			Expect(imageRepoName).To(Equal(testNamespace+"/"+imageRepositoryName), "image repo name format is  incorrect")
 
-			imageExist, err := build.DoesImageRepoExistInQuay(imageRepoName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image repo exists in quay with error: %+v", err)
-			Expect(imageExist).To(BeTrue(), "quay image does not exists")
-
-			pullRobotAccountName, pushRobotAccountName, err = f.AsKubeAdmin.CommonController.GetRobotAccountsFromImageRepositoryCR(testNamespace, imageRepositoryName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get robot account names")
-			pullRobotAccountExist, err := build.DoesRobotAccountExistInQuay(pullRobotAccountName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if pull robot account exists in quay with error: %+v", err)
-			Expect(pullRobotAccountExist).To(BeTrue(), "pull robot account does not exists in quay")
-			pushRobotAccountExist, err := build.DoesRobotAccountExistInQuay(pushRobotAccountName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if push robot account exists in quay with error: %+v", err)
-			Expect(pushRobotAccountExist).To(BeTrue(), "push robot account does not exists in quay")
+			ValidateRegistrySideResources(f, testNamespace, imageRepositoryName, imageRepoName)
 		})
 		It("registry side image repo is private", func() {
-			isPublic, err := build.IsImageRepoPublic(imageRepoName)
+			isPublic, err := buildutils.IsImageRepoPublic(imageRepoName)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while checking if the image repo %s is private", imageRepoName))
 			Expect(isPublic).To(BeFalse(), "Expected image repo to be private, but it is public")
 		})
 		It("in cluster secrets are created successfully", func() {
-			pullSecretName, pushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, imageRepositoryName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get secrets from image repository")
-			pullSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting pull secret: %+v", err)
-			pushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pushSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
-			namespacePullSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, constants.ComponentNamespacePullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting namespace pull secret: %+v", err)
+			pullSecret, pushSecret, namespacePullSecret = ValidateInClusterResources(f, testNamespace, imageRepositoryName)
 		})
 		It("pushing image to the registry is successful", func() {
 			imageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(imageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
-			err = build.BuildMockImageAndPush(pushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(pushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 		It("try to pull image anonymously, it should fail", func() {
-			isPullable, err := build.IsImagePullableAnonymously(imageRepoURL)
+			isPullable, err := buildutils.IsImagePullableAnonymously(imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable: %+v", err)
 			Expect(isPullable).To(BeFalse(), "image is pullable, which is unexpected")
 		})
 		It("try to pull the image using pull secrets, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(pullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(pullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable with pull secret, which is unexpected")
 
-			isPullableWithNamespacePullSecret, err := build.IsImagePullableWithSecret(namespacePullSecret, imageRepoURL)
+			isPullableWithNamespacePullSecret, err := buildutils.IsImagePullableWithSecret(namespacePullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using namespace pull secret: %+v", err)
 			Expect(isPullableWithNamespacePullSecret).To(BeTrue(), "image is not pullable with namespace pull secret, which is unexpected")
 		})
@@ -275,7 +231,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(err).ShouldNot(HaveOccurred(), "failed while updating visibility to public: %+v", err)
 
 			Eventually(func() bool {
-				isPublic, err := build.IsImageRepoPublic(imageRepoName)
+				isPublic, err := buildutils.IsImageRepoPublic(imageRepoName)
 				if err != nil {
 					GinkgoWriter.Printf("failed while trying to check if quay repo is public: %v\n", err)
 					return false
@@ -284,7 +240,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}, time.Minute, time.Second*5).To(BeTrue(), fmt.Sprintf("timed out when checking if the quay repo %s is public", imageRepoName))
 		})
 		It("try to pull image anonymously, it should work", func() {
-			isPullable, err := build.IsImagePullableAnonymously(imageRepoURL)
+			isPullable, err := buildutils.IsImagePullableAnonymously(imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable: %+v", err)
 			Expect(isPullable).To(BeTrue(), "image is not pullable, which is unexpected")
 		})
@@ -293,7 +249,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(err).ShouldNot(HaveOccurred(), "failed while updating visibility to private: %+v", err)
 
 			Eventually(func() bool {
-				isPublic, err := build.IsImageRepoPublic(imageRepoName)
+				isPublic, err := buildutils.IsImageRepoPublic(imageRepoName)
 				if err != nil {
 					GinkgoWriter.Printf("failed while trying to check if quay repo is private: %v\n", err)
 					return true
@@ -302,25 +258,24 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}, time.Minute, time.Second*5).To(BeFalse(), fmt.Sprintf("timed out when checking if the quay repo %s is private", imageRepoName))
 		})
 		It("try to pull image anonymously again, it should fail", func() {
-			isPullable, err := build.IsImagePullableAnonymously(imageRepoURL)
+			isPullable, err := buildutils.IsImagePullableAnonymously(imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable again: %+v", err)
 			Expect(isPullable).To(BeFalse(), "image is pullable, which is unexpected")
 		})
 		It("try to pull the image using pull secret again, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(pullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(pullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable again using pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable again with pull secret, which is unexpected")
 		})
 	})
 	Describe("credential rotations", Label("credential-rotation"), Ordered, func() {
-		var testNamespace, componentName, imageRepositoryName, serviceAccountName string
+		var testNamespace, componentName, imageRepositoryName, imageRepoURL, serviceAccountName string
 		var targetRepoName, testRepoUrl, testVersionName string
-		var pullSecretName, pushSecretName, imageRepoURL string
 		var oldPushSecret, oldPullSecret, oldNamespacePullSecret *corev1.Secret
 		var oldPushSecretContent, oldPullSecretContent, oldNamespacePullSecretContent []byte
 		var newPushSecret, newPullSecret, newNamespacePullSecret *corev1.Secret
 		var newPushSecretContent, newPullSecretContent, newNamespacePullSecretContent []byte
-		var firstGenerateTimestamp string
+		var firstGenerateTimestamp, pushSecretName string
 		var gitClient git.Client
 
 		BeforeAll(func() {
@@ -365,19 +320,6 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 							},
 						},
 					},
-					Actions: applicationApi.ComponentActions{
-						CreateConfiguration: applicationApi.ComponentCreatePipelineConfiguration{
-							Version: testVersionName,
-						},
-					},
-					DefaultBuildPipeline: &applicationApi.ComponentBuildPipeline{
-						PullAndPush: &applicationApi.PipelineDefinition{
-							PipelineSpecFromBundle: &applicationApi.PipelineSpecFromBundle{
-								Name:   string(constants.DockerBuildOciTAMin),
-								Bundle: "latest",
-							},
-						},
-					},
 				},
 			}
 			_, err = f.AsKubeAdmin.CommonController.CreateComponent(componentObject)
@@ -399,35 +341,34 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			// Wait for component test version status to succeed
 			err = f.AsKubeAdmin.CommonController.WaitForComponentVersionOnboardingToSucceed(componentName, testNamespace, testVersionName)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while checking component %q version status to succeeded", componentName))
+
+			// also check containerImage is set in component is correct
+			imageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(imageRepositoryName, testNamespace)
+			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
+
+			containerImage, err := f.AsKubeAdmin.CommonController.GetComponentContainerImage(componentName, testNamespace)
+			Expect(err).ShouldNot(HaveOccurred(), "failed while getting container image from component: %+v", err)
+			Expect(containerImage).To(Equal(imageRepoURL), "container image set in component is incorrect")
 		})
 		It("in cluster secrets are created successfully", func() {
-			pullSecretName, pushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, imageRepositoryName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get secrets from image repository")
-			oldPullSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting pull secret: %+v", err)
+			oldPullSecret, oldPushSecret, oldNamespacePullSecret = ValidateInClusterResources(f, testNamespace, imageRepositoryName)
 			oldPullSecretContent = oldPullSecret.Data[corev1.DockerConfigJsonKey]
 			Expect(oldPullSecretContent).ShouldNot(BeEmpty(), "pull secret data is empty, which is unexpected")
-			oldPushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pushSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
 			oldPushSecretContent = oldPushSecret.Data[corev1.DockerConfigJsonKey]
 			Expect(oldPushSecretContent).ShouldNot(BeEmpty(), "push secret data is empty, which is unexpected")
-			oldNamespacePullSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, constants.ComponentNamespacePullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting namespace pull secret: %+v", err)
 			oldNamespacePullSecretContent = oldNamespacePullSecret.Data[corev1.DockerConfigJsonKey]
 			Expect(oldNamespacePullSecretContent).ShouldNot(BeEmpty(), "namespace pull secret data is empty, which is unexpected")
 		})
 		It("pushing image to the registry is successful", func() {
-			imageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(imageRepositoryName, testNamespace)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
-			err = build.BuildMockImageAndPush(oldPushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(oldPushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 		It("try to pull the image using pull secrets, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(oldPullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(oldPullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable with pull secret, which is unexpected")
 
-			isPullableWithNamespacePullSecret, err := build.IsImagePullableWithSecret(oldNamespacePullSecret, imageRepoURL)
+			isPullableWithNamespacePullSecret, err := buildutils.IsImagePullableWithSecret(oldNamespacePullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using namespace pull secret: %+v", err)
 			Expect(isPullableWithNamespacePullSecret).To(BeTrue(), "image is not pullable with namespace pull secret, which is unexpected")
 		})
@@ -450,32 +391,29 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		})
 		It("check the secret content is changed", func() {
 			// Fetch the secrets again and compare with old content
-			newPullSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting pull secret: %+v", err)
+			newPullSecret, newPushSecret, newNamespacePullSecret = ValidateInClusterResources(f, testNamespace, imageRepositoryName)
 			newPullSecretContent = newPullSecret.Data[corev1.DockerConfigJsonKey]
 			Expect(newPullSecretContent).ShouldNot(Equal(oldPullSecretContent), "pull secret content is equal, unexpected")
 
-			newPushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pushSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
 			newPushSecretContent = newPushSecret.Data[corev1.DockerConfigJsonKey]
 			Expect(newPushSecretContent).ShouldNot(Equal(oldPushSecretContent), "push secret content is equal, unexpected")
 		})
 		It("try to pull the image using old pull secret, it should not work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(oldPullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(oldPullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeFalse(), "image is pullable with old pull secret, which is unexpected")
 		})
 		It("try to pull the image using new pull secret, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(newPullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(newPullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable with new pull secret, which is unexpected")
 		})
 		It("push an image to the registry using old secret, it should not work", func() {
-			err = build.BuildMockImageAndPush(oldPushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(oldPushSecret, imageRepoURL)
 			Expect(err).To(MatchError(ContainSubstring("UNAUTHORIZED: Could not find robot with username")))
 		})
 		It("push an image to the registry using new secret, it should work", func() {
-			err = build.BuildMockImageAndPush(newPushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(newPushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 		It("namespace pull token rotation is successful", func() {
@@ -499,16 +437,18 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(newNamespacePullSecretContent).ShouldNot(Equal(oldNamespacePullSecretContent), "namespace pull secret content is equal, unexpected")
 		})
 		It("try to pull the image using old namespace pull secret, it should not work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(oldNamespacePullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(oldNamespacePullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using old namespace pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeFalse(), "image is pullable with old namespace pull secret, which is unexpected")
 		})
 		It("try to pull the image using new namespace pull secret, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(newNamespacePullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(newNamespacePullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using new namespace pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable with new namespace pull secret, which is unexpected")
 		})
 		It("check push secret is linked to service accounts", func() {
+			_, pushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, imageRepositoryName)
+			Expect(err).ShouldNot(HaveOccurred(), "failed to get secret names from image repository")
 			secretLinked, err := f.AsKubeAdmin.CommonController.IsSecretLinkedToServiceAccount(testNamespace, serviceAccountName, pushSecretName)
 			Expect(err).ShouldNot(HaveOccurred(), "failed to check if push secret is linked to service account")
 			Expect(secretLinked).To(BeTrue(), fmt.Sprintf("secret %q is not linked to service account %q", pushSecretName, serviceAccountName))
@@ -541,8 +481,8 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 	})
 	Describe("skip quay repository deletion", Label("skip-quay-deletion"), Ordered, func() {
 		var testNamespace, firstImageRepositoryName, secondImageRepositoryName string
-		var pullSecretName, pushSecretName, imageRepoName, imageRepoURL string
-		var pushSecret, pullSecret *corev1.Secret
+		var firstImageRepoName, imageRepoURL string
+		var pushSecret, pullSecret, namespacePullSecret *corev1.Secret
 
 		BeforeAll(func() {
 			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
@@ -559,7 +499,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}
 		})
 
-		It("image repository is created successfully", func() {
+		It("image repository with skip deletion is created successfully", func() {
 			// create a image repository with skip repository deletion annotation set to true
 			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(firstImageRepositoryName, testNamespace, "public", "", "", false, true)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to create image repository cr: %q", firstImageRepositoryName))
@@ -569,49 +509,46 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while waiting for image repository %q to be ready", firstImageRepositoryName))
 		})
 		It("registry side image repo created successfully", func() {
-			imageRepoName, err = f.AsKubeAdmin.CommonController.GetImageNameFromImageRepositoryCR(testNamespace, firstImageRepositoryName)
+			firstImageRepoName, err = f.AsKubeAdmin.CommonController.GetImageNameFromImageRepositoryCR(testNamespace, firstImageRepositoryName)
 			Expect(err).ShouldNot(HaveOccurred(), "failed to read image repo from image repository CR: %s", firstImageRepositoryName)
-			Expect(imageRepoName).ShouldNot(BeEmpty(), "image repo name is empty")
+			Expect(firstImageRepoName).To(Equal(testNamespace+"/"+firstImageRepositoryName), "image repo name format is  incorrect")
 
-			imageExist, err := build.DoesImageRepoExistInQuay(imageRepoName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image repo exists in quay with error: %+v", err)
-			Expect(imageExist).To(BeTrue(), "quay image does not exists")
+			ValidateRegistrySideResources(f, testNamespace, firstImageRepositoryName, firstImageRepoName)
 		})
 		It("in cluster secrets are created successfully", func() {
-			pullSecretName, pushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, firstImageRepositoryName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get secrets from image repository")
-			pullSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting pull secret: %+v", err)
-			pushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pushSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
+			pullSecret, pushSecret, namespacePullSecret = ValidateInClusterResources(f, testNamespace, firstImageRepositoryName)
 		})
 		It("pushing image to the registry is successful", func() {
 			imageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(firstImageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
-			err = build.BuildMockImageAndPush(pushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(pushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 		It("try to pull the image using pull secrets, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(pullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(pullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable with pull secret, which is unexpected")
+
+			isPullableWithNamespacePullSecret, err := buildutils.IsImagePullableWithSecret(namespacePullSecret, imageRepoURL)
+			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using namespace pull secret: %+v", err)
+			Expect(isPullableWithNamespacePullSecret).To(BeTrue(), "image is not pullable with namespace pull secret, which is unexpected")
 		})
-		It("delete the first imageRepository CR, check quay side image repository is not deleted", func() {
+		It("delete the imageRepository CR, check quay side image repository is not deleted", func() {
 			err = f.AsKubeAdmin.CommonController.DeleteImageRepositoryCR(firstImageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to delete image repository: %s", firstImageRepositoryName))
 
 			GinkgoWriter.Printf("waiting for one minute and expecting the quay repository not to be deleted")
 			Consistently(func() bool {
-				imageExist, err := build.DoesImageRepoExistInQuay(imageRepoName)
+				imageExist, err := buildutils.DoesImageRepoExistInQuay(firstImageRepoName)
 				if err != nil {
 					GinkgoWriter.Printf("While trying to check if quay repo exists got err: %v\n", err)
 				}
 				return imageExist
-			}, time.Minute, time.Second*10).Should(BeTrue(), fmt.Sprintf("the quay repository %s does not exists, unexpected", imageRepoName))
+			}, time.Minute, time.Second*10).Should(BeTrue(), fmt.Sprintf("the quay repository %s does not exists, unexpected", firstImageRepoName))
 		})
-		It("create another image repository, pointing to the same quay repo", func() {
-			// create IR pointing to the same imageRepoName and skip repository deletion annotation should be set to false
-			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(secondImageRepositoryName, testNamespace, "public", imageRepoName, "", false, false)
+		It("create another image repository without skip deletion, pointing to the same quay repo", func() {
+			// create IR pointing to the same firstImageRepoName and skip repository deletion annotation should be set to false
+			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(secondImageRepositoryName, testNamespace, "public", firstImageRepoName, "", false, false)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to create image repository cr: %q", secondImageRepositoryName))
 
 			// Wait for image repository to be ready
@@ -619,21 +556,20 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while waiting for image repository %q to be ready", secondImageRepositoryName))
 		})
 		It("in cluster secrets are created for second image repository successfully", func() {
-			pullSecretName, pushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, secondImageRepositoryName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get secrets from image repository")
-			pullSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting pull secret: %+v", err)
-			pushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pushSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
+			pullSecret, pushSecret, namespacePullSecret = ValidateInClusterResources(f, testNamespace, secondImageRepositoryName)
 		})
 		It("pushing image to the registry again is successful", func() {
-			err = build.BuildMockImageAndPush(pushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(pushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
-		It("try to pull the image using new pull secret, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(pullSecret, imageRepoURL)
+		It("try to pull the image using new pull secrets, it should work", func() {
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(pullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using new pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable with pull secret, which is unexpected")
+
+			isPullableWithNamespacePullSecret, err := buildutils.IsImagePullableWithSecret(namespacePullSecret, imageRepoURL)
+			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using namespace pull secret: %+v", err)
+			Expect(isPullableWithNamespacePullSecret).To(BeTrue(), "image is not pullable with namespace pull secret, which is unexpected")
 		})
 		It("delete the second imageRepository CR, check quay side image repository got deleted", func() {
 			err = f.AsKubeAdmin.CommonController.DeleteImageRepositoryCR(secondImageRepositoryName, testNamespace)
@@ -641,19 +577,18 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 
 			GinkgoWriter.Printf("waiting for one minute and expecting the quay repository to be deleted")
 			Eventually(func() bool {
-				imageExist, err := build.DoesImageRepoExistInQuay(imageRepoName)
+				imageExist, err := buildutils.DoesImageRepoExistInQuay(firstImageRepoName)
 				if err != nil {
 					GinkgoWriter.Printf("While trying to check if quay repo exists got err: %v\n", err)
 					return true
 				}
 				return imageExist
-			}, time.Minute, time.Second*10).Should(BeFalse(), fmt.Sprintf("the quay repository %s still exists, unexpected", imageRepoName))
+			}, 2*time.Minute, time.Second*10).Should(BeFalse(), fmt.Sprintf("the quay repository %s still exists, unexpected", firstImageRepoName))
 		})
 	})
 	Describe("two image repository pointing to the same quay repo", Label("single-quay-repo"), Ordered, func() {
-		var testNamespace, firstImageRepositoryName, secondImageRepositoryName, imageRepoName, imageRepoURL string
-		var firstPullSecretName, firstPushSecretName, secondPullSecretName, secondPushSecretName string
-		var firstPushSecret, firstPullSecret, secondPushSecret, secondPullSecret *corev1.Secret
+		var testNamespace, firstImageRepositoryName, secondImageRepositoryName, firstImageRepoName, imageRepoURL string
+		var firstPushSecret, firstPullSecret, secondPushSecret, secondPullSecret, namespacePullSecret *corev1.Secret
 
 		BeforeAll(func() {
 			f, err = framework.NewFramework(utils.GetGeneratedNamespace(constants.ImageControllerE2ETestNamespacePrefix))
@@ -670,8 +605,8 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}
 		})
 		It("first image repository is created successfully", func() {
-			// create a image repository with skip repository deletion annotation set to true
-			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(firstImageRepositoryName, testNamespace, "private", "", "", false, true)
+			// create an image repository with skip repository deletion annotation set to false
+			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(firstImageRepositoryName, testNamespace, "private", "", "", false, false)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to create image repository cr: %q", firstImageRepositoryName))
 
 			// Wait for image repository to be ready
@@ -679,17 +614,15 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while waiting for image repository %q to be ready", firstImageRepositoryName))
 		})
 		It("registry side image repo created successfully", func() {
-			imageRepoName, err = f.AsKubeAdmin.CommonController.GetImageNameFromImageRepositoryCR(testNamespace, firstImageRepositoryName)
+			firstImageRepoName, err = f.AsKubeAdmin.CommonController.GetImageNameFromImageRepositoryCR(testNamespace, firstImageRepositoryName)
 			Expect(err).ShouldNot(HaveOccurred(), "failed to read image repo from image repository CR: %s", firstImageRepositoryName)
-			Expect(imageRepoName).ShouldNot(BeEmpty(), "image repo name is empty")
+			Expect(firstImageRepoName).To(Equal(testNamespace+"/"+firstImageRepositoryName), "image repo name format is  incorrect")
 
-			imageExist, err := build.DoesImageRepoExistInQuay(imageRepoName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image repo exists in quay with error: %+v", err)
-			Expect(imageExist).To(BeTrue(), "quay image does not exists")
+			ValidateRegistrySideResources(f, testNamespace, firstImageRepositoryName, firstImageRepoName)
 		})
 		It("create second image repository, pointing to the same quay repo", func() {
-			// create IR pointing to the same imageRepoName and skip repository deletion annotation should be set to false
-			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(secondImageRepositoryName, testNamespace, "private", imageRepoName, "", false, false)
+			// create IR pointing to the same firstImageRepoName and skip repository deletion annotation should be set to false
+			_, err = f.AsKubeAdmin.CommonController.CreateImageRepositoryCR(secondImageRepositoryName, testNamespace, "private", firstImageRepoName, "", false, false)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed to create image repository cr: %q", secondImageRepositoryName))
 
 			// Wait for image repository to be ready
@@ -697,40 +630,34 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while waiting for image repository %q to be ready", secondImageRepositoryName))
 		})
 		It("in cluster secrets for first IR are created successfully", func() {
-			firstPullSecretName, firstPushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, firstImageRepositoryName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get secrets from image repository")
-			firstPullSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, firstPullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting pull secret: %+v", err)
-			firstPushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, firstPushSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
+			firstPullSecret, firstPushSecret, namespacePullSecret = ValidateInClusterResources(f, testNamespace, firstImageRepositoryName)
 		})
 		It("pushing image using first push secret to the registry is successful", func() {
 			imageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(firstImageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
-			err = build.BuildMockImageAndPush(firstPushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(firstPushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 		It("try to pull the image using first pull secret, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(firstPullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(firstPullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable with pull secret, which is unexpected")
 		})
 		It("in cluster secrets for second IR are created successfully", func() {
-			secondPullSecretName, secondPushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, secondImageRepositoryName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get secrets from image repository")
-			secondPullSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, secondPullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting pull secret: %+v", err)
-			secondPushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, secondPushSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
+			secondPullSecret, secondPushSecret, namespacePullSecret = ValidateInClusterResources(f, testNamespace, secondImageRepositoryName)
 		})
 		It("pushing image using second push secret to the registry is successful", func() {
-			err = build.BuildMockImageAndPush(secondPushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(secondPushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 		It("try to pull the image using second pull secret, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(secondPullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(secondPullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable with pull secret, which is unexpected")
+
+			isPullableWithNamespacePullSecret, err := buildutils.IsImagePullableWithSecret(namespacePullSecret, imageRepoURL)
+			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using namespace pull secret: %+v", err)
+			Expect(isPullableWithNamespacePullSecret).To(BeTrue(), "image is not pullable with namespace pull secret, which is unexpected")
 		})
 		It("delete the first imageRepository CR, check quay side image repository is not deleted", func() {
 			err = f.AsKubeAdmin.CommonController.DeleteImageRepositoryCR(firstImageRepositoryName, testNamespace)
@@ -738,28 +665,28 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 
 			GinkgoWriter.Printf("waiting for one minute and expecting the quay repository not to be deleted")
 			Consistently(func() bool {
-				imageExist, err := build.DoesImageRepoExistInQuay(imageRepoName)
+				imageExist, err := buildutils.DoesImageRepoExistInQuay(firstImageRepoName)
 				if err != nil {
 					GinkgoWriter.Printf("While trying to check if quay repo exists got err: %v\n", err)
 				}
 				return imageExist
-			}, time.Minute, time.Second*10).Should(BeTrue(), fmt.Sprintf("the quay repository %s does not exists, unexpected", imageRepoName))
+			}, time.Minute, time.Second*10).Should(BeTrue(), fmt.Sprintf("the quay repository %s does not exists, unexpected", firstImageRepoName))
 		})
 		It("try to pull the image using first pull secret, it should fail", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(firstPullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(firstPullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeFalse(), "image is pullable with the pull secret, which is unexpected")
 		})
 		It("pushing image using first push secret to the registry, it should fail", func() {
-			err = build.BuildMockImageAndPush(firstPushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(firstPushSecret, imageRepoURL)
 			Expect(err).To(MatchError(ContainSubstring("UNAUTHORIZED: Could not find robot")))
 		})
 		It("pushing image using second push secret again to the registry is successful", func() {
-			err = build.BuildMockImageAndPush(secondPushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(secondPushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 		It("try to pull the image using second pull secret again, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(secondPullSecret, imageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(secondPullSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image is pullable using pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable with pull secret, which is unexpected")
 		})
@@ -769,18 +696,18 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 
 			GinkgoWriter.Printf("waiting for one minute and expecting the quay repository to be deleted")
 			Eventually(func() bool {
-				imageExist, err := build.DoesImageRepoExistInQuay(imageRepoName)
+				imageExist, err := buildutils.DoesImageRepoExistInQuay(firstImageRepoName)
 				if err != nil {
 					GinkgoWriter.Printf("While trying to check if quay repo exists got err: %v\n", err)
 					return true
 				}
 				return imageExist
-			}, time.Minute, time.Second*10).Should(BeFalse(), fmt.Sprintf("the quay repository %s still exists, unexpected", imageRepoName))
+			}, time.Minute, time.Second*10).Should(BeFalse(), fmt.Sprintf("the quay repository %s still exists, unexpected", firstImageRepoName))
 		})
 	})
 	Describe("namespace wide pull secrets", Label("namespace-pull"), Ordered, func() {
 		var testNamespace, firstImageRepositoryName, secondImageRepositoryName string
-		var firstImageRepoURL, secondImageRepoURL, firstPushSecretName, secondPushSecretName string
+		var firstImageRepoURL, secondImageRepoURL string
 		var firstPushSecret, secondPushSecret, namespacePullSecret *corev1.Secret
 
 		BeforeAll(func() {
@@ -814,39 +741,30 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while waiting for image repository %q to be ready", secondImageRepositoryName))
 		})
 		It("in cluster secrets for first IR are created successfully", func() {
-			_, firstPushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, firstImageRepositoryName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get secrets from image repository")
-			firstPushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, firstPushSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
-			// Read the namespace pull secret
-			namespacePullSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, constants.ComponentNamespacePullSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting namespace pull secret: %+v", err)
+			_, firstPushSecret, namespacePullSecret = ValidateInClusterResources(f, testNamespace, firstImageRepositoryName)
 		})
 		It("pushing image using first push secret to the registry is successful", func() {
 			firstImageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(firstImageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
-			err = build.BuildMockImageAndPush(firstPushSecret, firstImageRepoURL)
+			err = buildutils.BuildMockImageAndPush(firstPushSecret, firstImageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 		It("try to pull first image using namespace pull secret, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(namespacePullSecret, firstImageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(namespacePullSecret, firstImageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if first image is pullable using namespace pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable with pull secret, which is unexpected")
 		})
 		It("in cluster secrets for second IR are created successfully", func() {
-			_, secondPushSecretName, err = f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, secondImageRepositoryName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed to get secrets from image repository")
-			secondPushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, secondPushSecretName)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
+			_, secondPushSecret, namespacePullSecret = ValidateInClusterResources(f, testNamespace, secondImageRepositoryName)
 		})
 		It("pushing image using second push secret to the registry is successful", func() {
 			secondImageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(secondImageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
-			err = build.BuildMockImageAndPush(secondPushSecret, secondImageRepoURL)
+			err = buildutils.BuildMockImageAndPush(secondPushSecret, secondImageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 		It("try to pull second image using namespace pull secret, it should work", func() {
-			isPullableWithPullSecret, err := build.IsImagePullableWithSecret(namespacePullSecret, secondImageRepoURL)
+			isPullableWithPullSecret, err := buildutils.IsImagePullableWithSecret(namespacePullSecret, secondImageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if second image is pullable using namespace pull secret: %+v", err)
 			Expect(isPullableWithPullSecret).To(BeTrue(), "image is not pullable with pull secret, which is unexpected")
 		})
@@ -916,19 +834,6 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 							},
 						},
 					},
-					Actions: applicationApi.ComponentActions{
-						CreateConfiguration: applicationApi.ComponentCreatePipelineConfiguration{
-							Version: testVersionName,
-						},
-					},
-					DefaultBuildPipeline: &applicationApi.ComponentBuildPipeline{
-						PullAndPush: &applicationApi.PipelineDefinition{
-							PipelineSpecFromBundle: &applicationApi.PipelineSpecFromBundle{
-								Name:   string(constants.DockerBuildOciTAMin),
-								Bundle: "latest",
-							},
-						},
-					},
 				},
 			}
 			_, err = f.AsKubeAdmin.CommonController.CreateComponent(componentObject)
@@ -937,6 +842,14 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 		It("wait for image repository to be ready", func() {
 			err = f.AsKubeAdmin.CommonController.WaitForImageRepositoryToBeReady(imageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while waiting for image repository %q to be ready", imageRepositoryName))
+
+			// also check containerImage is set in component is correct
+			imageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(imageRepositoryName, testNamespace)
+			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
+
+			containerImage, err := f.AsKubeAdmin.CommonController.GetComponentContainerImage(componentName, testNamespace)
+			Expect(err).ShouldNot(HaveOccurred(), "failed while getting container image from component: %+v", err)
+			Expect(containerImage).To(Equal(imageRepoURL), "container image set in component is incorrect")
 		})
 		It("update push secret name to a empty string and check state is changed to damaged", func() {
 			err = f.AsKubeAdmin.CommonController.UpdatePushSecretName(imageRepositoryName, testNamespace, "")
@@ -975,7 +888,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			imageRepoName, err = f.AsKubeAdmin.CommonController.GetImageNameFromImageRepositoryCR(testNamespace, imageRepositoryName)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo name from IR: %+v", err)
 
-			isDeleted, err := build.DeleteImageRepo(imageRepoName)
+			isDeleted, err := buildutils.DeleteImageRepo(imageRepoName)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while deleting the image repo from quay: %+v", err)
 			Expect(isDeleted).To(BeTrue(), "image repo from quay is not deleted, unexpected")
 
@@ -1006,9 +919,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			pushSecret, err = f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pushSecretName)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
 
-			imageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(imageRepositoryName, testNamespace)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
-			err = build.BuildMockImageAndPush(pushSecret, imageRepoURL)
+			err = buildutils.BuildMockImageAndPush(pushSecret, imageRepoURL)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while build and push the image: %+v", err)
 		})
 	})
@@ -1054,7 +965,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}, 2*time.Minute, time.Second*10).Should(BeTrue(), "notification title does not match in image repository")
 
 			// Check its created on quay side
-			isExists, err := build.DoesNotificationExists(imageRepoName, firstNotificationTitle)
+			isExists, err := buildutils.DoesNotificationExists(imageRepoName, firstNotificationTitle)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if notification exists in quay repository")
 			Expect(isExists).To(BeTrue(), "notification does not exists in quay side")
 		})
@@ -1074,7 +985,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}, 2*time.Minute, time.Second*10).Should(BeTrue(), "notification title does not match in image repository")
 
 			// Check its created on quay side
-			isExists, err := build.DoesNotificationExists(imageRepoName, secondNotificationTitle)
+			isExists, err := buildutils.DoesNotificationExists(imageRepoName, secondNotificationTitle)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if notification exists in quay repository")
 			Expect(isExists).To(BeTrue(), "notification does not exists in quay side")
 		})
@@ -1095,7 +1006,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 
 			// Check its created on quay side
 			Eventually(func() bool {
-				hasCorrectWebhook, err := build.DoesNotificationHasCorrectWebhookUrl(imageRepoName, firstNotificationTitle, newWebhookUrl)
+				hasCorrectWebhook, err := buildutils.DoesNotificationHasCorrectWebhookUrl(imageRepoName, firstNotificationTitle, newWebhookUrl)
 				if err != nil {
 					GinkgoWriter.Printf("while checking if notification has correct webhook url, got error: %v", err)
 					return false
@@ -1118,17 +1029,16 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}, 2*time.Minute, time.Second*10).Should(BeTrue(), "notification still exists in the image repository")
 
 			// check its removed from quay side
-			isExists, err := build.DoesNotificationExists(imageRepoName, firstNotificationTitle)
+			isExists, err := buildutils.DoesNotificationExists(imageRepoName, firstNotificationTitle)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if notification exists in quay repository")
 			Expect(isExists).To(BeFalse(), "notification still exists in quay side, unexpected")
 		})
-
 		It("remove a notification from quay side", func() {
-			err = build.DeleteNotification(imageRepoName, secondNotificationTitle)
+			err = buildutils.DeleteNotification(imageRepoName, secondNotificationTitle)
 			Expect(err).ShouldNot(HaveOccurred(), "failed to delete notification from quay")
 
 			// check its removed from quay side
-			isExists, err := build.DoesNotificationExists(imageRepoName, secondNotificationTitle)
+			isExists, err := buildutils.DoesNotificationExists(imageRepoName, secondNotificationTitle)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while checking if notification exists in quay repository")
 			Expect(isExists).To(BeFalse(), "notification still exists in quay side, unexpected")
 
@@ -1138,7 +1048,7 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 
 			// check the notification is configured in quay side
 			Eventually(func() bool {
-				isExists, err = build.DoesNotificationExists(imageRepoName, secondNotificationTitle)
+				isExists, err = buildutils.DoesNotificationExists(imageRepoName, secondNotificationTitle)
 				if err != nil {
 					GinkgoWriter.Printf("while trying to check if notification exists in quay, got err: %v\n", err)
 					return false
@@ -1146,6 +1056,57 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 				return isExists
 			}, 2*time.Minute, time.Second*10).Should(BeTrue(), "notification does not exists in the quay, unexpected")
 		})
-
 	})
 })
+
+func CheckNamespacePullRobotAccountExists(f *framework.Framework, testNamespace string) {
+	quayNamespace := "quay.io/" + quayOrg + "/" + testNamespace
+	namespacePullSecret, err := f.AsKubeAdmin.CommonController.GetSecret(testNamespace, constants.ComponentNamespacePullSecretName)
+	Expect(err).ShouldNot(HaveOccurred(), "failed while getting namespace pull secret: %+v", err)
+	dockerConfig, err := buildutils.GetDockerConfigFromSecret(namespacePullSecret)
+	Expect(err).ShouldNot(HaveOccurred(), "failed while getting docker config from namespace pull secret: %+v", err)
+	encodedString := dockerConfig[quayNamespace].Auth
+	decodedBytes, err := base64.StdEncoding.DecodeString(encodedString)
+	Expect(err).ShouldNot(HaveOccurred(), "failed while decoding auth value from docker config: %+v", err)
+	decodedStr := string(decodedBytes)
+	namespacePullSecretName, found := strings.CutPrefix(strings.Split(decodedStr, ":")[0], quayOrg+"+")
+	Expect(found).To(BeTrue(), "the prefix quayOrg+ is not found")
+	namespacePullRobotAccountExist, err := buildutils.DoesRobotAccountExistInQuay(namespacePullSecretName)
+	Expect(err).ShouldNot(HaveOccurred(), "failed while checking if namespace pull robot account exists in quay with error: %+v", err)
+	Expect(namespacePullRobotAccountExist).To(BeTrue(), "namespace pull robot account does not exists in quay")
+}
+
+func ValidateRegistrySideResources(f *framework.Framework, testNamespace, imageRepositoryCRName, imageRepoName string) (string, string) {
+	imageExist, err := buildutils.DoesImageRepoExistInQuay(imageRepoName)
+	Expect(err).ShouldNot(HaveOccurred(), "failed while checking if image repo exists in quay with error: %+v", err)
+	Expect(imageExist).To(BeTrue(), "quay image does not exists")
+
+	pullRobotAccountName, pushRobotAccountName, err := f.AsKubeAdmin.CommonController.GetRobotAccountsFromImageRepositoryCR(testNamespace, imageRepositoryCRName)
+	Expect(err).ShouldNot(HaveOccurred(), "failed to get robot account names")
+	pullRobotAccountExist, err := buildutils.DoesRobotAccountExistInQuay(pullRobotAccountName)
+	Expect(err).ShouldNot(HaveOccurred(), "failed while checking if pull robot account exists in quay with error: %+v", err)
+	Expect(pullRobotAccountExist).To(BeTrue(), "pull robot account does not exists in quay")
+	pushRobotAccountExist, err := buildutils.DoesRobotAccountExistInQuay(pushRobotAccountName)
+	Expect(err).ShouldNot(HaveOccurred(), "failed while checking if push robot account exists in quay with error: %+v", err)
+	Expect(pushRobotAccountExist).To(BeTrue(), "push robot account does not exists in quay")
+
+	CheckNamespacePullRobotAccountExists(f, testNamespace)
+
+	return pullRobotAccountName, pushRobotAccountName
+}
+
+func ValidateInClusterResources(f *framework.Framework, testNamespace, imageRepositoryName string) (*corev1.Secret, *corev1.Secret, *corev1.Secret) {
+	pullSecretName, pushSecretName, err := f.AsKubeAdmin.CommonController.GetSecretsFromImageRepositoryCR(testNamespace, imageRepositoryName)
+	Expect(err).ShouldNot(HaveOccurred(), "failed to get secret names from image repository")
+
+	pullSecret, err := f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pullSecretName)
+	Expect(err).ShouldNot(HaveOccurred(), "failed while getting pull secret: %+v", err)
+
+	pushSecret, err := f.AsKubeAdmin.CommonController.GetSecret(testNamespace, pushSecretName)
+	Expect(err).ShouldNot(HaveOccurred(), "failed while getting push secret: %+v", err)
+
+	namespacePullSecret, err := f.AsKubeAdmin.CommonController.GetSecret(testNamespace, constants.ComponentNamespacePullSecretName)
+	Expect(err).ShouldNot(HaveOccurred(), "failed while getting namespace pull secret: %+v", err)
+
+	return pullSecret, pushSecret, namespacePullSecret
+}
