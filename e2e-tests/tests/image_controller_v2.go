@@ -59,6 +59,11 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(imageRepoName).To(Equal(testNamespace+"/"+imageRepositoryCRName), "image repo name format is  incorrect")
 
 			pullRobotAccountName, pushRobotAccountName = ValidateRegistrySideResources(f, testNamespace, imageRepositoryCRName, imageRepoName)
+
+			// check image visibility is public
+			visibility, err := f.AsKubeAdmin.CommonController.GetImageVisibilityFromIR(imageRepositoryCRName, testNamespace)
+			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image visibility from IR: %+v", err)
+			Expect(visibility).To(Equal("public"), "image visibility is not public")
 		})
 		It("in cluster secrets are created successfully", func() {
 			pullSecret, pushSecret, _ = ValidateInClusterResources(f, testNamespace, imageRepositoryCRName)
@@ -140,11 +145,6 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			imageRepoURL, err = f.AsKubeAdmin.CommonController.GetImageURLFromIR(imageRepositoryName, testNamespace)
 			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image repo URL from IR: %+v", err)
 			Expect(imageRepoURL).To(Equal("quay.io/"+quayOrg+"/"+testNamespace+"/"+customImageName), "image repo url format is incorrect")
-
-			// check image visibility is public
-			visibility, err := f.AsKubeAdmin.CommonController.GetImageVisibilityFromIR(imageRepositoryName, testNamespace)
-			Expect(err).ShouldNot(HaveOccurred(), "failed while reading image visibility from IR: %+v", err)
-			Expect(visibility).To(Equal("public"), "image visibility is not public")
 		})
 		It("registry side image repo and robot accounts created successfully", func() {
 			imageRepoName, err = f.AsKubeAdmin.CommonController.GetImageNameFromImageRepositoryCR(testNamespace, imageRepositoryName)
