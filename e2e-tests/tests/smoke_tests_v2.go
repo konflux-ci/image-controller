@@ -16,7 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Label("image-controller-e2e"), func() {
+var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Label("image-controller"), func() {
 
 	var f *framework.Framework
 	var err error

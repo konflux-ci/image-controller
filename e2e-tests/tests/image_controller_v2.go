@@ -21,7 +21,7 @@ import (
 
 var quayOrg = utils.GetEnv("DEFAULT_QUAY_ORG", "redhat-appstudio-qe")
 
-var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Label("image-controller-e2e"), func() {
+var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Label("image-controller"), func() {
 
 	var f *framework.Framework
 	var err error
