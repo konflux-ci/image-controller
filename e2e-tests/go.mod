@@ -1,6 +1,6 @@
 module github.com/konflux-ci/image-controller/e2e-tests
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/devfile/library/v2 v2.2.1-0.20230418160146-e75481b7eebd
