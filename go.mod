@@ -1,6 +1,6 @@
 module github.com/konflux-ci/image-controller
 
-go 1.25.0
+go 1.26.10
 
 require (
 	github.com/go-logr/logr v1.4.3
