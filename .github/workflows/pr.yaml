@@ -60,11 +60,12 @@ jobs:
         with:
           go-version-file: './go.mod'
       - name: Run tests and collect coverage
-        run: make test
+        run: make test-coverage-courtney
       - name: Upload codecov report
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: cover-courtney.out
           flags: unit-tests
 
   test_prune_images:

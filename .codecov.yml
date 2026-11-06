@@ -5,6 +5,9 @@ ignore:
   - "**/zz_generated*.go"  # generated deepcopy code
   - "config/**"            # CRD, RBAC, and kustomize manifests
   - "vendor/**"            # vendored dependencies
+  - "e2e-tests/**"         # e2e test code
+  - "pkg/logs/constants.go"         # logging code
+  - "pkg/quay/quay_client_mock.go"  # mock for quay client
 
 coverage:
   status:
@@ -15,7 +18,6 @@ coverage:
         informational: true
     patch:
       default:
-        target: 80%
-        informational: true
+        target: 85%
 
 comment: false
