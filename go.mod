@@ -5,8 +5,8 @@ go 1.26.10
 require (
 	github.com/go-logr/logr v1.4.4
 	github.com/h2non/gock v1.2.0
-	github.com/konflux-ci/application-api v0.0.0-20260727123715-2999a91451c6
-	github.com/konflux-ci/coverport/instrumentation/go v0.0.0-20251127103713-95b5b5e04a62
+	github.com/konflux-ci/application-api v0.0.0-20261101085949-41d2a0ab82ca
+	github.com/konflux-ci/coverport/instrumentation/go v0.0.0-20261009063148-e4b4dacb404f
 	github.com/onsi/ginkgo/v2 v2.26.0
 	github.com/onsi/gomega v1.38.2
 	github.com/prometheus/client_golang v1.19.1
@@ -109,9 +109,9 @@ require (
 	k8s.io/apiserver v0.31.0 // indirect
 	k8s.io/component-base v0.31.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20240228011516-70dd3763d340 // indirect
-	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8 // indirect
+	k8s.io/utils v0.0.0-20261023123148-ca04ba58ecab // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.30.3 // indirect
-	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
+	sigs.k8s.io/json v0.0.0-20260909141634-11ed52e25bc5 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
