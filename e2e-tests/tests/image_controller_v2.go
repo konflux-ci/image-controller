@@ -17,6 +17,7 @@ import (
 	. "github.com/onsi/gomega"    //nolint:staticcheck
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 )
 
 var quayOrg = utils.GetEnv("DEFAULT_QUAY_ORG", "redhat-appstudio-qe")
@@ -852,12 +853,16 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(containerImage).To(Equal(imageRepoURL), "container image set in component is incorrect")
 		})
 		It("update push secret name to a empty string and check state is changed to damaged", func() {
-			err = f.AsKubeAdmin.CommonController.UpdatePushSecretName(imageRepositoryName, testNamespace, "")
+			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				return f.AsKubeAdmin.CommonController.UpdatePushSecretName(imageRepositoryName, testNamespace, "")
+			})
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while trying to update push secret name in image repository %q", imageRepositoryName))
 
 			// add a dummy annotation to trigger the reconcilation
 			annotations := map[string]string{"dummy_key": "dummy_value"}
-			err = f.AsKubeAdmin.CommonController.AddAnnotationsToIR(imageRepositoryName, testNamespace, annotations)
+			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				return f.AsKubeAdmin.CommonController.AddAnnotationsToIR(imageRepositoryName, testNamespace, annotations)
+			})
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while trying to add a dummy annotation to the image repository %q", imageRepositoryName))
 
 			// Check the image repository status is changed to damaged
@@ -871,7 +876,9 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}, 1*time.Minute, time.Second*10).Should(BeTrue(), "image repository current state is not damaged")
 		})
 		It("remove finalizer from IR, so that the IR is back to ready again", func() {
-			err = f.AsKubeAdmin.CommonController.RemoveFinalizerFromIR(imageRepositoryName, testNamespace)
+			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				return f.AsKubeAdmin.CommonController.RemoveFinalizerFromIR(imageRepositoryName, testNamespace)
+			})
 			Expect(err).ShouldNot(HaveOccurred(), "failed while removing the finalizer from image repository: %+v", err)
 
 			// Wait for image repository to be ready
@@ -894,7 +901,9 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 
 			// add dummy annotation to trigger the reconcilation
 			annotations := map[string]string{"some_key": "some_value"}
-			err = f.AsKubeAdmin.CommonController.AddAnnotationsToIR(imageRepositoryName, testNamespace, annotations)
+			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				return f.AsKubeAdmin.CommonController.AddAnnotationsToIR(imageRepositoryName, testNamespace, annotations)
+			})
 			Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("failed while trying to add a dummy annotation to the image repository %q", imageRepositoryName))
 
 			// Check the image repository status is missing
@@ -908,7 +917,9 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			}, 2*time.Minute, time.Second*10).Should(BeTrue(), "image repository current state is not missing")
 		})
 		It("remove finalizer from IR, check the IR is back to ready again", func() {
-			err = f.AsKubeAdmin.CommonController.RemoveFinalizerFromIR(imageRepositoryName, testNamespace)
+			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				return f.AsKubeAdmin.CommonController.RemoveFinalizerFromIR(imageRepositoryName, testNamespace)
+			})
 			Expect(err).ShouldNot(HaveOccurred(), "failed while removing the finalizer from image repository: %+v", err)
 
 			// Wait for image repository to be ready
@@ -1043,7 +1054,9 @@ var _ = framework.ImageControllerSuiteDescribe("Image Controller E2E tests", Lab
 			Expect(isExists).To(BeFalse(), "notification still exists in quay side, unexpected")
 
 			// trigger reconcile
-			err = f.AsKubeAdmin.CommonController.RemoveFinalizerFromIR(imageRepositoryName, testNamespace)
+			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				return f.AsKubeAdmin.CommonController.RemoveFinalizerFromIR(imageRepositoryName, testNamespace)
+			})
 			Expect(err).ShouldNot(HaveOccurred(), "failed while removing the finalizer from image repository: %+v", err)
 
 			// check the notification is configured in quay side
