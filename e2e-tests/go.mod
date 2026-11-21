@@ -4,9 +4,9 @@ go 1.26
 
 require (
 	github.com/devfile/library/v2 v2.2.1-0.20230418160146-e75481b7eebd
-	github.com/konflux-ci/application-api v0.0.0-20260927062134-a189c1676a85
-	github.com/konflux-ci/build-service/e2e-tests v0.0.0-20261015045112-9644da57d289
-	github.com/konflux-ci/e2e-tests v0.0.0-20261008173851-02aa7d0c3700
+	github.com/konflux-ci/application-api v0.0.0-20261101085949-41d2a0ab82ca
+	github.com/konflux-ci/build-service/e2e-tests v0.0.0-20261113205054-07182b00cba2
+	github.com/konflux-ci/e2e-tests v0.0.0-20261026131115-100538aff5db
 	github.com/onsi/ginkgo/v2 v2.28.0
 	github.com/onsi/gomega v1.39.1
 	github.com/tektoncd/pipeline v1.10.2
